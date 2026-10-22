@@ -6,5 +6,5 @@
 ## 2. Verification
 
 - [x] 2.1 Full offline gate and strict OpenSpec validation.
-- [ ] 2.2 Windows `scripts/Check.ps1` and redeploy `mod/observer`.
-- [ ] 2.3 Short native check: plausible stats/flags/weapons, own tears and a placed bomb visible in frames, accepted use press, stall and death restart, reloadable checkpoint.
+- [x] 2.2 Windows `scripts/Check.ps1` and redeploy `mod/observer`.
+- [x] 2.3 Short native check: plausible stats/flags/weapons, own tears and a placed bomb visible in frames, accepted use press, stall and death restart, reloadable checkpoint.

@@ -12,8 +12,7 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 - Active changes:
   - `openspec/changes/pure-v3-observation-and-control`: observation schema 4, 32 KiB
     messages, action repeat 6, use-head prior, reward v4 and lineage `pure-v3`.
-    Tasks 1.1, 1.2 and 2.1 passed offline; task 2.2 awaits deployment and native
-    check 2.3 remains open.
+    Tasks 1.1-2.3 passed, including the bounded native check; unarchived.
   - `openspec/changes/reward-v3-and-training-metrics` (1.1-2.2 done; native hours 2.3
     answered by the pure-v2 analysis below, kept open for pure-v3) and
     `openspec/changes/pure-self-learning-v1` (all tasks done; 4.3 closed by the
@@ -62,8 +61,10 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
   +9.13), policy entropy 4.57 -> 3.97 of 4.61, fewer "no move"/"no shoot" choices, but
   bomb presses stayed 0.234-0.238 per step and start-room exits stayed at 50-60%.
   The last two faults came from the game being closed manually.
-- `pure-v3` (schema 4, reward v4) is not created yet; its first session needs
-  `--initialize`. Older checkpoints are refused by its contract hash. Even older
+- `pure-v3` (schema 4, reward v4) exists: seed 1, qualification checkpoint
+  `03b9c5e3-s1-t3584`, contract hash
+  `03b9c5e3c782d6b3d59c0e6b30cc4aa7ea8818f3d68e7180f4a32c269fdc8429`.
+  Resume without --initialize. Older checkpoints are refused. Even older
   lineages (v2-v5, `a0a93c29-s20-t26368`, `t27904` and ancestors) stay preserved.
 
 ## Verification
@@ -83,18 +84,25 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
   watchdog New Run, a user-observed use effect, checkpoint reload, frozen-source
   cleanup and train.csv rows. Windows `Check.ps1` for reward v3: 1061 tests, no skips.
 - Episode `use_*` counts are requested uses (policy choice), not acknowledged presses.
-- Still unverified natively: stat and tear-flag API values, weapon-type detection,
-  own-attack spawner attribution, bomb age, snapshot size under heavy attack counts.
+- Native schema4 qualification passed after 901.782 s: 1100 retained frames,
+  863 with own_attack; six bomb identities, accepted use acknowledgements and
+  increasing bomb age; watchdog and death New Run confirmed. Six episodes
+  (one death, five stalls), seven updates, 3584 saved steps. Actual model and
+  normalizer loaded back; 791 frozen files unchanged; clean owned shutdown.
+- Scope limits: baseline Isaac stats/false tear flags/tears weapon only; other
+  weapon types, positive tear flags and heavy-attack snapshot load not verified.
 
 ## Next
 
 1. `pure-v2` is stopped (stop file present). Do not resume it.
-2. Run `scripts\Check.ps1` on Windows (task 2.2) and redeploy `mod/observer`
-   (`main.lua` changed: schema 4, 32 KiB messages).
-3. Start `pure-v3`: `Start-Pure.cmd "<Isaac install dir>" "<log.txt>" --initialize`.
-4. Short native check (task 2.3): plausible stats, flags and weapons; own tears and a
-   placed bomb visible in frames; accepted use press; stall and death restart;
-   reloadable checkpoint. Then let it run for hours and compare with `pure-v2`.
+2. Windows gate and closed-game deployment passed; deployed main.lua SHA256
+   `6aec119be5354ff6281731ca3cdbb8b49b4e9c47d78a887c0f760a9680848d46`.
+3. Resume pure-v3 without --initialize for the authorized two-hour continuation.
+   The prepared PowerShell parent holds a Start-Job timer that creates
+   `runs/pure-v3/supervisor/stop.forever` after 7200 s; old stop removed at startup.
+   Actual launch/deadline and live state are in the supervisor timer/status JSON.
+4. Do not edit the working copy during a session. After the timed run, review
+   metrics and compare descriptively with pure-v2; improvement is not established.
 
 ## Navigation
 
