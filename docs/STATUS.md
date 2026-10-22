@@ -31,9 +31,9 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Lineage
 
-- `pure-v1` does not exist yet. The first native session creates it with
-  `--initialize`. Old lineages (v2-v5, `a0a93c29-s20-t26368`, `t27904` and
-  ancestors) stay preserved under `runs/`; they are incompatible with schema 3.
+- `pure-v1` exists: seed 1, latest `c5532096-s1-t7168`, contract hash
+  `c55320966c51d7c51069352659c916111a9c2f55d319d66817789791222c6ada`.
+  Resume this lineage without `--initialize`. Old lineages remain preserved.
 
 ## Verification
 
@@ -45,19 +45,29 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 - Windows `scripts/Check.ps1`: passed with Lua suites, 1030 tests, no skips;
   mypy 29 files, lint/format, pip check, strict OpenSpec 11/11. A temporary
   fixture writer needed explicit LF on Windows. Synthetic RL smoke passed.
-- Not run: any pure-profile game session.
-- Unverified natively: `ExecuteCommand("restart")` while alive, one-shot
-  `IS_ACTION_TRIGGERED` for bomb/item/pill-card, collectible scan cost, pickup
-  `Price` semantics, schema 3 snapshot size margin (worst case 15674 of 16384 bytes
-  in tests).
+- Current workspace recheck after the user's dashboard/metrics edits: Windows
+  gate passed, 1043 tests without skips, mypy 30 files, strict specs 11/11.
+- Native: 15-minute session, 7168 saved steps, 9 completed episodes (2 deaths,
+  7 stalls). Death and watchdog New Run confirmed; user observed a use effect;
+  model/normalizer loaded back; separate read-only probe retained 40 schema3 frames.
+- Task 4.3 stays open: concurrent user edits changed the frozen episode_metrics.py
+  during training, so final state is fault despite learner exit 0 and normal game/
+  approval cleanup. All five feature observations are recorded; clean resume and
+  frozen-source cleanup on the final integrated code are pending.
+- CSV migrated additively for the user's wall_time field: all 9 rows preserved,
+  historical timestamps blank; exact backup is beside episodes.csv.
+- Still unverified: nonzero item/coin snapshot diversity, all three use variants,
+  collectible scan worst-case cost, pickup Price semantics and worst-case size.
 
 ## Next
 
-1. Squash the verified refactor to one root commit and push as authorized.
-   Old history is preserved in the verified external Git bundle.
-2. Windows gate is complete (task 4.2).
-3. Deploy `mod/observer`, then run one bounded native acceptance session (task 4.3).
-4. Start continuous training with `Start-Pure.cmd ... --initialize`.
+1. Stopped at the user's requested handoff point; no game/learner/listener or
+   approval remains. stop.forever is intentionally present. No long run started.
+2. Squash/push completed at root bd44fe6; external old-history bundle verified.
+3. Preserve the user's concurrent dashboard work. When it is stable, run a clean
+   bounded resume from latest, without --initialize, and verify final cleanup.
+4. Only after task 4.3 acceptance, start continuous training. Compare frozen
+   gameplay against random policy after approximately 24 hours; P2 is not accepted.
 
 ## Navigation
 
