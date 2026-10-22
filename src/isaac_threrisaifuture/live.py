@@ -42,7 +42,7 @@ from .observation import (
     decode,
 )
 from .observer_client import ObservationClient, ObserverConfig
-from .stall_watchdog import PROGRESS_KINDS, StallWatchdog
+from .stall_watchdog import RunProgress, StallWatchdog
 
 __all__ = ["LiveCommandAck", "LiveOracle", "LiveSnapshot", "OracleEnemy"]
 
@@ -403,6 +403,8 @@ class LiveBackend:
     deriver: EventDeriver = field(default_factory=EventDeriver)
     # Optional stall watchdog; `on_stall` ends the episode (truncated) before the restart.
     watchdog: StallWatchdog | None = None
+    # First-time facts of the run; only these feed the watchdog as progress.
+    progress: RunProgress = field(default_factory=RunProgress)
     on_stall: Callable[[], None] | None = None
     supports_seed: ClassVar[bool] = False
     _current: LiveSnapshot | None = None
@@ -446,10 +448,21 @@ class LiveBackend:
         self._current = snap
         self._restarting_from = None
         self._stall_fired = False
-        if self.watchdog is not None:
-            self.watchdog.reset()
         assert snap.entity_frame is not None
         assert snap.oracle is not None
+        if self.watchdog is not None:
+            self.watchdog.reset()
+        frame = snap.entity_frame
+        self.progress.reset(
+            stage=frame.room.stage,
+            room_index=snap.oracle.room_index,
+            counters={
+                "coin": frame.inventory.coins,
+                "bomb": frame.inventory.bombs,
+                "key": frame.inventory.keys,
+            },
+            items=frame.collectibles,
+        )
         return StepResult(
             snap.entity_frame, tuple(self.deriver.begin(snap)), room_index=snap.oracle.room_index
         )
@@ -563,10 +576,15 @@ class LiveBackend:
         return snap.oracle is not None and snap.oracle.player_dead
 
     def _watch(self, snap: LiveSnapshot, events: Sequence[OracleEvent]) -> None:
-        """Feed the stall watchdog; paused, unavailable and dead snapshots add no time."""
-        if self.watchdog is not None and self.watchdog.observe(
-            active=_playable(snap), progress=any(e.kind in PROGRESS_KINDS for e in events)
-        ):
+        """Feed the stall watchdog; paused, unavailable and dead snapshots add no time.
+
+        Only facts new for the run count as progress (see `RunProgress`).
+        """
+        if self.watchdog is None:
+            return
+        stage = snap.entity_frame.room.stage if snap.entity_frame is not None else 0
+        progress = self.progress.novel(events, stage=stage)
+        if self.watchdog.observe(active=_playable(snap), progress=progress):
             self._stall_fired = True
 
     def _result(self, events: list[OracleEvent]) -> StepResult:

@@ -85,8 +85,10 @@ on 75% of decisions. `pure-v2` is preserved under `runs/pure-v2` and its config 
 ## Episodes and restarts
 
 One episode is one run. Death terminates it and the mod starts a New Run. The stall
-watchdog truncates it after 90 active seconds without progress (damage, room
-entry, clear, pickup, floor) and sends a `restart` command. Missing snapshots and
+watchdog truncates it after 90 active seconds without progress and sends a
+`restart` command. Progress means enemy damage, a room clear, or a fact new for the run:
+an unseen room or floor, a counter above its run peak, a new collectible. Walking
+between known rooms does not count. Missing snapshots and
 disconnects are infrastructure faults, never stalls, and are not learning outcomes.
 
 ## Continuous training

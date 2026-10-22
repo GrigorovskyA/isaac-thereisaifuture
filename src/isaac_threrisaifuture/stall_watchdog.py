@@ -1,16 +1,59 @@
 """Stall watchdog: active wall time without any progress event ends the episode."""
 
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 
-# Events that prove the agent is doing something useful in the game.
-PROGRESS_KINDS = frozenset(
-    {"enemy_damaged", "room_entered", "room_cleared", "pickup_gained", "floor_entered"}
-)
+from .entities import OracleEvent
+
 DEFAULT_STALL_SECONDS = 90.0
 # One gap between two snapshots earns at most this much time. Snapshots arrive every
 # 50 ms, so longer gaps mean a busy learner or a stuck transport, not game time.
 MAX_GAP_SECONDS = 2.0
+
+
+class RunProgress:
+    """Decides which progress events are new for the current run.
+
+    Only first-time facts count: a room or floor not seen this run, coins/bombs/keys
+    above the run's peak and a collectible not held before. Enemy damage and room clears
+    always count. So walking between two known rooms, or placing a bomb and picking up
+    another, cannot keep a stalled run alive.
+    """
+
+    def __init__(self) -> None:
+        self.reset(stage=0, room_index=0, counters={}, items=())
+
+    def reset(
+        self, *, stage: int, room_index: int, counters: dict[str, int], items: Iterable[int]
+    ) -> None:
+        """Start a new run from the facts of its first snapshot."""
+        self._stages = {stage}
+        self._rooms = {(stage, room_index)}
+        self._peaks = dict(counters)
+        self._items = set(items)
+
+    def novel(self, events: Iterable[OracleEvent], *, stage: int) -> bool:
+        """Record the events; True when at least one of them is progress."""
+        found = False
+        for event in events:
+            if event.kind in ("enemy_damaged", "room_cleared"):
+                found = True
+            elif event.kind == "floor_entered" and event.stage is not None:
+                found |= event.stage not in self._stages
+                self._stages.add(event.stage)
+            elif event.kind == "room_entered" and event.room_index is not None:
+                key = (stage, event.room_index)
+                found |= key not in self._rooms
+                self._rooms.add(key)
+            elif event.kind == "pickup_gained" and event.resource == "collectible":
+                if event.item_id is not None:
+                    found |= event.item_id not in self._items
+                    self._items.add(event.item_id)
+            elif event.kind == "pickup_gained" and event.resource and event.total is not None:
+                peak = self._peaks.get(event.resource, 0)
+                found |= event.total > peak
+                self._peaks[event.resource] = max(peak, event.total)
+        return found
 
 
 class StallWatchdog:

@@ -7,6 +7,7 @@ import pytest
 from test_live import SESSION, live
 
 from isaac_threrisaifuture.actions import Command
+from isaac_threrisaifuture.entities import OracleEvent
 from isaac_threrisaifuture.live import (
     LIVE_SCENARIO,
     LiveBackend,
@@ -14,7 +15,7 @@ from isaac_threrisaifuture.live import (
     make_live_env,
 )
 from isaac_threrisaifuture.observation import BridgeTimeout, ProtocolError
-from isaac_threrisaifuture.stall_watchdog import StallWatchdog
+from isaac_threrisaifuture.stall_watchdog import RunProgress, StallWatchdog
 
 STILL = np.array([0, 0, 0])
 
@@ -129,6 +130,52 @@ def test_invalid_limits_are_refused():
         StallWatchdog(0)
 
 
+# --- run progress: only first-time facts count -------------------------------------------
+
+
+def event(kind, **payload):
+    return OracleEvent(
+        provenance="game_api", session_id=SESSION, game_epoch=1, room_visit=1, frame_id=1,
+        kind=kind, **payload,
+    )  # fmt: skip
+
+
+def fresh_progress():
+    progress = RunProgress()
+    progress.reset(stage=1, room_index=84, counters={"coin": 0, "bomb": 1, "key": 0}, items=())
+    return progress
+
+
+def test_revisiting_known_rooms_is_not_progress():
+    progress = fresh_progress()
+    assert progress.novel([event("room_entered", room_index=85)], stage=1)
+    assert not progress.novel([event("room_entered", room_index=84)], stage=1)  # start room
+    assert not progress.novel([event("room_entered", room_index=85)], stage=1)
+    # The same room index on a new floor is a new room.
+    assert progress.novel([event("room_entered", room_index=85)], stage=2)
+
+
+def test_counters_only_count_above_the_run_peak():
+    progress = fresh_progress()
+    # Placing the starting bomb and picking up one bomb returns to the peak.
+    assert not progress.novel([event("pickup_gained", resource="bomb", amount=1, total=1)], stage=1)
+    assert progress.novel([event("pickup_gained", resource="bomb", amount=1, total=2)], stage=1)
+    assert progress.novel([event("pickup_gained", resource="coin", amount=1, total=1)], stage=1)
+
+
+def test_collectibles_floors_damage_and_clears():
+    progress = fresh_progress()
+    item = event("pickup_gained", resource="collectible", item_id=7)
+    assert progress.novel([item], stage=1)
+    assert not progress.novel([item], stage=1)  # dropped and taken again
+    assert progress.novel([event("floor_entered", stage=2)], stage=2)
+    assert not progress.novel([event("floor_entered", stage=1)], stage=1)
+    hit = event("enemy_damaged", entity_id=1, spawn_generation=0, amount=1.0)
+    assert progress.novel([hit], stage=1)
+    assert progress.novel([event("room_cleared", room_index=84)], stage=1)
+    assert not progress.novel([event("player_damaged", amount=1.0, damage_source="enemy")], stage=1)
+
+
 # --- wiring in the live backend --------------------------------------------------------
 
 
@@ -138,8 +185,9 @@ class FakeClient:
     connected = True
     failure = None
 
-    def __init__(self, clock, *, per_take=2.0, enemies=None, timeout_after=None):
+    def __init__(self, clock, *, per_take=2.0, enemies=None, timeout_after=None, rooms=None):
         self.clock, self.per_take = clock, per_take
+        self.rooms = rooms
         self.frame = 1
         self.enemies = enemies or (lambda frame: [(1, 10.0)])
         self.timeout_after = timeout_after
@@ -148,7 +196,11 @@ class FakeClient:
         self.peer_closed = 0
 
     def _snapshot(self):
-        return live(self.frame, enemies=self.enemies(self.frame))
+        snap = live(self.frame, enemies=self.enemies(self.frame))
+        if self.rooms is None:
+            return snap
+        oracle = snap.oracle.model_copy(update={"room_index": self.rooms(self.frame)})
+        return snap.model_copy(update={"oracle": oracle})
 
     def drain(self):
         if self.frame == 1:
@@ -209,6 +261,17 @@ def test_damage_progress_keeps_the_episode_running():
     env.reset()
     assert play(env, 100) is None  # 600 s of play with steady damage
     assert client.sent.count("restart") == 0
+
+
+def test_walking_between_two_known_rooms_still_stalls():
+    clock = Clock()
+    # The agent crosses a door between rooms 84 and 85 every 5 frames (10 s).
+    client = FakeClient(clock, rooms=lambda f: 84 + (f // 5) % 2)
+    env = stalled_env(client, clock)
+    env.reset()
+    info = play(env, 200)
+    assert info is not None and info["truncation_reason"] == "stall"
+    assert client.sent.count("restart") == 1
 
 
 def test_refused_restart_still_truncates_and_keeps_the_session():
