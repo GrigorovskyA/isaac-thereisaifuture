@@ -1,0 +1,862 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Training dashboard</title>
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface: #fcfcfb;
+  --ink: #0b0b0b; --ink2: #52514e; --muted: #898781;
+  --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10);
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4;
+  --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b;
+  --delta-good: #006300; --dot: rgba(137,135,129,0.45); --wash: rgba(11,11,11,0.05);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19;
+    --ink: #f0efec; --ink2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181;
+    --delta-good: #0ca30c; --dot: rgba(137,135,129,0.5); --wash: rgba(255,255,255,0.07);
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--ink);
+  font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 1280px; margin: 0 auto; padding: 20px 20px 40px; }
+h1 { font-size: 20px; font-weight: 600; margin: 0; }
+h2 { font-size: 15px; font-weight: 600; margin: 0; }
+header { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; justify-content: space-between; }
+.head-right { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; color: var(--ink2); }
+.chip { display: inline-flex; align-items: center; gap: 8px; padding: 4px 12px 4px 4px;
+  border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--ink); font-weight: 600; }
+.chip .icon { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center;
+  font-size: 12px; line-height: 1; color: #fff; }
+.chip[data-tone="good"] .icon { background: var(--good); }
+.chip[data-tone="warning"] .icon { background: var(--warning); color: #0b0b0b; }
+.chip[data-tone="critical"] .icon { background: var(--critical); }
+.chip[data-tone="neutral"] .icon { background: var(--muted); color: #0b0b0b; }
+.chip[hidden] { display: none; }
+.filters { display: flex; flex-wrap: wrap; gap: 8px 24px; margin: 16px 0; align-items: center; }
+.filters label { display: inline-flex; gap: 8px; align-items: center; color: var(--ink2); }
+select, button.toggle { font: inherit; color: var(--ink); background: var(--surface);
+  border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px; }
+select:hover, button.toggle:hover { background: var(--wash); }
+button.toggle[aria-pressed="true"] { border-color: var(--ink2); }
+:focus-visible { outline: 2px solid var(--s1); outline-offset: 2px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 12px; }
+.tile, .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; min-width: 0; }
+.tile.hero { grid-column: span 2; }
+.tile .label { color: var(--ink2); }
+.tile .value { font-size: 28px; font-weight: 600; line-height: 1.2; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tile .value.id { font-size: 16px; line-height: 1.5; white-space: normal; overflow-wrap: anywhere; }
+.tile.hero .value { font-size: 56px; line-height: 1.1; }
+.tile .sub { color: var(--ink2); font-size: 12px; margin-top: 4px; }
+.delta[data-dir="up"] { color: var(--delta-good); }
+.delta[data-dir="down"] { color: var(--critical); }
+.delta[data-dir="flat"] { color: var(--ink2); }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 12px; margin-bottom: 12px; }
+.card .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.card .subtitle { color: var(--ink2); font-size: 12px; margin: 2px 0 8px; }
+.chart { position: relative; height: 220px; }
+.chart svg { display: block; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 16px; color: var(--ink2); font-size: 12px; margin-bottom: 8px; }
+.legend .grp { color: var(--ink); font-weight: 600; }
+.legend .grp:not(:first-child) { margin-left: 8px; }
+.sect { margin: 20px 0 2px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 13px; }
+th, td { text-align: right; padding: 4px 8px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--ink2); font-weight: 600; }
+.tablewrap { overflow-x: auto; }
+.tablecard { margin-bottom: 12px; }
+.tablecard h2 { margin-bottom: 8px; }
+.data-table { max-height: 260px; overflow: auto; }
+.empty { text-align: center; padding: 48px 16px; color: var(--ink2); }
+.empty h2 { color: var(--ink); margin-bottom: 8px; }
+code { background: var(--wash); padding: 1px 6px; border-radius: 4px; }
+#tip { position: fixed; z-index: 10; pointer-events: none; display: none; max-width: 280px;
+  background: var(--surface); border: 1px solid var(--axis); border-radius: 8px; padding: 8px 10px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.15); font-size: 12px; }
+#tip .t { color: var(--ink2); margin-bottom: 4px; }
+#tip .r { display: flex; align-items: center; gap: 8px; }
+#tip .k { display: inline-block; width: 14px; height: 0; border-top: 2px solid; flex: none; }
+#tip .v { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+#tip .n { color: var(--ink2); }
+.sr { position: absolute; left: -9999px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1 id="title">Training</h1>
+    <div class="head-right">
+      <span id="updated">Waiting for data</span>
+      <span class="chip" id="stale" data-tone="warning" hidden><span class="icon" aria-hidden="true">!</span><span id="stale-text"></span></span>
+      <span class="chip" id="status" data-tone="neutral"><span class="icon" aria-hidden="true">&#9632;</span><span id="status-text">Supervisor unknown</span></span>
+    </div>
+  </header>
+  <div class="filters" role="group" aria-label="Filters for all charts">
+    <label>Rolling window
+      <select id="win"><option value="20">20 episodes</option><option value="50" selected>50 episodes</option><option value="200">200 episodes</option></select>
+    </label>
+    <label>X axis
+      <select id="xmode"><option value="episode" selected>Episode number</option><option value="steps">Cumulative steps</option></select>
+    </label>
+  </div>
+  <div id="empty" class="empty" hidden></div>
+  <div id="content" hidden>
+    <section class="tiles" id="tiles" aria-label="Summary"></section>
+    <section class="grid" id="charts" aria-label="Learning curves"></section>
+    <section class="grid" id="mixgrid"></section>
+    <section id="train" aria-label="Training statistics">
+      <h2 class="sect">Training</h2>
+      <div class="subtitle" id="train-sub"></div>
+      <div class="card empty" id="train-empty" hidden></div>
+      <div class="grid" id="traingrid"></div>
+    </section>
+    <section class="card tablecard"><h2>Reward breakdown</h2><div class="subtitle" id="reward-sub"></div><div class="tablewrap" id="reward"></div></section>
+    <section class="card tablecard"><h2>Recent episodes</h2><div class="subtitle">Last 20 episodes, newest first</div><div class="tablewrap" id="recent"></div></section>
+  </div>
+</main>
+<div id="tip" role="presentation"></div>
+<script>
+"use strict";
+const SVGNS = "http://www.w3.org/2000/svg";
+const POLL_MS = 5000, STALE_MS = 15 * 60 * 1000, MIX_BUCKETS = 40, H = 220;
+const S = { rows: [], total: 0, train: [], trainTotal: 0, trainCsv: "metrics/train.csv", ckpt: null, sup: null, serverOffset: 0, ok: true, lastOk: null,
+  run: "", csv: "metrics/episodes.csv", loaded: false, win: 50, xmode: "episode" };
+const $ = (id) => document.getElementById(id);
+
+function h(tag, attrs, text) {
+  const e = document.createElement(tag);
+  for (const k in attrs || {}) e.setAttribute(k, attrs[k]);
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+function sv(tag, attrs, text) {
+  const e = document.createElementNS(SVGNS, tag);
+  for (const k in attrs || {}) e.setAttribute(k, attrs[k]);
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+
+// ---- number formatting -------------------------------------------------------------------
+function compact(n) {
+  if (n === null || n === undefined || Number.isNaN(n)) return "-";
+  const a = Math.abs(n);
+  if (a >= 1e9) return trim(n / 1e9, 1) + "B";
+  if (a >= 1e6) return trim(n / 1e6, 1) + "M";
+  if (a >= 1e4) return trim(n / 1e3, 1) + "K";
+  if (a >= 1e3) return Math.round(n).toLocaleString("en-US");
+  return Number.isInteger(n) ? String(n) : trim(n, a < 10 ? 2 : 1);
+}
+function trim(n, d) { const t = n.toFixed(d); return t.includes(".") ? t.replace(/\.?0+$/, "") : t; }
+function axisFmt(n) {
+  const a = Math.abs(n);
+  if (a >= 1e9) return trim(n / 1e9, 1) + "B";
+  if (a >= 1e6) return trim(n / 1e6, 1) + "M";
+  if (a >= 1e3) return trim(n / 1e3, 1) + "K";
+  return trim(n, a < 10 && !Number.isInteger(n) ? 2 : 0);
+}
+function val(n) { return n === null || n === undefined ? "-" : compact(n); }
+function signed(n, d) { return (n > 0 ? "+" : n < 0 ? "−" : "") + trim(Math.abs(n), d); }
+function ago(ms) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 90) return s + "s";
+  if (s < 5400) return Math.round(s / 60) + "m";
+  if (s < 172800) return trim(s / 3600, 1) + "h";
+  return trim(s / 86400, 1) + "d";
+}
+function nowServer() { return Date.now() + S.serverOffset; }
+
+// ---- data -------------------------------------------------------------------------------
+const METRICS = [
+  { key: "return", title: "Return" },
+  { key: "damage_dealt_fraction", title: "Damage dealt" },
+  { key: "rooms_cleared", title: "Rooms cleared" },
+  { key: "max_stage", title: "Max floor" },
+  { key: "rooms_visited", title: "Rooms visited" },
+  { key: "pickups_collectible", title: "Collectibles picked up" },
+  { key: "half_hearts_lost", title: "Half-hearts lost per episode" },
+  { key: "use_bomb", title: "Use presses per episode (bomb)", sub: "bomb key presses; active item and pill/card are in the table view",
+    extra: [{ key: "use_active", name: "Active mean" }, { key: "use_pillcard", name: "Pill/card mean" }] },
+];
+function column(key) { return S.rows.map((r) => (typeof r[key] === "number" ? r[key] : null)); }
+function rolling(vals, n) {
+  const out = new Array(vals.length);
+  let sum = 0, cnt = 0;
+  for (let i = 0; i < vals.length; i++) {
+    if (vals[i] !== null) { sum += vals[i]; cnt++; }
+    const j = i - n;
+    if (j >= 0 && vals[j] !== null) { sum -= vals[j]; cnt--; }
+    out[i] = cnt ? sum / cnt : null;
+  }
+  return out;
+}
+function meanRange(vals, from, to) {
+  let s = 0, c = 0;
+  for (let i = Math.max(0, from); i < to && i < vals.length; i++) if (vals[i] !== null) { s += vals[i]; c++; }
+  return c ? s / c : null;
+}
+function category(r) {
+  if (r.outcome === "terminated") return 0;
+  if (r.truncation_reason === "stall") return 1;
+  return 2;
+}
+const CATS = [
+  { name: "Death", color: "var(--s1)" },
+  { name: "Stall restart", color: "var(--s2)" },
+  { name: "Other end", color: "var(--s3)" },
+];
+function xValues() {
+  if (S.xmode === "episode") return S.rows.map((_, i) => i + 1);
+  let c = 0;
+  return S.rows.map((r) => (c += typeof r.timesteps === "number" ? r.timesteps : 0));
+}
+function nice(lo, hi, count) {
+  if (hi <= lo) { const p = Math.abs(lo) || 1; lo -= p * 0.5; hi += p * 0.5; }
+  const raw = (hi - lo) / count, mag = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / mag;
+  const step = (f < 1.5 ? 1 : f < 3 ? 2 : f < 7 ? 5 : 10) * mag;
+  const a = Math.floor(lo / step) * step, b = Math.ceil(hi / step) * step, t = [];
+  for (let v = a; v <= b + step / 2; v += step) t.push(Math.abs(v) < step * 1e-9 ? 0 : v);
+  return t;
+}
+function maxOf(a) { let m = 0; for (const v of a) if (v !== null && v > m) m = v; return m; }
+function percentile(sorted, p) { return sorted[Math.min(sorted.length - 1, Math.max(0, Math.floor(p * (sorted.length - 1))))]; }
+function bisect(xs, x) {
+  let lo = 0, hi = xs.length - 1;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (xs[m] < x) lo = m + 1; else hi = m; }
+  return lo > 0 && x - xs[lo - 1] < xs[lo] - x ? lo - 1 : lo;
+}
+
+// ---- tooltip ----------------------------------------------------------------------------
+const tip = $("tip");
+function showTip(e, title, rows, anchor) {
+  tip.replaceChildren();
+  tip.appendChild(h("div", { class: "t" }, title));
+  for (const r of rows) {
+    const line = h("div", { class: "r" });
+    if (r.key) line.appendChild(h("span", { class: "k", style: "border-color:" + r.key }));
+    line.appendChild(h("span", { class: "v" }, r.value));
+    line.appendChild(h("span", { class: "n" }, r.label));
+    tip.appendChild(line);
+  }
+  tip.style.display = "block";
+  const b = tip.getBoundingClientRect();
+  const px = anchor ? anchor.x : e.clientX, py = anchor ? anchor.y : e.clientY;
+  let x = px + 14, y = py + 14;
+  if (x + b.width > innerWidth - 8) x = px - b.width - 14;
+  if (y + b.height > innerHeight - 8) y = py - b.height - 14;
+  tip.style.left = Math.max(8, x) + "px"; tip.style.top = Math.max(8, y) + "px";
+}
+function hideTip() { tip.style.display = "none"; }
+
+// ---- cards ------------------------------------------------------------------------------
+function makeCard(title, extra) {
+  const root = h("article", { class: "card" });
+  const top = h("div", { class: "top" });
+  const titles = h("div");
+  titles.appendChild(h("h2", {}, title));
+  const subtitle = h("div", { class: "subtitle" });
+  titles.appendChild(subtitle);
+  const btn = h("button", { class: "toggle", type: "button", "aria-pressed": "false" }, "Table");
+  top.append(titles, btn);
+  const legend = h("div", { class: "legend" });
+  legend.hidden = !extra;
+  const chart = h("div", { class: "chart" });
+  const table = h("div", { class: "data-table tablewrap" });
+  table.hidden = true;
+  root.append(top, legend, chart, table);
+  btn.addEventListener("click", () => {
+    const on = btn.getAttribute("aria-pressed") !== "true";
+    btn.setAttribute("aria-pressed", String(on));
+    btn.textContent = on ? "Chart" : "Table";
+    chart.hidden = on; table.hidden = !on;
+    if (!on) render(true);
+  });
+  return { root, subtitle, legend, chart, table };
+}
+function fillTable(host, heads, rows) {
+  const t = h("table"), thead = h("thead"), hr = h("tr");
+  for (const x of heads) hr.appendChild(h("th", { scope: "col" }, x));
+  thead.appendChild(hr);
+  const tb = h("tbody");
+  for (const r of rows) { const tr = h("tr"); for (const c of r) tr.appendChild(h("td", {}, c)); tb.appendChild(tr); }
+  t.append(thead, tb);
+  host.replaceChildren(t);
+}
+function axes(g, w, plotL, plotR, plotT, plotB, yt, y, xt, x, xlabel, fmt) {
+  fmt = fmt || axisFmt;
+  for (const v of yt) {
+    g.appendChild(sv("line", { x1: plotL, x2: plotR, y1: y(v), y2: y(v), stroke: v === 0 ? "var(--axis)" : "var(--grid)", "stroke-width": 1 }));
+    g.appendChild(sv("text", { x: plotL - 6, y: y(v) + 4, "text-anchor": "end", fill: "var(--ink2)", "font-size": 11, "font-variant-numeric": "tabular-nums" }, fmt(v)));
+  }
+  g.appendChild(sv("line", { x1: plotL, x2: plotR, y1: plotB, y2: plotB, stroke: "var(--axis)", "stroke-width": 1 }));
+  for (const t of xt) {
+    g.appendChild(sv("text", { x: x(t.pos), y: plotB + 16, "text-anchor": t.anchor || "middle", fill: "var(--ink2)", "font-size": 11, "font-variant-numeric": "tabular-nums" }, t.label));
+  }
+  if (xlabel) g.appendChild(sv("text", { x: plotR, y: H - 2, "text-anchor": "end", fill: "var(--muted)", "font-size": 10 }, xlabel));
+}
+
+// Line card: rolling mean as one line, single episodes as faint dots.
+function lineCard(metric) {
+  const card = makeCard(metric.title);
+  let cur = null, last = null;
+  function draw() {
+    const host = card.chart;
+    if (host.hidden || !last) return;
+    const { xs, vals, roll } = last;
+    const w = Math.max(240, host.clientWidth), L = 46, R = 14, T = 10, B = 40;
+    const pr = w - R, pb = H - B;
+    const svg = sv("svg", { width: w, height: H, viewBox: `0 0 ${w} ${H}`, role: "img", tabindex: "0",
+      "aria-label": `${metric.title}: rolling mean over ${S.win} episodes, ${vals.length} episodes. Use the table view for exact values.` });
+    const present = vals.filter((v) => v !== null).sort((a, b) => a - b);
+    if (!present.length) { host.replaceChildren(svg); return; }
+    let lo = percentile(present, 0.01), hi = percentile(present, 0.99);
+    for (const r of roll) if (r !== null) { lo = Math.min(lo, r); hi = Math.max(hi, r); }
+    const yt = nice(lo, hi, 4), y0 = yt[0], y1 = yt[yt.length - 1];
+    const xmin = xs[0], xmax = xs[xs.length - 1] === xs[0] ? xs[0] + 1 : xs[xs.length - 1];
+    const x = (v) => L + ((v - xmin) / (xmax - xmin)) * (pr - L);
+    const y = (v) => pb - ((Math.min(y1, Math.max(y0, v)) - y0) / (y1 - y0)) * (pb - T);
+    const xt = nice(xmin, xmax, Math.max(2, Math.floor((pr - L) / 90))).filter((t) => t >= xmin && t <= xmax)
+      .map((t) => ({ pos: t, label: axisFmt(t) }));
+    const g = sv("g");
+    axes(g, w, L, pr, T, pb, yt, y, xt, x, S.xmode === "episode" ? "Episode" : "Cumulative steps");
+    const n = vals.length, stride = Math.max(1, Math.ceil(n / 700));
+    for (let i = 0; i < n; i += stride) if (vals[i] !== null)
+      g.appendChild(sv("circle", { cx: x(xs[i]), cy: y(vals[i]), r: 1.8, fill: "var(--dot)" }));
+    const step = Math.max(1, Math.ceil(n / Math.max(50, (pr - L))));
+    let d = "";
+    for (let i = 0; i < n; i += step) if (roll[i] !== null) d += (d ? "L" : "M") + x(xs[i]).toFixed(1) + " " + y(roll[i]).toFixed(1);
+    if (roll[n - 1] !== null && (n - 1) % step) d += "L" + x(xs[n - 1]).toFixed(1) + " " + y(roll[n - 1]).toFixed(1);
+    g.appendChild(sv("path", { d, fill: "none", stroke: "var(--s1)", "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+    if (roll[n - 1] !== null) {
+      const ex = x(xs[n - 1]), ey = y(roll[n - 1]);
+      g.appendChild(sv("circle", { cx: ex, cy: ey, r: 4, fill: "var(--s1)", stroke: "var(--surface)", "stroke-width": 2 }));
+      g.appendChild(sv("text", { x: ex - 8, y: ey - 9, "text-anchor": "end", fill: "var(--ink)", "font-size": 12, "font-weight": 600,
+        stroke: "var(--surface)", "stroke-width": 3, "paint-order": "stroke" }, val(roll[n - 1])));
+    }
+    const cross = sv("g", { visibility: "hidden" });
+    const vline = sv("line", { y1: T, y2: pb, stroke: "var(--ink2)", "stroke-width": 1 });
+    const dotR = sv("circle", { r: 4, fill: "var(--s1)", stroke: "var(--surface)", "stroke-width": 2 });
+    const dotV = sv("circle", { r: 3, fill: "var(--muted)", stroke: "var(--surface)", "stroke-width": 2 });
+    cross.append(vline, dotV, dotR);
+    const hit = sv("rect", { x: L, y: T, width: pr - L, height: pb - T, fill: "transparent" });
+    svg.append(g, cross, hit);
+    function at(i, anchorEvent) {
+      cur = i;
+      const px = x(xs[i]);
+      vline.setAttribute("x1", px); vline.setAttribute("x2", px);
+      dotR.setAttribute("cx", px); dotV.setAttribute("cx", px);
+      dotR.setAttribute("cy", roll[i] === null ? -9 : y(roll[i]));
+      dotV.setAttribute("cy", vals[i] === null ? -9 : y(vals[i]));
+      cross.setAttribute("visibility", "visible");
+      const row = S.rows[i], box = svg.getBoundingClientRect();
+      showTip(anchorEvent, `Episode ${(i + 1).toLocaleString("en-US")} · ${val(row.timesteps)} steps`, [
+        { key: "var(--s1)", value: val(roll[i]), label: `rolling mean (${S.win})` },
+        { key: "var(--muted)", value: val(vals[i]), label: "this episode" },
+      ], anchorEvent ? null : { x: box.left + px, y: box.top + T + 20 });
+    }
+    hit.addEventListener("pointermove", (e) => {
+      const b = svg.getBoundingClientRect();
+      at(bisect(xs, xmin + ((e.clientX - b.left - L) / (pr - L)) * (xmax - xmin)), e);
+    });
+    hit.addEventListener("pointerleave", () => { cross.setAttribute("visibility", "hidden"); hideTip(); });
+    svg.addEventListener("keydown", (e) => {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      e.preventDefault();
+      at(Math.min(n - 1, Math.max(0, (cur === null ? n - 1 : cur) + (e.key === "ArrowLeft" ? -1 : 1) * Math.max(1, Math.round(n / 100)))), null);
+    });
+    svg.addEventListener("blur", () => { cross.setAttribute("visibility", "hidden"); hideTip(); });
+    host.replaceChildren(svg);
+  }
+  function update(xs) {
+    const vals = column(metric.key), roll = rolling(vals, S.win);
+    last = { xs, vals, roll };
+    card.subtitle.textContent = (metric.sub ? metric.sub + "; " : "") + `rolling mean of ${S.win} episodes; dots = single episodes`;
+    const extras = (metric.extra || []).map((e) => column(e.key));
+    // Table twin: one row per window, newest first.
+    const rows = [], N = S.win;
+    for (let end = vals.length; end > 0 && rows.length < 30; end -= N) {
+      const from = Math.max(0, end - N);
+      const slice = vals.slice(from, end).filter((v) => v !== null);
+      rows.push([`${from + 1}–${end}`, val(xs[end - 1]), val(slice.length ? slice.reduce((a, b) => a + b, 0) / slice.length : null),
+        val(slice.length ? Math.min(...slice) : null), val(slice.length ? Math.max(...slice) : null),
+        ...extras.map((c) => { const m = meanRange(c, from, end); return m === null ? "-" : trim(m, 2); })]);
+    }
+    fillTable(card.table, ["Episodes", S.xmode === "episode" ? "Episode" : "Steps", "Mean", "Min", "Max", ...(metric.extra || []).map((e) => e.name)], rows);
+    draw();
+  }
+  return { root: card.root, update, draw };
+}
+
+// Episode-end mix: stacked columns, newest bucket on the right.
+function mixCard() {
+  const card = makeCard("Episode ends", true);
+  for (const c of CATS) {
+    const item = h("span");
+    item.append(h("i", { style: "background:" + c.color }), document.createTextNode(c.name));
+    card.legend.appendChild(item);
+  }
+  let buckets = [];
+  function draw() {
+    const host = card.chart;
+    if (host.hidden) return;
+    const w = Math.max(240, host.clientWidth), L = 46, R = 14, T = 10, B = 40, pr = w - R, pb = H - B;
+    const svg = sv("svg", { width: w, height: H, viewBox: `0 0 ${w} ${H}`, role: "img",
+      "aria-label": "Episode ends per window: deaths, stall restarts and other ends. Use the table view for exact values." });
+    const maxv = Math.max(1, ...buckets.map((b) => b.n)); // at most 40 buckets
+    const yt = nice(0, maxv, 4), y1 = yt[yt.length - 1];
+    const y = (v) => pb - (v / y1) * (pb - T);
+    const band = (pr - L) / Math.max(1, buckets.length), bw = Math.min(24, band * 0.7);
+    const xc = (i) => L + band * (i + 0.5);
+    const g = sv("g");
+    axes(g, w, L, pr, T, pb, yt, y, [], null, null);
+    const every = Math.max(1, Math.ceil(buckets.length / Math.max(2, Math.floor((pr - L) / 70))));
+    buckets.forEach((b, i) => {
+      if ((buckets.length - 1 - i) % every === 0)
+        g.appendChild(sv("text", { x: xc(i), y: pb + 16, "text-anchor": "middle", fill: "var(--ink2)", "font-size": 11, "font-variant-numeric": "tabular-nums" }, axisFmt(b.endX)));
+    });
+    g.appendChild(sv("text", { x: pr, y: H - 2, "text-anchor": "end", fill: "var(--muted)", "font-size": 10 },
+      (S.xmode === "episode" ? "Episode" : "Cumulative steps") + ` (windows of ${S.win})`));
+    buckets.forEach((b, i) => {
+      let acc = 0;
+      const top = b.counts.map((c, k) => (c ? k : -1)).reduce((a, k) => Math.max(a, k), -1);
+      b.counts.forEach((c, k) => {
+        if (!c) return;
+        const below = acc, isTop = k === top;
+        acc += c;
+        const yb = y(below), yt2 = y(acc);
+        const bot = yb - (below > 0 ? 1 : 0), ytop = yt2 + (isTop ? 0 : 1);  // 2px surface gap
+        const hgt = Math.max(1, bot - ytop), r = isTop ? Math.min(4, hgt / 2) : 0, x0 = xc(i) - bw / 2;
+        const path = r ? `M${x0} ${bot}V${ytop + r}Q${x0} ${ytop} ${x0 + r} ${ytop}H${x0 + bw - r}Q${x0 + bw} ${ytop} ${x0 + bw} ${ytop + r}V${bot}Z`
+          : `M${x0} ${bot}V${ytop}H${x0 + bw}V${bot}Z`;
+        const seg = sv("path", { d: path, fill: CATS[k].color });
+        const target = sv("rect", { x: xc(i) - band / 2, y: yt2, width: band, height: Math.max(2, yb - yt2), fill: "transparent" });
+        target.addEventListener("pointermove", (e) => {
+          seg.setAttribute("opacity", "0.8");
+          showTip(e, `Episodes ${b.from + 1}–${b.to}`, [
+            { key: CATS[k].color, value: String(c), label: `${CATS[k].name} (${Math.round((100 * c) / b.n)}% of ${b.n})` }]);
+        });
+        target.addEventListener("pointerleave", () => { seg.removeAttribute("opacity"); hideTip(); });
+        g.append(seg, target);
+      });
+    });
+    svg.appendChild(g);
+    host.replaceChildren(svg);
+  }
+  function update(xs) {
+    const n = S.rows.length, N = S.win;
+    buckets = [];
+    for (let end = n; end > 0 && buckets.length < MIX_BUCKETS; end -= N) {
+      const from = Math.max(0, end - N), counts = [0, 0, 0];
+      for (let i = from; i < end; i++) counts[category(S.rows[i])]++;
+      buckets.unshift({ from, to: end, n: end - from, counts, endX: xs[end - 1] });
+    }
+    card.subtitle.textContent = `episodes ending in death, stall restart or other, per window of ${N} (latest ${MIX_BUCKETS} windows)`;
+    fillTable(card.table, ["Episodes", "Death", "Stall restart", "Other end"],
+      buckets.slice().reverse().map((b) => [`${b.from + 1}–${b.to}`, ...b.counts.map(String)]));
+    draw();
+  }
+  return { root: card.root, update, draw };
+}
+
+// Training statistics: one series per card, x = timesteps, one y-axis each.
+function sig(n) {
+  if (n === null || n === undefined || Number.isNaN(n)) return "-";
+  const a = Math.abs(n);
+  if (a >= 1000) return compact(n);
+  if (a === 0) return "0";
+  return trim(n, Math.min(8, Math.max(0, 2 - Math.floor(Math.log10(a)))));
+}
+function seriesCard(spec) {
+  const card = makeCard(spec.title);
+  card.subtitle.textContent = spec.sub;
+  let pts = [], cur = null;
+  function draw() {
+    const host = card.chart;
+    if (host.hidden) return;
+    const w = Math.max(240, host.clientWidth), L = 50, R = 14, T = 10, B = 40, pr = w - R, pb = H - B;
+    const svg = sv("svg", { width: w, height: H, viewBox: `0 0 ${w} ${H}`, role: "img", tabindex: "0",
+      "aria-label": `${spec.title} per training update, ${pts.length} updates. Use the table view for exact values.` });
+    if (!pts.length) { host.replaceChildren(svg); return; }
+    let lo = Infinity, hi = -Infinity;
+    for (const p of pts) { lo = Math.min(lo, p.v); hi = Math.max(hi, p.v); }
+    if (spec.zero) { lo = 0; hi = Math.max(hi, 0.01); }
+    const yt = nice(lo, hi, 4), y0 = yt[0], y1 = yt[yt.length - 1], stepY = yt.length > 1 ? yt[1] - yt[0] : 1;
+    const dec = Math.max(0, Math.ceil(-Math.log10(stepY) - 1e-9));
+    const fmt = stepY >= 1 ? axisFmt : (v) => trim(v, dec);
+    const xmin = pts[0].x, xmax = pts[pts.length - 1].x === xmin ? xmin + 1 : pts[pts.length - 1].x;
+    const x = (v) => L + ((v - xmin) / (xmax - xmin)) * (pr - L);
+    const y = (v) => pb - ((v - y0) / (y1 - y0)) * (pb - T);
+    const xt = nice(xmin, xmax, Math.max(2, Math.floor((pr - L) / 90))).filter((t) => t >= xmin && t <= xmax)
+      .map((t) => ({ pos: t, label: axisFmt(t) }));
+    const g = sv("g");
+    axes(g, w, L, pr, T, pb, yt, y, xt, x, "Timesteps", fmt);
+    const n = pts.length, step = Math.max(1, Math.ceil(n / Math.max(50, pr - L)));
+    let d = "";
+    for (let i = 0; i < n; i += step) d += (d ? "L" : "M") + x(pts[i].x).toFixed(1) + " " + y(pts[i].v).toFixed(1);
+    if ((n - 1) % step) d += "L" + x(pts[n - 1].x).toFixed(1) + " " + y(pts[n - 1].v).toFixed(1);
+    g.appendChild(sv("path", { d, fill: "none", stroke: "var(--s1)", "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+    const ex = x(pts[n - 1].x), ey = y(pts[n - 1].v);
+    g.appendChild(sv("circle", { cx: ex, cy: ey, r: 4, fill: "var(--s1)", stroke: "var(--surface)", "stroke-width": 2 }));
+    g.appendChild(sv("text", { x: ex - 8, y: ey - 9, "text-anchor": "end", fill: "var(--ink)", "font-size": 12, "font-weight": 600,
+      stroke: "var(--surface)", "stroke-width": 3, "paint-order": "stroke" }, sig(pts[n - 1].v)));
+    const cross = sv("g", { visibility: "hidden" });
+    const vline = sv("line", { y1: T, y2: pb, stroke: "var(--ink2)", "stroke-width": 1 });
+    const dot = sv("circle", { r: 4, fill: "var(--s1)", stroke: "var(--surface)", "stroke-width": 2 });
+    cross.append(vline, dot);
+    const hit = sv("rect", { x: L, y: T, width: pr - L, height: pb - T, fill: "transparent" });
+    svg.append(g, cross, hit);
+    const xs = pts.map((p) => p.x);
+    function at(i, ev) {
+      cur = i;
+      const px = x(pts[i].x);
+      vline.setAttribute("x1", px); vline.setAttribute("x2", px);
+      dot.setAttribute("cx", px); dot.setAttribute("cy", y(pts[i].v));
+      cross.setAttribute("visibility", "visible");
+      const box = svg.getBoundingClientRect();
+      showTip(ev, `Update ${(pts[i].i + 1).toLocaleString("en-US")} · ${compact(pts[i].x)} steps`,
+        [{ key: "var(--s1)", value: sig(pts[i].v), label: spec.name }], ev ? null : { x: box.left + px, y: box.top + T + 20 });
+    }
+    hit.addEventListener("pointermove", (e) => {
+      const b = svg.getBoundingClientRect();
+      at(bisect(xs, xmin + ((e.clientX - b.left - L) / (pr - L)) * (xmax - xmin)), e);
+    });
+    hit.addEventListener("pointerleave", () => { cross.setAttribute("visibility", "hidden"); hideTip(); });
+    svg.addEventListener("keydown", (e) => {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      e.preventDefault();
+      at(Math.min(n - 1, Math.max(0, (cur === null ? n - 1 : cur) + (e.key === "ArrowLeft" ? -1 : 1) * Math.max(1, Math.round(n / 100)))), null);
+    });
+    svg.addEventListener("blur", () => { cross.setAttribute("visibility", "hidden"); hideTip(); });
+    host.replaceChildren(svg);
+  }
+  function update() {
+    pts = [];
+    S.train.forEach((r, i) => { const v = spec.get(r); if (v !== null && typeof r.timesteps === "number") pts.push({ i, x: r.timesteps, v }); });
+    const rows = pts.slice(-300).reverse().map((p) => [String(p.i + 1), compact(p.x), sig(p.v)]);
+    fillTable(card.table, ["Update", "Timesteps", spec.name], rows);
+    draw();
+  }
+  return { root: card.root, update, draw };
+}
+const num = (v) => (typeof v === "number" ? v : null);
+const TRAIN_SPECS = [
+  { title: "Policy entropy", name: "policy entropy", sub: "higher = more random choices; falls as the policy commits",
+    get: (r) => (num(r.entropy_loss) === null ? null : -r.entropy_loss) },
+  { title: "Explained variance", name: "explained variance", sub: "how well the value head predicts returns; 1 is perfect, 0 or below is no better than the mean",
+    get: (r) => num(r.explained_variance) },
+  { title: "Approx KL", name: "approx KL", sub: "how far each update moves the policy", get: (r) => num(r.approx_kl) },
+  { title: "Value loss", name: "value loss", sub: "error of the value head", get: (r) => num(r.value_loss) },
+  { title: "Clip fraction", name: "clip fraction", sub: "share of samples the PPO clip cut off", zero: true, get: (r) => num(r.clip_fraction) },
+  { title: "Bomb share of use actions", name: "bomb share", sub: "share of rollout steps that pressed the bomb key", zero: true, get: (r) => num(r.use_bomb) },
+];
+
+// Action mix of the latest update: one stacked bar per head, fixed category slots.
+const DIRS = ["none", "left", "right", "up", "down"], USE_NAMES = ["none", "bomb", "active", "pill/card"];
+const USE_KEYS = ["none", "bomb", "active", "pillcard"];
+const HEADS = [
+  { head: "move", label: "Move", names: DIRS, keys: DIRS },
+  { head: "shoot", label: "Shoot", names: DIRS, keys: DIRS },
+  { head: "use", label: "Use", names: USE_NAMES, keys: USE_KEYS },
+];
+function actionCard() {
+  const card = makeCard("Action mix, latest update", true);
+  for (const grp of [{ label: "Move and shoot", names: DIRS }, { label: "Use", names: USE_NAMES }]) {
+    card.legend.appendChild(h("span", { class: "grp" }, grp.label));
+    grp.names.forEach((nm, k) => {
+      const item = h("span");
+      item.append(h("i", { style: "background:var(--s" + (k + 1) + ")" }), document.createTextNode(nm));
+      card.legend.appendChild(item);
+    });
+  }
+  let row = null;
+  function draw() {
+    const host = card.chart;
+    if (host.hidden) return;
+    const w = Math.max(240, host.clientWidth), L = 56, R = 14, T = 10, B = 40, pr = w - R, pb = H - B;
+    const svg = sv("svg", { width: w, height: H, viewBox: `0 0 ${w} ${H}`, role: "img",
+      "aria-label": "Share of each action choice per head over the latest rollout. Use the table view for exact values." });
+    if (!row) { host.replaceChildren(svg); return; }
+    const x = (f) => L + f * (pr - L), g = sv("g");
+    for (const f of [0, 0.25, 0.5, 0.75, 1]) {
+      g.appendChild(sv("line", { x1: x(f), x2: x(f), y1: T, y2: pb, stroke: f === 0 ? "var(--axis)" : "var(--grid)", "stroke-width": 1 }));
+      g.appendChild(sv("text", { x: x(f), y: pb + 16, "text-anchor": f === 1 ? "end" : f === 0 ? "start" : "middle", fill: "var(--ink2)", "font-size": 11,
+        "font-variant-numeric": "tabular-nums" }, Math.round(f * 100) + "%"));
+    }
+    g.appendChild(sv("text", { x: pr, y: H - 2, "text-anchor": "end", fill: "var(--muted)", "font-size": 10 }, "Share of rollout steps"));
+    const bh = 34, gap = 24;
+    HEADS.forEach((hd, r) => {
+      const top = T + 14 + r * (bh + gap);
+      g.appendChild(sv("text", { x: L - 8, y: top + bh / 2 + 4, "text-anchor": "end", fill: "var(--ink)", "font-size": 12, "font-weight": 600 }, hd.label));
+      let acc = 0;
+      hd.keys.forEach((key, k) => {
+        const v = typeof row[`${hd.head}_${key}`] === "number" ? row[`${hd.head}_${key}`] : 0;
+        if (v <= 0) return;
+        const x0 = x(acc), x1 = x(acc + v);
+        acc += v;
+        const gx = acc >= 0.999 ? 0 : 1;  // 2px surface gap between neighbours
+        const seg = sv("rect", { x: x0 + (x0 > L ? 1 : 0), y: top, width: Math.max(1, x1 - x0 - (x0 > L ? 1 : 0) - gx), height: bh, fill: `var(--s${k + 1})` });
+        const target = sv("rect", { x: x0, y: top, width: Math.max(2, x1 - x0), height: bh, fill: "transparent" });
+        target.addEventListener("pointermove", (e) => {
+          seg.setAttribute("opacity", "0.8");
+          showTip(e, `${hd.label} head · update ${row.index + 1}`, [{ key: `var(--s${k + 1})`, value: trim(v * 100, 1) + "%", label: hd.names[k] }]);
+        });
+        target.addEventListener("pointerleave", () => { seg.removeAttribute("opacity"); hideTip(); });
+        g.append(seg, target);
+      });
+    });
+    svg.appendChild(g);
+    host.replaceChildren(svg);
+  }
+  function update() {
+    row = S.train.length ? S.train[S.train.length - 1] : null;
+    card.subtitle.textContent = row ? `update ${row.index + 1} · ${compact(row.timesteps)} steps; each head sums to 100%` : "";
+    const rows = [];
+    if (row) for (const hd of HEADS) hd.keys.forEach((key, k) => {
+      const v = row[`${hd.head}_${key}`];
+      rows.push([hd.label, hd.names[k], typeof v === "number" ? trim(v * 100, 1) + "%" : "-"]);
+    });
+    fillTable(card.table, ["Head", "Choice", "Share"], rows);
+    draw();
+  }
+  return { root: card.root, update, draw };
+}
+
+// ---- header, tiles, tables --------------------------------------------------------------
+function tile(label, value, sub, hero) {
+  const t = h("div", { class: "tile" + (hero === true ? " hero" : "") });
+  t.append(h("div", { class: "label" }, label), h("div", { class: "value" + (hero === "id" ? " id" : ""), title: value }, value));
+  const s = h("div", { class: "sub" });
+  if (sub) for (const part of [].concat(sub)) {
+    if (typeof part === "string") s.appendChild(document.createTextNode(part));
+    else s.appendChild(part);
+  }
+  t.appendChild(s);
+  return t;
+}
+function deltaNode(cur, prev, label, pct) {
+  if (cur === null || prev === null) return "no previous window yet";
+  const d = cur - prev, dir = Math.abs(d) < 0.005 ? "flat" : d > 0 ? "up" : "down";
+  const span = h("span", { class: "delta", "data-dir": dir },
+    (dir === "up" ? "▲ " : dir === "down" ? "▼ " : "● ") + (pct ? signed(d * 100, 0) + " pp" : signed(d, 2)));
+  const f = document.createDocumentFragment();
+  f.append(span, document.createTextNode(" " + label));
+  return f;
+}
+// Share of episodes with a recorded first room exit; null when the column is absent (older data).
+function exitShare(from, to) {
+  let c = 0, k = 0;
+  for (let i = Math.max(0, from); i < to && i < S.rows.length; i++) {
+    const r = S.rows[i];
+    if (!("steps_to_first_exit" in r)) continue;
+    k++; if (typeof r.steps_to_first_exit === "number") c++;
+  }
+  return k ? c / k : null;
+}
+// Steps per hour from wall_time over the last hour of episodes (or all rows if shorter).
+function throughput() {
+  const n = S.rows.length, t = (r) => Date.parse(r.wall_time || "");
+  if (n < 2 || isNaN(t(S.rows[n - 1]))) return null;
+  const tl = t(S.rows[n - 1]);
+  let i = n - 1;
+  while (i > 0) { const ti = t(S.rows[i - 1]); if (isNaN(ti) || tl - ti > 3600e3) break; i--; }
+  const span = tl - t(S.rows[i]);
+  if (i === n - 1 || !(span >= 60e3)) return null;
+  let steps = 0;
+  for (let j = i + 1; j < n; j++) steps += S.rows[j].timesteps || 0;
+  return { perHour: steps / (span / 3600e3), span };
+}
+function renderTiles() {
+  const n = S.rows.length, N = S.win, rc = column("rooms_cleared");
+  const steps = column("timesteps").reduce((a, b) => a + (b || 0), 0);
+  const stages = column("max_stage"), maxStage = maxOf(stages);
+  const cur = meanRange(rc, n - N, n), prev = n >= 2 * N ? meanRange(rc, n - 2 * N, n - N) : null;
+  let deaths = 0, stalls = 0;
+  for (let i = Math.max(0, n - N); i < n; i++) { const c = category(S.rows[i]); if (c === 0) deaths++; else if (c === 1) stalls++; }
+  const ck = S.ckpt;
+  const ex = exitShare(n - N, n), exPrev = n >= 2 * N ? exitShare(n - 2 * N, n - N) : null;
+  const bombs = column("use_bomb"), bc = meanRange(bombs, n - N, n), bp = n >= 2 * N ? meanRange(bombs, n - 2 * N, n - N) : null;
+  const tp = throughput();
+  const tiles = $("tiles");
+  tiles.replaceChildren(
+    tile("Episodes", n.toLocaleString("en-US"), "completed so far", true),
+    tile("Total steps", compact(steps), ck ? `checkpoint at ${compact(ck.timesteps)}` : "no checkpoint yet"),
+    tile("Best floor reached", String(maxStage), `latest ${Math.min(N, n)}: ${val(maxOf(stages.slice(-N)))}`),
+    tile("Rooms cleared per episode", cur === null ? "-" : trim(cur, 2), deltaNode(cur, prev, `vs previous ${N}`)),
+    tile("Left start room", ex === null ? "-" : Math.round(ex * 100) + "%",
+      ex === null ? "not recorded in this data" : deltaNode(ex, exPrev, `vs previous ${N}`, true)),
+    tile("Bombs per episode", bc === null ? "-" : trim(bc, 2), bc === null ? "not recorded in this data" : deltaNode(bc, bp, `vs previous ${N}`)),
+    tile("Steps per hour", tp ? compact(Math.round(tp.perHour)) : "-", tp ? `wall clock, last ${ago(tp.span)} of episodes` : "needs two episodes a minute apart"),
+    tile(`Deaths vs stalls, last ${Math.min(N, n)}`, `${deaths} / ${stalls}`, "deaths / stall restarts"),
+    tile("Latest checkpoint", ck ? ck.checkpoint_id : "none", ck
+      ? `${ago(nowServer() - Date.parse(ck.created_at))} ago · rollout ${ck.rollout_index ?? "?"}` : "waiting for the first checkpoint", "id"),
+  );
+}
+function renderReward() {
+  const n = S.rows.length, N = S.win;
+  const keys = ["return", ...Object.keys(S.rows[n - 1]).filter((k) => k.startsWith("col_"))];
+  const rows = keys.map((k) => {
+    const v = column(k), cur = meanRange(v, n - N, n), prev = n >= 2 * N ? meanRange(v, n - 2 * N, n - N) : null;
+    return [k === "return" ? "return (total)" : k.slice(4), cur === null ? "-" : cur.toFixed(3),
+      prev === null ? "-" : prev.toFixed(3), cur === null || prev === null ? "-" : signed(cur - prev, 3)];
+  });
+  $("reward-sub").textContent = `Mean per episode over the latest ${N} episodes vs the ${N} before`;
+  fillTable($("reward"), ["Component", `Latest ${N}`, `Previous ${N}`, "Change"], rows);
+}
+function endText(r) {
+  const e = r.end_reason, t = r.truncation_reason;
+  return [e, t && t !== e ? t : null].filter(Boolean).join(" / ") || "-";
+}
+function renderRecent() {
+  const rows = S.rows.slice(-20).reverse().map((r, i) => {
+    const t = r.wall_time ? new Date(r.wall_time) : null;
+    return [String(r.index + 1), t && !isNaN(t) ? t.toLocaleTimeString() : "-", val(r.timesteps), r.return === null ? "-" : r.return.toFixed(2),
+      r.outcome || "-", endText(r),
+      r.damage_dealt_fraction === null ? "-" : r.damage_dealt_fraction.toFixed(2), val(r.rooms_cleared), val(r.max_stage), val(r.pickups_collectible),
+      val(r.use_bomb), val(r.half_hearts_lost), val(r.steps_to_first_exit)];
+  });
+  fillTable($("recent"), ["#", "Time", "Steps", "Return", "Outcome", "End reason", "Damage", "Rooms cleared", "Floor", "Collectibles", "Bombs", "Half-hearts lost", "First exit step"], rows);
+}
+function setChip(el, tone, icon, text) {
+  el.dataset.tone = tone;
+  el.querySelector(".icon").textContent = icon;
+  el.querySelector("span:last-child").textContent = text;
+}
+function statusInfo() {
+  const sup = S.sup;
+  if (!sup) return { tone: "neutral", icon: "?", text: "Supervisor status unavailable", running: false };
+  if (sup.finished) {
+    const r = sup.stop_reason || "unknown";
+    const user = /stop file|ctrl\+c|user cancel/i.test(r);
+    return user ? { tone: "neutral", icon: "■", text: "Stopped: " + r, running: false }
+      : { tone: "critical", icon: "✕", text: "Stopped: " + r, running: false };
+  }
+  switch (sup.state) {
+    case "training": case "checkpointing":
+      return { tone: "good", icon: "✓", text: sup.state === "training" ? "Running: training" : "Running: checkpointing", running: true };
+    case "waiting": return { tone: "warning", icon: "!", text: "Waiting for the game", running: true };
+    case "startup": return { tone: "warning", icon: "!", text: "Starting up", running: true };
+    case "completed": return { tone: "warning", icon: "!", text: "Session finished, next starting", running: true };
+    case "fault": return { tone: "critical", icon: "✕", text: "Fault" + (sup.fault ? ": " + sup.fault : ""), running: false };
+    default: return { tone: "neutral", icon: "?", text: "State: " + sup.state, running: false };
+  }
+}
+function renderHeader() {
+  const title = S.run ? `${S.run} training` : "Training";
+  $("title").textContent = title;
+  document.title = title;
+  $("updated").textContent = S.lastOk ? "Updated " + S.lastOk.toLocaleTimeString() : "Waiting for data";
+  const st = statusInfo();
+  setChip($("status"), st.tone, st.icon, st.text);
+  let stale = null;
+  if (!S.ok) stale = "Connection lost, retrying";
+  else if (st.running && S.rows.length) {
+    const t = Date.parse(S.rows[S.rows.length - 1].wall_time || "");
+    if (!isNaN(t) && nowServer() - t > STALE_MS) stale = `Data stale: no new episode for ${ago(nowServer() - t)}`;
+  }
+  $("stale").hidden = !stale;
+  if (stale) $("stale-text").textContent = stale;
+}
+
+// ---- orchestration ----------------------------------------------------------------------
+const cards = METRICS.map(lineCard), mix = mixCard();
+const trainCards = [...TRAIN_SPECS.map(seriesCard)], actions = actionCard();
+$("charts").append(...cards.map((c) => c.root));
+$("traingrid").append(...trainCards.map((c) => c.root), actions.root);
+$("mixgrid").append(mix.root);
+let dirty = true;
+function renderTrain() {
+  const none = S.train.length === 0;
+  $("traingrid").hidden = none;
+  const e = $("train-empty");
+  e.hidden = !none;
+  $("train-sub").textContent = none ? "" : `${S.train.length.toLocaleString("en-US")} PPO updates; x axis is timesteps`;
+  if (none) {
+    e.replaceChildren(h("h2", {}, "No training statistics yet"),
+      h("p", {}, "The trainer writes one row per PPO update. This section fills in by itself once the first one exists."));
+    const p = h("p", {}, "Expected file: ");
+    p.appendChild(h("code", {}, [S.run, S.trainCsv].filter(Boolean).join("/")));
+    e.appendChild(p);
+    return;
+  }
+  trainCards.forEach((c) => c.update());
+  actions.update();
+}
+function render(force) {
+  renderHeader();
+  const empty = S.loaded && S.total === 0;
+  $("empty").hidden = !empty;
+  $("content").hidden = S.rows.length === 0;
+  if (empty) {
+    const e = $("empty");
+    e.replaceChildren(h("h2", {}, "No episodes yet"),
+      h("p", {}, "Training has not produced any finished episodes yet. This page updates by itself once the first one is written."));
+    const p = h("p", {}, "Expected file: ");
+    p.appendChild(h("code", {}, [S.run, S.csv].filter(Boolean).join("/")));
+    e.appendChild(p);
+  }
+  if (!S.rows.length) return;
+  renderTiles();
+  if (dirty || force) {
+    const xs = xValues();
+    cards.forEach((c) => c.update(xs));
+    mix.update(xs);
+    renderReward();
+    renderRecent();
+    renderTrain();
+    dirty = false;
+  }
+}
+async function poll() {
+  try {
+    for (;;) {
+      const res = await fetch(`/api/state?since=${S.rows.length}&train_since=${S.train.length}`, { cache: "no-store" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const d = await res.json();
+      S.serverOffset = Date.parse(d.server_time) - Date.now();
+      S.ckpt = d.latest_checkpoint; S.sup = d.supervisor; S.run = d.run_root; S.csv = d.expected_csv;
+      S.trainCsv = d.expected_train_csv || S.trainCsv;
+      if (d.total_episodes < S.rows.length) { S.rows = []; dirty = true; continue; } // file was reset
+      if (d.total_train_rows < S.train.length) { S.train = []; dirty = true; continue; }
+      for (const r of d.episodes) S.rows.push(r);
+      for (const r of d.train) S.train.push(r);
+      if (d.episodes.length || d.train.length) dirty = true;
+      S.total = d.total_episodes; S.trainTotal = d.total_train_rows; S.loaded = true; S.ok = true; S.lastOk = new Date();
+      if ((d.episodes.length < 5000 || S.rows.length >= S.total) && (d.train.length < 5000 || S.train.length >= S.trainTotal)) break;
+    }
+  } catch (e) { S.ok = false; }
+  render();
+}
+function setFilters() {
+  S.win = Number($("win").value); S.xmode = $("xmode").value;
+  try { localStorage.setItem("dash-filters", JSON.stringify({ w: S.win, x: S.xmode })); } catch (e) {}
+  dirty = true; render(true);
+}
+try {
+  const f = JSON.parse(localStorage.getItem("dash-filters") || "null");
+  if (f && [20, 50, 200].includes(f.w)) $("win").value = String(f.w);
+  if (f && ["episode", "steps"].includes(f.x)) $("xmode").value = f.x;
+} catch (e) {}
+S.win = Number($("win").value); S.xmode = $("xmode").value;
+$("win").addEventListener("change", setFilters);
+$("xmode").addEventListener("change", setFilters);
+let resizeTimer = 0, lastW = 0;
+new ResizeObserver(() => {
+  const w = document.body.clientWidth;
+  if (w === lastW) return;
+  lastW = w; cancelAnimationFrame(resizeTimer);
+  resizeTimer = requestAnimationFrame(() => { cards.forEach((c) => c.draw()); mix.draw(); trainCards.forEach((c) => c.draw()); actions.draw(); });
+}).observe(document.body);
+poll();
+setInterval(poll, POLL_MS);
+</script>
+</body>
+</html>

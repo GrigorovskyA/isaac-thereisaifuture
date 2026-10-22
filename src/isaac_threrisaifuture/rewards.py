@@ -1,4 +1,4 @@
-"""Event-driven reward ledgers: combat reward-v1 and outcome-only reward-v2.
+"""Event-driven reward ledgers: combat reward-v1 and outcome-only reward-v3.
 
 Coefficients are hypotheses, not tuned values.
 """
@@ -127,8 +127,8 @@ class RewardLedger:
             parts["death"] += c.death
 
 
-DEFAULT_CONFIG_V2 = Path(__file__).resolve().parents[2] / "configs" / "reward-v2.yaml"
-REWARD_V2_COLUMNS = (
+DEFAULT_CONFIG_V3 = Path(__file__).resolve().parents[2] / "configs" / "reward-v3.yaml"
+REWARD_V3_COLUMNS = (
     "enemy_damage",
     "room_clear",
     "room_visit",
@@ -142,8 +142,9 @@ REWARD_V2_COLUMNS = (
     "collectible_new",
     "heal",
     "novelty",
+    "stall",
 )
-_V2_SECTIONS: dict[str, tuple[str, ...]] = {
+_V3_SECTIONS: dict[str, tuple[str, ...]] = {
     "outcome": (
         "enemy_hp_fraction_total",
         "room_clear_first",
@@ -151,6 +152,7 @@ _V2_SECTIONS: dict[str, tuple[str, ...]] = {
         "floor_first_entered",
         "player_damage_half_heart",
         "death",
+        "stall_restart",
         "time_second",
     ),
     "pickups": (
@@ -166,13 +168,14 @@ _V2_SECTIONS: dict[str, tuple[str, ...]] = {
 
 
 @dataclass(frozen=True)
-class RewardV2Coefficients:
+class RewardV3Coefficients:
     enemy_hp_fraction_total: float
     room_clear_first: float
     room_first_visit: float
     floor_first_entered: float
     player_damage_half_heart: float
     death: float
+    stall_restart: float
     time_second: float
     coin: float
     bomb: float
@@ -188,13 +191,13 @@ class RewardV2Coefficients:
             raise ValueError("The consumable cap must be >= 0 and the novelty cell size positive")
 
     @classmethod
-    def load(cls, path: Path = DEFAULT_CONFIG_V2) -> Self:
+    def load(cls, path: Path = DEFAULT_CONFIG_V3) -> Self:
         raw: Any = yaml.safe_load(path.read_text(encoding="utf-8"))
-        top = {"reward_version", "status", *_V2_SECTIONS}
-        if not isinstance(raw, dict) or set(raw) != top or raw["reward_version"] != 2:
-            raise ValueError(f"Reward v2 configuration must define exactly {sorted(top)}")
+        top = {"reward_version", "status", *_V3_SECTIONS}
+        if not isinstance(raw, dict) or set(raw) != top or raw["reward_version"] != 3:
+            raise ValueError(f"Reward v3 configuration must define exactly {sorted(top)}")
         values: dict[str, float] = {}
-        for name, keys in _V2_SECTIONS.items():
+        for name, keys in _V3_SECTIONS.items():
             section = raw[name]
             if not isinstance(section, dict) or set(section) != set(keys):
                 raise ValueError(f"The {name} section must define exactly {keys}")
@@ -207,14 +210,14 @@ class RewardV2Coefficients:
 
 
 @dataclass
-class RewardLedgerV2:
+class RewardLedgerV3:
     """Outcome-only reward with per-term columns; the sum of the columns is the reward.
 
-    "First" sets, the consumable cap, the heal pool and novelty counts belong to a run, so
+    "First" sets, the consumable cap, the heal pool and visited novelty cells belong to a run, so
     they reset only when `begin` sees a new session or game epoch (a new run).
     """
 
-    coefficients: RewardV2Coefficients
+    coefficients: RewardV3Coefficients
     _run: tuple[str, int] | None = None
     # Room indexes repeat on every floor, so rooms are keyed by (stage, room index).
     _visited: set[tuple[int, int]] = field(default_factory=set)
@@ -224,7 +227,7 @@ class RewardLedgerV2:
     _peak: dict[str, int] = field(default_factory=dict)
     _consumable_paid: float = 0.0
     _lost: float = 0.0  # half-hearts lost and not yet paid back by healing
-    _novelty: dict[tuple[int, int, int, int], int] = field(default_factory=dict)
+    _novelty: set[tuple[int, int, int, int]] = field(default_factory=set)
     _initial_hp: dict[tuple[int, int], float] = field(default_factory=dict)
     _removed: dict[tuple[int, int], float] = field(default_factory=dict)
     _damage_fraction: float = 0.0
@@ -247,7 +250,8 @@ class RewardLedgerV2:
         self._run = run
         for seen in (self._visited, self._cleared, self._stages, self._collectibles):
             seen.clear()
-        for table in (self._peak, self._novelty, self._initial_hp, self._removed):
+        self._novelty.clear()
+        for table in (self._peak, self._initial_hp, self._removed):
             table.clear()
         self._consumable_paid = self._lost = self._damage_fraction = 0.0
         self._max_stage = frame.room.stage
@@ -268,7 +272,7 @@ class RewardLedgerV2:
         room_index: int | None = None,
     ) -> tuple[float, dict[str, float]]:
         c = self.coefficients
-        parts = dict.fromkeys(REWARD_V2_COLUMNS, 0.0)
+        parts = dict.fromkeys(REWARD_V3_COLUMNS, 0.0)
         if not self._dead:
             parts["time"] = c.time_second * elapsed_updates / UPDATES_PER_SECOND
         if frame is not None:
@@ -283,9 +287,17 @@ class RewardLedgerV2:
                 math.floor(frame.player_position.x / c.novelty_cell_size),
                 math.floor(frame.player_position.y / c.novelty_cell_size),
             )
-            visits = self._novelty[cell] = self._novelty.get(cell, 0) + 1
-            parts["novelty"] = c.novelty_coefficient / math.sqrt(visits)
+            if cell not in self._novelty:  # first visit of a cell per run; revisits pay nothing
+                self._novelty.add(cell)
+                parts["novelty"] = c.novelty_coefficient
         return sum(parts.values()), parts
+
+    def stall_restart(self) -> float:
+        """Penalty for an episode the watchdog truncated; the env calls it once per episode.
+
+        A dead player was not stalled, so death never pays it.
+        """
+        return 0.0 if self._dead else self.coefficients.stall_restart
 
     def run_stats(self) -> dict[str, Any]:
         """Run-level facts for the episode summary."""

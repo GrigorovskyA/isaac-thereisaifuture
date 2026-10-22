@@ -30,7 +30,8 @@ from .checkpoints import (
 from .entities import OBSERVATION_SCHEMA_VERSION
 
 DEFAULT_CONFIG = Path("configs/training-v1.yaml")  # offline and synthetic runs
-PURE_CONFIG = Path(__file__).resolve().parents[2] / "configs" / "training-pure-v1.yaml"
+PURE_REWARD_VERSION = 3  # the contract must name the reward version this code pays
+PURE_CONFIG = Path(__file__).resolve().parents[2] / "configs" / "training-pure-v2.yaml"
 TEMPLATE_STATUS = "template_not_executable_yet"
 StopReason = Literal["completed", "wall_time", "disk_limit", "timesteps"]
 
@@ -91,7 +92,7 @@ class PureContract(BaseModel):
     action_repeat_game_updates: Annotated[int, Field(gt=0)]
     observation_schema_version: int
     action_schema_version: int
-    reward_version: Literal[2]
+    reward_version: int
 
 
 class Hyperparameters(BaseModel):
@@ -184,6 +185,8 @@ def load_training_config(path: Path = DEFAULT_CONFIG) -> tuple[AnyTrainingConfig
                 or contract.action_schema_version != ACTION_SCHEMA_VERSION
             ):
                 raise TrainingConfigError("Contract schema versions do not match this code")
+            if contract.reward_version != PURE_REWARD_VERSION:
+                raise TrainingConfigError("Contract reward version does not match this code")
             if pure.hyperparameters.batch_size > pure.hyperparameters.n_steps:
                 raise TrainingConfigError("batch_size must not exceed n_steps")
             return pure, config_hash(raw["contract"])
@@ -304,6 +307,7 @@ def train(
     reward_contract: RewardContract = "combat-v1",
     run_deadline: float | None = None,
     on_progress: Callable[[str, Any], None] | None = None,
+    train_metrics_path: Path | None = None,
 ) -> TrainingResult:
     """Train in n_steps chunks; checkpoint after each chunk; stop on any hard budget limit.
 
@@ -337,6 +341,8 @@ def train(
     import torch
     from stable_baselines3.common.monitor import Monitor
     from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
+
+    from .training_metrics import TrainMetricsCallback
 
     if config.algorithm == "RecurrentPPO":
         from sb3_contrib import RecurrentPPO as Algo
@@ -394,6 +400,7 @@ def train(
         if isinstance(config, PureTrainingConfig)
         else None
     )
+    metrics_callback = TrainMetricsCallback(train_metrics_path) if train_metrics_path else None
     started = time.monotonic()
     deadline = started + config.budget.wall_time_minutes * 60
     if run_deadline is not None:
@@ -409,7 +416,11 @@ def train(
             if checkpoints.exists() and _dir_size_mb(checkpoints) > config.budget.disk_limit_mb:
                 reason = "disk_limit"
                 break
-            model.learn(total_timesteps=hyper["n_steps"], reset_num_timesteps=False)
+            model.learn(
+                total_timesteps=hyper["n_steps"],
+                reset_num_timesteps=False,
+                callback=metrics_callback,
+            )
             done = int(model.num_timesteps)
             rng = capture_rng_state()
             rng["torch"] = torch.get_rng_state().tolist()

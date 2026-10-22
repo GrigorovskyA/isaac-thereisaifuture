@@ -8,7 +8,7 @@ Current since 2026-10-22 (`docs/UPDATE_DECISION.md`, OpenSpec change
 
 One RecurrentPPO agent (`MlpLstmPolicy`, CPU) plays Repentance+ on file 2 through
 the Lua bridge and learns from experience only. It is trained continuously as one
-lineage (`pure-v1`). The long-term goal is Dead God; the honest near-term goal is
+lineage (`pure-v2`). The long-term goal is Dead God; the honest near-term goal is
 learning to damage and kill enemies, survive rooms, pick up items and progress.
 
 Principles:
@@ -42,24 +42,27 @@ buttons are a one-shot press per accepted command. Commands are bound to
 session, epoch, room visit and frame; stale or replayed commands are refused and
 input is released on expiry, disconnect, fault and stop.
 
-## Reward v2 (`configs/reward-v2.yaml`)
+## Reward v3 (`configs/reward-v3.yaml`)
 
 | Term | Value | Rule |
 | --- | --- | --- |
-| Enemy damage | 2.0 per full enemy HP | monotonic per enemy |
-| First room clear | 3.0 | per (stage, room) per run |
-| First room visit | 1.0 | per (stage, room) per run; start room free |
+| Enemy damage | 5.0 per full enemy HP | monotonic per enemy |
+| First room clear | 10.0 | per (stage, room) per run |
+| First room visit | 3.0 | per (stage, room) per run; start room free |
 | First floor entry | 10.0 | per stage per run; start floor free |
-| Health lost | -2.0 per half-heart | |
+| Health lost | -1.0 per half-heart | |
 | Death | -10.0 | terminal |
+| Stall restart | -5.0 | once, on the final step of an episode truncated by the stall watchdog; never with death |
 | Time | -0.005 per second | active time only |
 | Coin / bomb / key | 0.05 / 0.1 / 0.1 | only above the run's peak count; shared cap 3.0 per run |
 | New collectible | 1.0 | per item ID per run |
 | Healing | 0.5 per half-heart | only up to health lost earlier in the run |
-| Novelty | 0.02 / sqrt(n) | per (stage, room, 40-unit cell) per run |
+| Novelty | 0.02 | first visit only, per (stage, room, 40-unit cell) per run (about 1.8 for a full 1x1 room) |
 
 There is no reward for using items; item value and synergies must show up through
-combat and progress. Ledger columns are logged separately.
+combat and progress. Ledger columns are logged separately. Reward v2 paid most
+for idling (novelty grew like 2*sqrt(n) and a stall restart was free), so it
+was replaced and its lineage `pure-v1` retired; its config is in `archive/configs/`.
 
 ## Episodes and restarts
 
@@ -70,12 +73,16 @@ disconnects are infrastructure faults, never stalls, and are not learning outcom
 
 ## Continuous training
 
-`configs/training-pure-v1.yaml`: the `contract` section (seed, algorithm, LSTM
+`configs/training-pure-v2.yaml` (lineage `pure-v2`): the `contract` section (seed, algorithm, LSTM
 size, action repeat, observation/action/reward versions) is the lineage hash;
 `hyperparameters` may be tuned between sessions and are recorded per checkpoint.
 Weights, optimizer state, normalizer and RNG always resume from `latest`. A
 checkpoint is published after every rollout; retention keeps the 5 newest plus
-every 50th. Each episode appends a row to `metrics/episodes.csv`.
+every 200th (about one per 3 h; kept for rollback and frozen comparison). Each episode appends a row to `metrics/episodes.csv` (including use presses,
+half-hearts lost, steps to first room exit and first enemy damage). Each optimizer
+update appends a row to `metrics/train.csv`: SB3 train statistics (entropy,
+policy/value loss, approx KL, clip fraction, explained variance, learning rate,
+`n_updates`) and the rollout action share per head.
 
 ## Measuring progress
 

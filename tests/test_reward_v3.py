@@ -1,9 +1,8 @@
-"""Reward v2 terms, exploit bounds, new oracle events and episode semantics. All offline."""
+"""Reward v3 terms, exploit bounds, new oracle events and episode semantics. All offline."""
 
 import copy
 import csv
 import json
-import math
 from pathlib import Path
 
 import numpy as np
@@ -20,14 +19,14 @@ from isaac_threrisaifuture.episodes import Scenario, StepResult
 from isaac_threrisaifuture.live import LIVE_SCENARIO, EventDeriver, LiveSnapshot
 from isaac_threrisaifuture.recording import JsonlRecorder, open_replay
 from isaac_threrisaifuture.rewards import (
-    DEFAULT_CONFIG_V2,
-    REWARD_V2_COLUMNS,
-    RewardLedgerV2,
-    RewardV2Coefficients,
+    DEFAULT_CONFIG_V3,
+    REWARD_V3_COLUMNS,
+    RewardLedgerV3,
+    RewardV3Coefficients,
 )
 
 SESSION = "a" * 32
-COEF = RewardV2Coefficients.load()
+COEF = RewardV3Coefficients.load()
 
 
 def live(seq, *, epoch=1, room=84, stage=1, coins=0, bombs=0, keys=0, items=(), red=6, dead=False):
@@ -59,12 +58,14 @@ def derived(deriver, snap):
 
 
 def test_coefficients_load_the_shipped_file():
-    assert COEF.room_clear_first == 3.0 and COEF.consumable_run_cap == 3.0
+    assert COEF.room_clear_first == 10.0 and COEF.consumable_run_cap == 3.0
     assert COEF.novelty_cell_size == 40 and COEF.novelty_coefficient == 0.02
+    assert COEF.enemy_hp_fraction_total == 5.0 and COEF.player_damage_half_heart == -1.0
+    assert COEF.stall_restart == -5.0 and COEF.death == -10.0
 
 
 def test_coefficient_keys_are_strict(tmp_path: Path):
-    raw = yaml.safe_load(DEFAULT_CONFIG_V2.read_text(encoding="utf-8"))
+    raw = yaml.safe_load(DEFAULT_CONFIG_V3.read_text(encoding="utf-8"))
     for mutate in (
         lambda r: r["outcome"].pop("death"),
         lambda r: r["pickups"].update(extra=1.0),
@@ -78,14 +79,14 @@ def test_coefficient_keys_are_strict(tmp_path: Path):
         path = tmp_path / "bad.yaml"
         path.write_text(yaml.safe_dump(bad), encoding="utf-8")
         with pytest.raises(ValueError):
-            RewardV2Coefficients.load(path)
+            RewardV3Coefficients.load(path)
 
 
 # --- ledger terms -------------------------------------------------------------------
 
 
-def ledger(start_frame=None, room=1) -> RewardLedgerV2:
-    ledger = RewardLedgerV2(COEF)
+def ledger(start_frame=None, room=1) -> RewardLedgerV3:
+    ledger = RewardLedgerV3(COEF)
     ledger.reset(1)
     ledger.begin(start_frame or frame(), room)
     return ledger
@@ -117,7 +118,7 @@ def test_each_term_has_its_own_column_and_columns_sum_to_the_reward():
         event("player_healed", amount=1.0),
     ]
     total, parts = ledger_.consume(events, 30)  # one second
-    assert set(parts) == set(REWARD_V2_COLUMNS)
+    assert set(parts) == set(REWARD_V3_COLUMNS)
     assert parts["enemy_damage"] == pytest.approx(COEF.enemy_hp_fraction_total / 2)
     assert parts["room_clear"] == COEF.room_clear_first
     assert parts["room_visit"] == COEF.room_first_visit
@@ -266,14 +267,12 @@ def test_new_run_resets_sets_caps_and_heal_pool():
     assert consume(ledger_, event("player_healed", amount=2.0))[1]["heal"] == 0.0  # no loss yet
 
 
-def test_standing_still_novelty_decreases_toward_zero():
+def test_standing_still_pays_novelty_once():
     ledger_ = ledger()
     here = frame()
     values = [ledger_.consume([], 0, here, 1)[1]["novelty"] for _ in range(400)]
     assert values[0] == COEF.novelty_coefficient
-    assert all(a > b for a, b in zip(values, values[1:], strict=False))
-    assert values[-1] == pytest.approx(COEF.novelty_coefficient / math.sqrt(400))
-    assert values[-1] < 0.1 * values[0]
+    assert sum(values) == COEF.novelty_coefficient  # nothing after the first visit
 
 
 def test_novelty_keys_are_room_and_cell_and_a_new_cell_is_fresh():
@@ -282,13 +281,33 @@ def test_novelty_keys_are_room_and_cell_and_a_new_cell_is_fresh():
     base = COEF.novelty_coefficient
     cell = COEF.novelty_cell_size
     assert at(1.0, 1)["novelty"] == base
-    assert at(cell - 1, 1)["novelty"] == pytest.approx(base / math.sqrt(2))  # same cell
+    assert at(cell - 1, 1)["novelty"] == 0.0  # same cell, already visited
     assert at(cell + 1, 1)["novelty"] == base  # next cell
     assert at(1.0, 2)["novelty"] == base  # same cell, other room
+    assert at(1.0, 1)["novelty"] == 0.0  # back in room 1: still paid once per run
+
+
+def test_novelty_is_paid_again_only_in_a_new_run():
+    ledger_ = ledger()
+    here = frame()
+    assert ledger_.consume([], 0, here, 1)[1]["novelty"] == COEF.novelty_coefficient
+    ledger_.reset(2)
+    ledger_.begin(here, 1)  # same session and epoch: still the same run
+    assert ledger_.consume([], 0, here, 1)[1]["novelty"] == 0.0
+    ledger_.reset(3)
+    ledger_.begin(frame(game_epoch=2), 1)
+    assert ledger_.consume([], 0, here, 1)[1]["novelty"] == COEF.novelty_coefficient
+
+
+def test_stall_penalty_is_the_configured_term_and_death_never_pays_it():
+    ledger_ = ledger()
+    assert ledger_.stall_restart() == COEF.stall_restart
+    consume(ledger_, event("player_died"))
+    assert ledger_.stall_restart() == 0.0
 
 
 def test_no_item_use_term_exists():
-    assert not any("use" in name or "item" in name for name in REWARD_V2_COLUMNS)
+    assert not any("use" in name or "item" in name for name in REWARD_V3_COLUMNS)
 
 
 # --- event derivation ---------------------------------------------------------------
@@ -410,7 +429,7 @@ class Script:
 
 
 def run_env(steps, scenario=LIVE_SCENARIO, truncate_at=None):
-    env = IsaacCombatEnv(Script(steps), [scenario], accountant=RewardLedgerV2(COEF))
+    env = IsaacCombatEnv(Script(steps), [scenario], accountant=RewardLedgerV3(COEF))
     env.reset()
     results = []
     for index in range(len(steps)):
@@ -476,6 +495,27 @@ def test_truncation_has_a_reason_in_step_info_and_summary():
     assert results[0][4]["truncation_reason"] is None
 
 
+def test_stall_truncation_pays_the_penalty_once_on_the_final_step():
+    steps = [(2, [], 1), (3, [], 1), (4, [], 1)]
+    _, results = run_env(steps, truncate_at=1)
+    assert results[0][4]["reward_components"].get("stall", 0.0) == 0.0
+    _, reward, _, truncated, info = results[-1]
+    assert truncated and info["reward_components"]["stall"] == COEF.stall_restart
+    summary = info["episode_summary"]
+    assert summary["columns"]["stall"] == COEF.stall_restart  # exactly once
+    assert summary["return"] == pytest.approx(sum(summary["columns"].values()))
+    assert reward == pytest.approx(sum(info["reward_components"].values()))
+
+
+def test_other_truncations_and_death_do_not_pay_the_stall_penalty():
+    capped = Scenario("capped", "train", 1, 2, 0, 1.0, True, False)
+    _, results = run_env([(2, [], 1), (3, [], 1), (4, [], 1)], scenario=capped)
+    assert results[-1][3] and results[-1][4]["episode_summary"]["columns"]["stall"] == 0.0
+    _, results = run_env([(2, [("player_died", {})], 1), (3, [], 1)], truncate_at=0)
+    info = results[-1][4]
+    assert info["episode_summary"]["columns"].get("stall", 0.0) == 0.0
+
+
 def test_scenario_cap_still_truncates_when_set():
     capped = Scenario("capped", "train", 1, 2, 0, 1.0, True, False)
     _, results = run_env([(2, [], 1), (3, [], 1), (4, [], 1)], scenario=capped)
@@ -493,6 +533,83 @@ def test_summary_counts_damage_fraction_and_clears():
     s = results[-1][4]["episode_summary"]
     assert s["damage_dealt_fraction"] == pytest.approx(0.4)
     assert s["rooms_cleared"] == 1
+
+
+def test_summary_adds_use_counts_hearts_lost_and_first_exit_and_damage():
+    steps = [
+        (2, [], 1),
+        (3, [("enemy_spawned", dict(entity_id=1, spawn_generation=0, amount=10.0))], 1),
+        (4, [("enemy_damaged", dict(entity_id=1, spawn_generation=0, amount=4.0))], 1),
+        (5, [("player_damaged", dict(amount=2.0, damage_source="enemy"))], 2),
+        (6, [("player_damaged", dict(amount=1.0, damage_source="enemy"))], 2),
+        (7, [("player_died", {})], 2),
+    ]
+    uses = [0, 1, 1, 2, 3, 0]
+    env = IsaacCombatEnv(Script(steps), [LIVE_SCENARIO], accountant=RewardLedgerV3(COEF))
+    env.reset()
+    info = {}
+    for use in uses:
+        info = env.step(np.array([0, 0, use]))[4]
+    s = info["episode_summary"]
+    assert (s["use_bomb"], s["use_active"], s["use_pillcard"]) == (2, 1, 1)
+    assert s["half_hearts_lost"] == 3.0
+    assert s["steps_to_first_damage"] == 3 and s["steps_to_first_exit"] == 4
+
+
+def test_summary_leaves_exit_and_damage_empty_when_they_never_happen(tmp_path: Path):
+    _, results = run_env([(2, [], 1), (3, [("player_died", {})], 1)])
+    s = results[-1][4]["episode_summary"]
+    assert s["steps_to_first_exit"] is None and s["steps_to_first_damage"] is None
+    writer = EpisodeMetricsWriter(tmp_path / "e.csv")
+    writer.write(s)
+    row = next(csv.DictReader((tmp_path / "e.csv").open(encoding="utf-8")))
+    assert row["steps_to_first_exit"] == "" and row["use_bomb"] == "0" and "col_stall" in row
+    assert FIELDS[-1] == "wall_time"
+
+
+# --- exploit bounds -------------------------------------------------------------------
+
+
+def idle_until_stall_return():
+    """Wander every cell (13 x 7) of a full room for 90 s of an empty fight, then stall out."""
+    ledger_ = ledger()
+    total = 0.0
+    cell = COEF.novelty_cell_size
+    steps = 90 * 30 // 3
+    for step in range(steps):
+        x, y = (step % 13) * cell + 1, (step // 13 % 7) * cell + 1
+        total += ledger_.consume([], 3, frame(player_position={"x": x, "y": y}), 1)[0]
+    return total + ledger_.stall_restart()
+
+
+def test_idle_until_stall_returns_less_than_one_kill_one_heart_and_a_first_clear():
+    ledger_ = ledger()
+    total, _ = ledger_.consume(
+        [
+            event("enemy_spawned", entity_id=1, spawn_generation=0, amount=10.0),
+            event("enemy_damaged", entity_id=1, spawn_generation=0, amount=10.0),
+            event("player_damaged", amount=2.0, damage_source="enemy"),
+            event("room_cleared", room_index=1),
+        ],
+        30 * 30,
+        frame(),
+        1,
+    )
+    idle = idle_until_stall_return()
+    assert idle < 0 < total
+    assert idle < total - COEF.room_clear_first  # even without the clear bonus
+
+
+def test_novelty_of_an_idle_episode_is_bounded_by_the_cells_reached():
+    ledger_ = ledger()
+    cell = COEF.novelty_cell_size
+    paid = sum(
+        ledger_.consume([], 0, frame(player_position={"x": (i % 3) * cell + 1, "y": 1.0}), 1)[1][
+            "novelty"
+        ]
+        for i in range(1000)
+    )
+    assert paid == pytest.approx(3 * COEF.novelty_coefficient)
 
 
 # --- metrics file -------------------------------------------------------------------

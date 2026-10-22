@@ -20,12 +20,13 @@ and the exact run plan before game control.
 
 ## Pure profile standing authority (user decision 2026-10-22)
 
-Applies only to the pure self-learning profile (`configs/training-pure-v1.yaml`,
-lineage `pure-v1`, `docs/UPDATE_DECISION.md`):
+Applies only to the pure self-learning profile (`configs/training-pure-v2.yaml`,
+lineage `pure-v2`, `docs/UPDATE_DECISION.md`):
 
-- Continuous training of the one `pure-v1` lineage is authorized. The forever
+- Continuous training of the one `pure-v2` lineage is authorized. The forever
   supervisor (`session_runner --forever`) may run bounded sessions back to back,
-  each within the Lua lease (8 h), always resuming `latest`.
+  each within the Lua lease (8 h), always resuming `latest`. Lineage `pure-v1` is
+  preserved on disk and is not resumed (its contract differs: reward v2).
 - New Run after death and after a stall-watchdog restart is authorized without a
   count limit (approval `max_restarts` 0). Restart pacing still applies.
 - Sessions stop on the stop file, Ctrl+C, the disk cap or the consecutive

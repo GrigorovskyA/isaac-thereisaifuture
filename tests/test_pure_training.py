@@ -30,6 +30,7 @@ from isaac_threrisaifuture.training import (
     load_training_config,
     train,
 )
+from isaac_threrisaifuture.training_metrics import TRAIN_FIELDS
 
 TOY = Scenario("toy", "validation", 1, 90, enemy_count=2, enemy_hp=7.0)
 RAW: dict[str, Any] = yaml.safe_load(PURE_CONFIG.read_text("utf-8"))
@@ -83,6 +84,63 @@ def test_pure_config_loads_and_hashes_only_the_contract(tmp_path):
 def test_pure_config_is_strict(tmp_path, section, change):
     with pytest.raises(TrainingConfigError):
         load_training_config(write_config(tmp_path / "x.yaml", **{section: change}))
+
+
+def test_pure_v2_config_requires_reward_v3_and_refuses_pure_v1(tmp_path):
+    config, digest = load_training_config(PURE_CONFIG)
+    assert config.status == "pure_v2" and config.contract.reward_version == 3
+    assert PURE_CONFIG.name == "training-pure-v2.yaml"
+    old = Path(__file__).parents[1] / "archive" / "configs" / "training-pure-v1.yaml"
+    with pytest.raises(TrainingConfigError, match="reward version"):
+        load_training_config(old)
+    assert config_hash(yaml.safe_load(old.read_text("utf-8"))["contract"]) != digest
+    with pytest.raises(TrainingConfigError):
+        load_training_config(write_config(tmp_path / "x.yaml", contract={"reward_version": 2}))
+
+
+def test_pure_v1_checkpoints_are_refused_by_the_pure_v2_lineage(tmp_path):
+    out = tmp_path / "run"
+    path = write_config(tmp_path / "c.yaml")
+    run(path, out, 32)
+    config, digest = load_training_config(path)
+    old_digest = config_hash({**config.contract.model_dump(), "reward_version": 2})
+    assert old_digest != digest
+    with pytest.raises(CheckpointError):  # a checkpoint of the old contract hash
+        train(config, old_digest, seed=1, env_factory=synthetic_env, out_dir=out, resume=True,
+              reward_contract="pure-v3")  # fmt: skip
+
+
+def test_train_csv_has_one_aligned_row_per_update_with_action_shares(tmp_path):
+    out = tmp_path / "run"
+    metrics = out / "metrics" / "train.csv"
+    config, digest = load_training_config(write_config(tmp_path / "c.yaml"))
+    for steps in (64, 128):  # two sessions append to the same file
+        train(config, digest, seed=1, env_factory=synthetic_env, out_dir=out / "seed-1",
+              max_timesteps=steps, resume=steps > 64, reward_contract="pure-v3",
+              train_metrics_path=metrics)  # fmt: skip
+    rows = list(csv.DictReader(metrics.open(encoding="utf-8")))
+    assert [r["timesteps"] for r in rows] == ["32", "64", "96", "128"]
+    assert [r["rollout_index"] for r in rows] == ["0", "1", "2", "3"]
+    assert list(rows[0]) == list(TRAIN_FIELDS)
+    assert [float(r["n_updates"]) for r in rows[:2]] == [1.0, 2.0]  # this update, not the last
+    for row in rows:
+        for head in ("move", "shoot", "use"):
+            assert sum(float(v) for k, v in row.items() if k.startswith(head + "_")) == (
+                pytest.approx(1.0)
+            )
+        assert row["entropy_loss"] != "" and row["value_loss"] != "" and row["wall_time"]
+
+
+def test_train_csv_write_failure_is_logged_once_and_training_continues(tmp_path, caplog):
+    out = tmp_path / "run"
+    blocked = tmp_path / "blocked"
+    blocked.write_text("a file, not a directory", "utf-8")
+    config, digest = load_training_config(write_config(tmp_path / "c.yaml"))
+    result = train(config, digest, seed=1, env_factory=synthetic_env, out_dir=out,
+                   max_timesteps=64, reward_contract="pure-v3",
+                   train_metrics_path=blocked / "train.csv")  # fmt: skip
+    assert result.timesteps == 64
+    assert len([r for r in caplog.records if "Training metrics disabled" in r.message]) == 1
 
 
 def test_pure_config_rejects_missing_section_and_stale_schema(tmp_path):
@@ -260,7 +318,7 @@ def run(path: Path, out: Path, steps: int, **kwargs: Any) -> Any:
         env_factory=synthetic_env,
         out_dir=out,
         max_timesteps=steps,
-        reward_contract="pure-v2",
+        reward_contract="pure-v3",
         **kwargs,
     )
 
@@ -313,10 +371,10 @@ def test_resume_refuses_contract_change_and_missing_state(tmp_path):
     config, digest = load_training_config(changed)
     with pytest.raises(CheckpointError, match="different training configuration"):
         train(config, digest, seed=1, env_factory=factory, out_dir=out, resume=True,
-              reward_contract="pure-v2")  # fmt: skip
+              reward_contract="pure-v3")  # fmt: skip
     with pytest.raises(CheckpointError, match="No checkpoint to resume"):
         train(config, digest, seed=1, env_factory=factory, out_dir=tmp_path / "empty",
-              resume=True, reward_contract="pure-v2")  # fmt: skip
+              resume=True, reward_contract="pure-v3")  # fmt: skip
     assert not created
 
 
@@ -342,7 +400,7 @@ def test_live_train_wires_watchdog_fault_cap_and_metrics(tmp_path, monkeypatch):
     rows = list(csv.DictReader((tmp_path / "out/metrics/episodes.csv").open(encoding="utf-8")))
     assert rows
     manifest = cp.read_manifest(cp.latest_checkpoint_dir(tmp_path / "out/seed-1/checkpoints"))
-    assert manifest.hyperparameters is not None and manifest.reward_contract == "pure-v2"
+    assert manifest.hyperparameters is not None and manifest.reward_contract == "pure-v3"
 
 
 # --- forever supervisor ----------------------------------------------------------------------
@@ -379,7 +437,7 @@ def test_forever_resumes_latest_after_each_lease_end_until_stop_file(forever):
             timesteps=len(plans) * 10,
             parent_checkpoint_id=parent,
             rng_state={},
-            reward_contract="pure-v2",
+            reward_contract="pure-v3",
         )
         if len(plans) == 3:
             options.stop_file.touch()
@@ -460,7 +518,7 @@ def test_forever_refuses_a_changed_contract_and_stops_on_ctrl_c(forever, tmp_pat
     cp.save_checkpoint(
         root, model=Artifact(b"m"), vec_normalize=Artifact(b"n"), algorithm="RecurrentPPO",
         cfg_hash=digest, seed=1, timesteps=10, parent_checkpoint_id=None, rng_state={},
-        reward_contract="pure-v2",
+        reward_contract="pure-v3",
     )  # fmt: skip
 
     def interrupt(plan: runner.SessionPlan) -> dict[str, Any]:

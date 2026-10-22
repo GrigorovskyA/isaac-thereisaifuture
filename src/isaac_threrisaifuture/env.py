@@ -19,6 +19,21 @@ from .episodes import ACTION_NVEC, Action, EpisodeController, GameBackend, Scena
 UPDATES_PER_SECOND = 30  # game logic updates per second; rendering is 60 FPS and not used here
 
 
+_USE_NAMES = {1: "use_bomb", 2: "use_active", 3: "use_pillcard"}
+
+
+def _new_facts() -> dict[str, Any]:
+    """Per-episode facts for the summary; None means it did not happen."""
+    return {
+        "use_bomb": 0,
+        "use_active": 0,
+        "use_pillcard": 0,
+        "half_hearts_lost": 0.0,
+        "steps_to_first_exit": None,
+        "steps_to_first_damage": None,
+    }
+
+
 class RewardAccountant(Protocol):
     """Turns oracle events into reward. Implemented by the reward ledger (item 07)."""
 
@@ -31,7 +46,7 @@ class RewardAccountant(Protocol):
 
 @runtime_checkable
 class StateAwareAccountant(RewardAccountant, Protocol):
-    """An accountant that also sees the frame and the oracle room index (reward v2)."""
+    """An accountant that also sees the frame and the oracle room index (reward v3)."""
 
     def begin(self, frame: EntityFrame, room_index: int | None) -> None: ...
 
@@ -44,6 +59,8 @@ class StateAwareAccountant(RewardAccountant, Protocol):
     ) -> tuple[float, dict[str, float]]: ...
 
     def run_stats(self) -> dict[str, Any]: ...
+
+    def stall_restart(self) -> float: ...
 
 
 class IsaacCombatEnv(gym.Env[NDArray[np.float32], NDArray[np.int64]]):
@@ -69,6 +86,8 @@ class IsaacCombatEnv(gym.Env[NDArray[np.float32], NDArray[np.int64]]):
         self.action_space = gym.spaces.MultiDiscrete(list(ACTION_NVEC))
         self._return = 0.0
         self._columns: dict[str, float] = {}
+        self._facts = _new_facts()
+        self._start_room: int | None = None
 
     def request_truncation(self, reason: str) -> None:
         """Truncate the running episode after its next step; the reason reaches step info."""
@@ -87,6 +106,8 @@ class IsaacCombatEnv(gym.Env[NDArray[np.float32], NDArray[np.int64]]):
         transition = self.controller.start(chosen, game_seed)
         self._return = 0.0
         self._columns = {}
+        self._facts = _new_facts()
+        self._start_room = transition.room_index
         if self.accountant is not None:
             self.accountant.reset(transition.episode_id)
             if isinstance(self.accountant, StateAwareAccountant):
@@ -117,6 +138,15 @@ class IsaacCombatEnv(gym.Env[NDArray[np.float32], NDArray[np.int64]]):
                 )
             else:
                 reward, components = self.accountant.consume(transition.events, elapsed)
+            if (
+                transition.truncated
+                and transition.truncation_reason == "stall"
+                and isinstance(self.accountant, StateAwareAccountant)
+            ):
+                stall = self.accountant.stall_restart()  # once: the episode ends here
+                reward += stall
+                components = {**components, "stall": stall}
+        self._note_facts(transition, int(action[2]), components)
         self._return += reward
         for name, value in components.items():
             self._columns[name] = self._columns.get(name, 0.0) + value
@@ -127,6 +157,21 @@ class IsaacCombatEnv(gym.Env[NDArray[np.float32], NDArray[np.int64]]):
             info["episode_summary"] = self._summary(transition)
         obs = self._observe(transition.frame, info)
         return obs, reward, transition.terminated, transition.truncated, info
+
+    def _note_facts(self, transition: Transition, use: int, components: dict[str, float]) -> None:
+        facts = self._facts
+        if use in _USE_NAMES:
+            facts[_USE_NAMES[use]] += 1
+        for event in transition.events:
+            if event.kind == "player_damaged":
+                facts["half_hearts_lost"] += event.amount or 0.0
+        if facts["steps_to_first_damage"] is None and components.get("enemy_damage", 0.0) > 0:
+            facts["steps_to_first_damage"] = transition.step_index
+        room = transition.room_index
+        if self._start_room is None:
+            self._start_room = room
+        elif facts["steps_to_first_exit"] is None and room is not None and room != self._start_room:
+            facts["steps_to_first_exit"] = transition.step_index
 
     def close(self) -> None:
         self.controller.close()
@@ -147,6 +192,7 @@ class IsaacCombatEnv(gym.Env[NDArray[np.float32], NDArray[np.int64]]):
             "end_reason": transition.outcome,
             "truncation_reason": transition.truncation_reason,
             **stats,
+            **self._facts,
         }
 
     def _emit(self, transition: Transition) -> None:

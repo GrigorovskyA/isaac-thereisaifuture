@@ -24,7 +24,7 @@ from isaac_threrisaifuture.live import (
     run_live,
 )
 from isaac_threrisaifuture.observer_client import ObserverConfig
-from isaac_threrisaifuture.rewards import RewardLedgerV2, RewardV2Coefficients
+from isaac_threrisaifuture.rewards import RewardLedgerV3, RewardV3Coefficients
 
 SOCKET_SHIM = """
 local tcp = {
@@ -135,12 +135,12 @@ def world():
     assert game.error is None
 
 
-COEF = RewardV2Coefficients.load()
+COEF = RewardV3Coefficients.load()
 
 
 def make_env(client):
     backend = LiveBackend(client, restart_timeout=20.0)
-    ledger = RewardLedgerV2(COEF)
+    ledger = RewardLedgerV3(COEF)
     events = []
     env = IsaacCombatEnv(backend, [LIVE_SCENARIO], accountant=ledger, oracle_sink=events.append)
     return FaultTolerantEnv(env, max_faults=0), events

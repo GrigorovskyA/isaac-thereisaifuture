@@ -17,7 +17,7 @@ protocol), `archive/` holds that code.
 | `stall_watchdog.py` | Stall detection that truncates and requests a restart |
 | `episodes.py`, `env.py` | Episode controller and Gymnasium env (`MultiDiscrete([5,5,4])`, 1837 floats) |
 | `encoding.py` | Observation schema 3 encoder |
-| `rewards.py` | Reward v1 (offline sim) and reward v2 ledger |
+| `rewards.py` | Reward v1 (offline sim) and reward v3 ledger |
 | `episode_metrics.py` | Per-episode CSV rows |
 | `training.py`, `checkpoints.py` | Continuous RecurrentPPO training, lineage, retention |
 | `session_runner.py` | Windows supervisor, single session or forever |

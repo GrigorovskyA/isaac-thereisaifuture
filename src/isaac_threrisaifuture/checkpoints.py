@@ -23,7 +23,7 @@ from .entities import OBSERVATION_SCHEMA_VERSION
 CHECKPOINT_SCHEMA_VERSION: Literal[2] = 2
 ACTION_SCHEMA_VERSION = 2
 REWARD_SCHEMA_VERSION = 1
-RewardContract = Literal["combat-v1", "pure-v2"]
+RewardContract = Literal["combat-v1", "pure-v3"]
 
 MANIFEST_NAME = "manifest.json"
 LATEST_POINTER = "latest.txt"

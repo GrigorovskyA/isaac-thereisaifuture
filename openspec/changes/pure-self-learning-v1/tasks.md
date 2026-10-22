@@ -19,4 +19,4 @@
 
 - [x] 4.1 Update README, ROADMAP, STATUS, ARCHITECTURE, RL_DESIGN, RUNTIME_AUTHORITY, AGENTS and `openspec/config.yaml`; strict OpenSpec validation and full offline gate.
 - [x] 4.2 Run `scripts/Check.ps1` on native Windows.
-- [ ] 4.3 Run one bounded native session: schema 3 frames, an accepted use-item press, a stall restart, a death restart and a reloadable checkpoint; record evidence or keep this task open.
+- [x] 4.3 Run one bounded native session: schema 3 frames, an accepted use-item press, a stall restart, a death restart and a reloadable checkpoint; record evidence or keep this task open.

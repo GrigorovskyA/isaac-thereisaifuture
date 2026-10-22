@@ -50,7 +50,7 @@ APPROVAL_NAME = "action_authorization.json"
 TRAINING_MAX_SECONDS = 28800  # mirrors Config.training_max_seconds in main.lua
 MAX_RESTARTS = 5000
 MAX_REWARD_IDENTITIES = 4096
-LIVE_REWARD_CONTRACT: Literal["pure-v2"] = "pure-v2"
+LIVE_REWARD_CONTRACT: Literal["pure-v3"] = "pure-v3"
 _CONSUMABLES: tuple[Literal["coin", "bomb", "key"], ...] = ("coin", "bomb", "key")
 SNAPSHOT_BACKLOG = 512
 ACK_TIMEOUT = 1.0
@@ -702,22 +702,22 @@ def make_live_env(
     oracle_sink: Callable[[OracleEvent], None] | None = None,
     run_deadline: float | None = None,
     stop_file: Path | None = None,
-    reward_version: Literal[1, 2] = 2,
+    reward_version: Literal[1, 3] = 3,
     stall_seconds: float | None = None,
     clock: Callable[[], float] = time.monotonic,
     max_consecutive_faults: int | None = None,
 ) -> FaultTolerantEnv:
-    """Live env; the pure profile pays reward v2 (v1 stays selectable for old comparisons).
+    """Live env; the pure profile pays reward v3 (v1 stays selectable for old comparisons).
 
     With `stall_seconds`, a stall truncates the episode with reason `stall` and sends
     one restart command. Leave it unset for attach-only runs such as evaluation.
     """
     from .env import IsaacCombatEnv, RewardAccountant
-    from .rewards import CombatCoefficients, RewardLedger, RewardLedgerV2, RewardV2Coefficients
+    from .rewards import CombatCoefficients, RewardLedger, RewardLedgerV3, RewardV3Coefficients
 
     accountant: RewardAccountant = (
-        RewardLedgerV2(RewardV2Coefficients.load())
-        if reward_version == 2
+        RewardLedgerV3(RewardV3Coefficients.load())
+        if reward_version == 3
         else RewardLedger(CombatCoefficients.load())
     )
 
@@ -945,6 +945,7 @@ def _train_run(
             reward_contract=reward_contract,
             run_deadline=deadline,
             on_progress=record,
+            train_metrics_path=options.out_dir / "metrics" / "train.csv" if pure else None,
         )
     except LiveBudgetExpired as exc:
         record("budget", f"{exc}; unfinished rollout has no new checkpoint")
