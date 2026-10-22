@@ -1,0 +1,13 @@
+# Copy to local.yaml only after the game compatibility audit.
+game:
+  path: null
+  build: null
+  training_profile: null
+  isolation_verified: false
+bridge:
+  host: 127.0.0.1
+  port: null
+  protocol_version: null
+  step_timeout_seconds: 2.0
+  watchdog_seconds: 0.5
+# This is a configuration template; no game bridge consumes it yet.

@@ -1,0 +1,6 @@
+<metadata>
+  <name>Isaac Future Observer</name>
+  <directory>isaac_threrisaifuture_observer</directory>
+  <description>Loopback observations; optional bounded restart after game over. Native actions require a private expiring operator approval. No training.</description>
+  <version>0.5.0-dev</version>
+</metadata>

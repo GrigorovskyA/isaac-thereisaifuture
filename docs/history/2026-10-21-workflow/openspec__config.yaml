@@ -1,0 +1,49 @@
+schema: spec-driven
+
+context: |
+  Language: English
+  All project artifacts must be written in English.
+  Use English for documentation, specifications, code, comments, configuration descriptions,
+  CLI output, reports, examples, and future interface text. Do not add bilingual variants.
+  Preserve OpenSpec structural headings and SHALL/MUST keywords in English.
+  Project: isaac-threrisaifuture. Native Windows, Steam Repentance+, Python 3.12, Lua.
+  The user stopped the remote executor and asked the primary Windows agent to
+  continue alone. No delegation, nested agents or handoff heartbeat without a new
+  user request. See docs/AGENT_WORKFLOW.md. The user now permits one on-demand
+  agent launch for agreed checks after preflight; save selection/Continue and exit
+  remain manual. No unattended startup, recovery loop or reset authority is added.
+  A minimal read-only bridge has accepted evidence on the recorded profile; the Isaac
+  training environment is not implemented; bounded native movement/shooting has
+  accepted real-game evidence under an explicit ordinary-profile test exception.
+  Initial goal is verified real-game integration, then combat RL, then full runs.
+  Final user goal: Dead God through gameplay on save file 2. Target interface:
+  a terminal script launches the game and bridge without screen capture. The user's
+  2026-10-20 request authorizes local menu-only keyboard automation; gameplay uses
+  the structured bridge. Current AGENTS.md supersedes historical runtime limits above.
+  Automatic save-slot selection and achievement eligibility remain unverified.
+  Never equate mock success, library installation or training reward with game success.
+  Read AGENTS.md, ROADMAP.md, docs/STATUS.md and the relevant design guide.
+  Keep policy-visible observations separate from hidden/oracle training data.
+rules:
+  proposal:
+    - Define scope, non-goals, dependencies and measurable acceptance criteria.
+    - Record unknown game APIs and required real-game evidence.
+  design:
+    - Specify failure handling, cleanup, protocol/schema versions and compatibility.
+    - Distinguish implemented behavior from future architectural intent.
+  specs:
+    - Every requirement needs observable scenarios including relevant failure cases.
+    - Use SHALL or MUST in requirement text and preserve English structural headings.
+  tasks:
+    - Include offline checks and required game/evaluation checks as separate tasks.
+    - Do not check off blocked or skipped acceptance tasks.
+operations:
+  apply:
+    guidance:
+      - Use scripts/OpenSpec.ps1 and the project Python virtual environment.
+      - Preserve unrelated user changes and current game saves.
+      - Keep all project changes in English.
+  archive:
+    guidance:
+      - Archive only after all required evidence exists and verification succeeds.
+      - Update docs/STATUS.md and ROADMAP.md with actual results and blockers.

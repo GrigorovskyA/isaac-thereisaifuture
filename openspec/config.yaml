@@ -1,0 +1,43 @@
+schema: spec-driven
+
+context: |
+  Project: isaac-threrisaifuture; package isaac_threrisaifuture.
+  Native Windows, Steam Repentance+, Python 3.12, first-party Lua structured bridge.
+  All project artifacts are English; preserve OpenSpec headings and SHALL/MUST.
+  Goal: learned gameplay through Dead God on file 2, not save edits or unlocks.
+  Codex develops software; Python/RecurrentPPO executes the RL loop.
+  Current authority: AGENTS.md and docs/RUNTIME_AUTHORITY.md.
+  Current state/lineage/pending acceptance: docs/STATUS.md; do not duplicate receipts.
+  Primary implements and accepts. No nested agents, file bus or scheduled agent supervision.
+  Menu automation uses guarded keys and Steam launch; gameplay uses the bridge.
+  Direction since 2026-10-22: pure self-learning (docs/UPDATE_DECISION.md). One
+  pure-v1 lineage learns from raw facts and outcome rewards only; no scripted setup,
+  advice features or technique rewards. archive/ is history, never imported.
+  Continuous pure-v1 training with unlimited New Run after death/stall is standing
+  authority; other experiments need an explicit finite plan.
+  Preserve oracle separation, versioned contracts and compatible checkpoint lineage.
+  Library tests/reward/weight updates do not establish native gameplay improvement.
+  Read only the relevant guide/spec/change/source, not all project history.
+rules:
+  proposal:
+    - Define scope, non-goals, dependencies and measurable acceptance criteria.
+    - Record unknown game APIs and required real-game evidence.
+  design:
+    - Specify failure handling, cleanup, protocol/schema versions and compatibility.
+    - Distinguish implemented behavior from future architectural intent.
+  specs:
+    - Every requirement needs observable scenarios including relevant failure cases.
+    - Use SHALL or MUST in requirement text and preserve English structural headings.
+  tasks:
+    - Include offline checks and required game/evaluation checks as separate tasks.
+    - Do not check off blocked or skipped acceptance tasks.
+operations:
+  apply:
+    guidance:
+      - Use scripts/OpenSpec.ps1 and the project Python virtual environment.
+      - Preserve unrelated user changes and current game saves.
+      - Keep all project changes in English.
+  archive:
+    guidance:
+      - Archive only after all required evidence exists and verification succeeds.
+      - Update docs/STATUS.md and ROADMAP.md with actual results and blockers.

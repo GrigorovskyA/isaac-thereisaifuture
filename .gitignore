@@ -1,0 +1,35 @@
+.venv/
+node_modules/
+.pnpm-store/
+.tools/
+.cache/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+.env
+.env.*
+!.env.example
+configs/local.yaml
+data/raw/
+data/processed/
+runs/
+checkpoints/
+reports/local/
+*.log
+Thumbs.db
+Desktop.ini
+
+# Private expiring runtime authority; never publish local approvals.
+action_authorization.json
+
+# Local executor liveness; shared task definitions and accepted reports are versioned.
+agent-status.json
+agent-status.tmp.json
+subagent.tmp.md

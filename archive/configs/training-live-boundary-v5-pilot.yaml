@@ -1,0 +1,27 @@
+# Explicit v4->v5 child preparation; never implicit resume or a fresh model.
+# Same learning parameters as geometry-v4; native qualification precedes learning.
+config_version: 1
+status: live_boundary_v5_pilot
+algorithm: RecurrentPPO
+device: cpu
+num_envs: 1
+seed: 20
+learning_rate: 0.0003
+gamma: 0.99
+gae_lambda: 0.95
+clip_range: 0.2
+ent_coef: 0.01
+n_steps: 256
+batch_size: 64
+n_epochs: 4
+lstm_hidden_size: 128
+action_repeat_game_updates: 3
+budget:
+  total_timesteps: 1000000000
+  wall_time_minutes: 5
+  stop_on_infrastructure_fault: true
+  disk_limit_mb: 2048
+evaluation:
+  episodes: 20
+  split: validation
+  update_normalizer: false

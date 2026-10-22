@@ -1,0 +1,6 @@
+{
+  "profile": "custom",
+  "delivery": "skills",
+  "workflows": ["explore", "propose", "apply", "verify", "sync", "archive"],
+  "telemetry": {"enabled": false}
+}

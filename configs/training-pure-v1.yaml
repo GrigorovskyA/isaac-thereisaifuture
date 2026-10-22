@@ -1,0 +1,33 @@
+# Pure self-learning profile (openspec change pure-self-learning-v1).
+# One lineage trained continuously from scratch. Only `contract` binds the lineage;
+# `hyperparameters` may be tuned between sessions and are recorded per checkpoint.
+config_version: 2
+status: pure_v1
+contract:
+  algorithm: RecurrentPPO
+  device: cpu
+  seed: 1
+  lstm_hidden_size: 256
+  action_repeat_game_updates: 3
+  observation_schema_version: 3
+  action_schema_version: 2
+  reward_version: 2
+hyperparameters:
+  learning_rate: 0.0003
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_range: 0.2
+  ent_coef: 0.01
+  n_steps: 512
+  batch_size: 128
+  n_epochs: 4
+budget:
+  # Per session; the forever supervisor runs sessions back to back.
+  wall_time_minutes: 480
+  disk_limit_mb: 20480
+  max_consecutive_faults: 5
+retention:
+  keep_latest: 5
+  keep_every: 50
+watchdog:
+  stall_seconds: 90

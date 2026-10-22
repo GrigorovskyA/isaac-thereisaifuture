@@ -1,0 +1,8 @@
+## Decisions
+Use a hand-written local BFS over only exported enemy/obstacle vector slots for the diagnostic comparator. Absolute clipped player coordinates and management/oracle grid are excluded. Bound the approximate lattice to41x41cells;known blockers prevent direct shots,unknown blockers remain unknown. The comparator never trains or writes the checkpoint.
+
+The overnight run resumes the exact t6912 binary model/optimizer/normalizer/RNG under an explicit budget-only manifest migration into a new run root. Only budget keys change:240minutes,one-billion timestep sentinel,32GiB disk. No death cap is supplied. The existing5000 restart approval ceiling is nonbinding within4hours because restart pacing is at least4seconds (at most3600 dispatches). One billion decisions is also unreachable within4hours of native frame-paced control. Do not call these schema sentinels infinite;record them and prove that they are nonbinding.
+
+Use one finite4hour training session with a startup/cleanup allowance of two minutes,one nonrenewed approval,and no retries on infrastructure/focus faults. Preserve all existing safety guards. Maximum policy steps are physically constrained by the240minute live deadline;resource guards remain emergencies. Save each completed256-step PPO rollout. Incomplete last rollout may be lost and must be reported. Training improvement needs subsequent frozen comparable evaluation;changed weights alone do not prove it.
+
+No existing source/config changes during execution. Primary validates migration/frozen source,worker executes exact commands. Autonomous startup/Continue/cleanup use existing guards;gameplay uses the structured bridge. Record exact start/deadline,latest lineage,progress and final evidence.

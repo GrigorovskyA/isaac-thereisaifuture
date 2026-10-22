@@ -1,0 +1,29 @@
+reward_version: 1
+status: experimental_hypothesis
+enabled: [combat]
+combat:
+  enemy_hp_fraction_total: 2.0
+  enemy_kill: 0.5
+  room_clear_first: 8.0
+  enemy_damage_half_heart: -8.0
+  death: -25.0
+  active_combat_second: -0.01
+exploration:
+  enabled: false
+  first_room_visit: 1.0
+  treasure_room_discovered: 2.0
+  secret_room_first_entered: 7.0
+  super_secret_room_first_entered: 8.0
+  boss_defeated: 20.0
+  floor_completed: 35.0
+  target_run_completed: 250.0
+economy:
+  enabled: false
+  bomb_marginal_value_hint: 0.6
+  key_marginal_value_hint: 0.8
+  coin_marginal_value_hint: 0.1
+build:
+  enabled: false
+  max_item_utility_reward: 3.0
+  synergy_bonus_min: 2.0
+  synergy_bonus_max: 4.0

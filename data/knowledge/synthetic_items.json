@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "synthetic": true,
+  "tag_vocabulary": ["synthetic_damage", "synthetic_defense", "synthetic_utility"],
+  "sources": [
+    {
+      "name": "synthetic-fixture",
+      "url": "https://example.invalid/synthetic-fixture",
+      "license": "CC0-1.0",
+      "retrieved": "2026-10-17",
+      "permitted_use": "Offline tests only; fake data, not Isaac."
+    }
+  ],
+  "items": [
+    {
+      "item_id": "fake:0001",
+      "kind": "passive",
+      "source": "synthetic-fixture",
+      "tags": ["synthetic_damage"],
+      "effects": {"fake_damage_bonus": 1.0},
+      "confidence": "low",
+      "verified_in_game": false
+    },
+    {
+      "item_id": "fake:0002",
+      "kind": "active",
+      "source": "synthetic-fixture",
+      "tags": ["synthetic_defense", "synthetic_utility"],
+      "effects": {},
+      "unknown_fields": ["fake_charge"],
+      "confidence": "unknown",
+      "verified_in_game": false
+    }
+  ]
+}

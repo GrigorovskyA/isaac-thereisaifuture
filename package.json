@@ -1,0 +1,10 @@
+{
+  "name": "isaac-threrisaifuture",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Development tooling for a self-learning Binding of Isaac RL project",
+  "packageManager": "pnpm@11.25.0",
+  "devDependencies": {
+    "@fission-ai/openspec": "1.14.3"
+  }
+}

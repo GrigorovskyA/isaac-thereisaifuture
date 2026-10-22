@@ -1,0 +1,45 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "isaac-threrisaifuture"
+version = "0.1.0"
+description = "Self-learning RL agent for The Binding of Isaac: Repentance+"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "gymnasium>=1.2,<2",
+  "numpy>=2,<3",
+  "pydantic>=2.10,<3",
+  "PyYAML>=6,<7",
+  "stable-baselines3>=2.7,<3",
+  "sb3-contrib>=2.7,<3",
+  "tensorboard>=2.19,<3",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10", "pytest-cov>=6,<8", "ruff>=0.11,<1", "mypy>=1.15,<2", "types-PyYAML>=6,<7"]
+
+[project.scripts]
+isaac-future = "isaac_threrisaifuture.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/isaac_threrisaifuture"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+markers = ["game: requires an explicitly configured real Isaac installation"]

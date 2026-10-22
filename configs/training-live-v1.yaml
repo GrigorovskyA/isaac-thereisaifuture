@@ -1,0 +1,27 @@
+# Live loop on the real game (openspec change live-training-loop). Small first budget:
+# one CPU env, short rollouts so PPO updates pause play only briefly (no game pause).
+config_version: 1
+status: live_experimental
+algorithm: RecurrentPPO
+device: cpu
+num_envs: 1
+seed: 42
+learning_rate: 0.0003
+gamma: 0.99
+gae_lambda: 0.95
+clip_range: 0.2
+ent_coef: 0.01
+n_steps: 256
+batch_size: 64
+n_epochs: 4
+lstm_hidden_size: 128
+action_repeat_game_updates: 3
+budget:
+  total_timesteps: 20000
+  wall_time_minutes: 60
+  stop_on_infrastructure_fault: true
+  disk_limit_mb: 512
+evaluation:
+  episodes: 20
+  split: validation
+  update_normalizer: false

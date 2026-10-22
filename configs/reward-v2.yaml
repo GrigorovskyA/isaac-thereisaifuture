@@ -1,0 +1,22 @@
+# Outcome-only reward for the pure profile (openspec change pure-self-learning-v1).
+# Terms describe what happened, never how to play. "First" terms and caps are per run.
+reward_version: 2
+status: pure_v1
+outcome:
+  enemy_hp_fraction_total: 2.0
+  room_clear_first: 3.0
+  room_first_visit: 1.0
+  floor_first_entered: 10.0
+  player_damage_half_heart: -2.0
+  death: -10.0
+  time_second: -0.005
+pickups:
+  coin: 0.05
+  bomb: 0.1
+  key: 0.1
+  consumable_run_cap: 3.0
+  collectible_new: 1.0
+  heal_half_heart: 0.5
+novelty:
+  coefficient: 0.02
+  cell_size: 40
