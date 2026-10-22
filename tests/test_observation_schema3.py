@@ -1,4 +1,4 @@
-"""OFFLINE schema 3 contract: game facts decode strictly and encode to a fixed 1837 vector."""
+"""OFFLINE schema 3 facts (still part of schema 4): strict decode, fixed vector, base blocks."""
 
 import json
 from typing import Any
@@ -39,14 +39,14 @@ def decoded(payload: dict[str, Any]) -> EntityFrame:
 
 
 def test_layout_matches_the_design_table():
-    assert OBSERVATION_SIZE == 1837
+    assert COLLECTIBLE_OFFSET + 1024 == 1837  # the schema 3 vector; schema 4 appends
     assert (INVENTORY_OFFSET, ROOM_OFFSET, ENEMY_OFFSET) == (9, 18, 61)
     assert PICKUP_OFFSET == 61 + 128 + 256 + 192
     assert PICKUP_SLOT_FEATURES == 22 and len(VARIANT_CLASSES) == 12
     assert COLLECTIBLE_OFFSET == PICKUP_OFFSET + 8 * 22 == 1837 - 1024
 
 
-def test_wire_round_trip_encodes_exactly_1837_finite_values():
+def test_wire_round_trip_encodes_a_full_finite_vector():
     original = frame(
         [enemy(1, 10, 0), pickup(2, 30, 0, variant=100, subtype=33, price=15)],
         inventory=inventory(coins=12, active_item=33, active_charge=3, active_max_charge=6),
@@ -56,7 +56,7 @@ def test_wire_round_trip_encodes_exactly_1837_finite_values():
     again = decoded(wire(original))
     assert again == original
     vector = encode(again).vector
-    assert vector.shape == (1837,) and vector.dtype == np.float32
+    assert vector.shape == (OBSERVATION_SIZE,) and vector.dtype == np.float32
     assert np.isfinite(vector).all() and np.all(np.abs(vector) <= 1.0)
 
 
@@ -83,7 +83,7 @@ def test_inventory_room_and_collectible_blocks():
     assert room[7] == 1.0 and room[:32].sum() == 1.0
     assert room[32:35].tolist() == [1.0, 1.0, 1.0]  # stage, stage type, clear
     assert room[35:].tolist() == [1.0] + [0.0] * 7
-    held = vector[COLLECTIBLE_OFFSET:]
+    held = vector[COLLECTIBLE_OFFSET : COLLECTIBLE_OFFSET + 1024]
     assert held.shape == (1024,) and np.flatnonzero(held).tolist() == [0, 32, 1023]
 
 
@@ -160,6 +160,7 @@ MALFORMED = {
     "missing inventory": lambda p: p.pop("inventory"),
     "missing room": lambda p: p.pop("room"),
     "missing collectibles": lambda p: p.pop("collectibles"),
+    "schema 3": mutate("observation_schema_version", 3),
 }
 
 

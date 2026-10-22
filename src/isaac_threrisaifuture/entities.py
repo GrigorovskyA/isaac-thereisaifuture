@@ -6,17 +6,70 @@ from pydantic import Field, model_validator
 
 from .observation import Counter, Health, SessionId, Snapshot, WireModel
 
-OBSERVATION_SCHEMA_VERSION = 3
-ORACLE_SCHEMA_VERSION = 1  # oracle events are unchanged by observation schema 3
+OBSERVATION_SCHEMA_VERSION = 4
+ORACLE_SCHEMA_VERSION = 1  # oracle events are unchanged by observation schema 4
 MAX_FRAME_BYTES = 65536
-MAX_ENTITIES = 64
+MAX_ENTITIES = 72  # observer caps: 12 + 20 + 12 + 8 enemy..pickup, 16 own attacks, 4 bombs
 MAX_PICKUPS = 8
 MAX_COLLECTIBLES = 256
 COLLECTIBLE_ID_MAX = 1024
 DOOR_SLOTS = 8
 Coord = Annotated[float, Field(ge=-1e5, le=1e5)]
-EntityKind = Literal["enemy", "projectile", "obstacle", "pickup"]
-ENTITY_KINDS: tuple[EntityKind, ...] = ("enemy", "projectile", "obstacle", "pickup")
+BOMB_AGE_MAX = 10000
+EntityKind = Literal["enemy", "projectile", "obstacle", "pickup", "own_attack", "bomb"]
+ENTITY_KINDS: tuple[EntityKind, ...] = (
+    "enemy",
+    "projectile",
+    "obstacle",
+    "pickup",
+    "own_attack",
+    "bomb",
+)
+# Fixed wire order of the boolean lists; the Lua observer uses the same order.
+TEAR_FLAG_NAMES = (
+    "spectral",
+    "piercing",
+    "homing",
+    "slow",
+    "poison",
+    "freeze",
+    "split",
+    "growing",
+    "boomerang",
+    "persistent",
+    "wiggle",
+    "explosive",
+    "charm",
+    "confusion",
+    "burn",
+    "bouncing",
+)
+WEAPON_NAMES = (
+    "tears",
+    "brimstone",
+    "laser",
+    "knife",
+    "bombs",
+    "rockets",
+    "monstros_lungs",
+    "ludovico_technique",
+    "tech_x",
+    "bone",
+    "notched_axe",
+    "urn_of_souls",
+    "spirit_sword",
+    "fetus",
+    "umbilical_whip",
+)
+# Declared ranges of the player stats; the observer clamps into them.
+STAT_RANGES = {
+    "damage": (0.0, 1000.0),
+    "tears_per_second": (0.0, 60.0),
+    "range": (0.0, 10000.0),
+    "shot_speed": (0.0, 10.0),
+    "move_speed": (0.0, 10.0),
+    "luck": (-100.0, 100.0),
+}
 
 
 class Vec(WireModel):
@@ -38,6 +91,14 @@ class Entity(WireModel):
     variant: Annotated[int, Field(ge=0, le=1023)] | None = None
     subtype: Annotated[int, Field(ge=0, le=1024)] | None = None
     price: Annotated[int, Field(ge=-1000, le=999)] | None = None
+    # Bombs only: frames since the bomb appeared.
+    age_frames: Annotated[int, Field(ge=0, le=BOMB_AGE_MAX)] | None = None
+
+    @model_validator(mode="after")
+    def bomb_age(self) -> Self:
+        if (self.kind == "bomb") != (self.age_frames is not None):
+            raise ValueError("Exactly bombs carry age_frames")
+        return self
 
     @model_validator(mode="after")
     def pickup_facts(self) -> Self:
@@ -72,6 +133,17 @@ class Inventory(WireModel):
     trinket: Annotated[int, Field(ge=0, le=65535)]
 
 
+class Stats(WireModel):
+    """Raw player stats; ranges are STAT_RANGES."""
+
+    damage: Annotated[float, Field(ge=0, le=1000)]
+    tears_per_second: Annotated[float, Field(ge=0, le=60)]
+    range: Annotated[float, Field(ge=0, le=10000)]
+    shot_speed: Annotated[float, Field(ge=0, le=10)]
+    move_speed: Annotated[float, Field(ge=0, le=10)]
+    luck: Annotated[float, Field(ge=-100, le=100)]
+
+
 class RoomFacts(WireModel):
     """Observed room facts: type, floor, clear flag and open doors by slot."""
 
@@ -86,7 +158,7 @@ class EntityFrame(WireModel):
     """Policy-visible state only. Hidden map data and reward labels do not belong here."""
 
     type: Literal["entity_frame"] = "entity_frame"
-    observation_schema_version: Literal[3] = 3
+    observation_schema_version: Literal[4] = 4
     provenance: Literal["synthetic", "game_api"]
     session_id: SessionId
     game_epoch: Counter
@@ -98,6 +170,14 @@ class EntityFrame(WireModel):
     entities: Annotated[list[Entity], Field(max_length=MAX_ENTITIES)]
     source_overflow: dict[EntityKind, Counter] = Field(default_factory=dict)
     inventory: Inventory
+    stats: Stats
+    # Booleans in TEAR_FLAG_NAMES and WEAPON_NAMES order.
+    tear_flags: Annotated[
+        list[bool], Field(min_length=len(TEAR_FLAG_NAMES), max_length=len(TEAR_FLAG_NAMES))
+    ]
+    weapons: Annotated[
+        list[bool], Field(min_length=len(WEAPON_NAMES), max_length=len(WEAPON_NAMES))
+    ]
     # Sorted unique held collectible IDs; overflow counts the IDs cut by the cap.
     collectibles: Annotated[
         list[Annotated[int, Field(ge=1, le=COLLECTIBLE_ID_MAX)]],

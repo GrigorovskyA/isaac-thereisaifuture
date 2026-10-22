@@ -54,7 +54,7 @@ Hello and snapshot fields retain OBSERVATION_PROTOCOL semantics. Native action
 commands add at most 1024 bytes excluding LF; Lua reads <=4096 bytes, processes
 at most one command and sends <=4096 bytes per render callback. The total pending
 input is capped at 1025 bytes including LF. A burst exceeding that cap disconnects;
-there is no unbounded request queue. Pending output remains one <=16384-byte
+there is no unbounded request queue. Pending output remains one <=32768-byte
 record with a three-second deadline. Use serialized transactions, not pipelining.
 Lua disconnects on malformed/incompatible/stale/replayed requests and clears held
 bridge inputs. A rejected command has no success ack; EOF/timeout is a fault.

@@ -30,8 +30,8 @@ from .checkpoints import (
 from .entities import OBSERVATION_SCHEMA_VERSION
 
 DEFAULT_CONFIG = Path("configs/training-v1.yaml")  # offline and synthetic runs
-PURE_REWARD_VERSION = 3  # the contract must name the reward version this code pays
-PURE_CONFIG = Path(__file__).resolve().parents[2] / "configs" / "training-pure-v2.yaml"
+PURE_REWARD_VERSION = 4  # the contract must name the reward version this code pays
+PURE_CONFIG = Path(__file__).resolve().parents[2] / "configs" / "training-pure-v3.yaml"
 TEMPLATE_STATUS = "template_not_executable_yet"
 StopReason = Literal["completed", "wall_time", "disk_limit", "timesteps"]
 
@@ -93,6 +93,7 @@ class PureContract(BaseModel):
     observation_schema_version: int
     action_schema_version: int
     reward_version: int
+    use_head_initial_none_probability: Annotated[float, Field(gt=0, lt=1)]
 
 
 class Hyperparameters(BaseModel):
@@ -164,6 +165,10 @@ class PureTrainingConfig(BaseModel):
     def action_repeat_game_updates(self) -> int:
         return self.contract.action_repeat_game_updates
 
+    @property
+    def use_head_initial_none_probability(self) -> float:
+        return self.contract.use_head_initial_none_probability
+
 
 AnyTrainingConfig = TrainingConfig | PureTrainingConfig
 
@@ -198,6 +203,26 @@ def load_training_config(path: Path = DEFAULT_CONFIG) -> tuple[AnyTrainingConfig
     if config.evaluation.split == "test":
         raise TrainingConfigError("The test split is held out for final evaluation only")
     return config, config_hash(raw)
+
+
+def apply_use_head_prior(model: Any, none_probability: float) -> None:
+    """Start the use head (the last head of the MultiDiscrete action) at P(none) = p.
+
+    The other three choices share the rest equally. Weights of those rows are zeroed so the
+    prior holds for any observation. Only for a fresh model; learning may move it anywhere.
+    """
+    import numpy as np
+    import torch
+
+    nvec = [int(n) for n in model.action_space.nvec]
+    use = nvec[-1]
+    rest = (1.0 - none_probability) / (use - 1)
+    logits = np.log([none_probability] + [rest] * (use - 1))
+    logits -= logits.mean()
+    net = model.policy.action_net
+    with torch.no_grad():
+        net.weight[-use:] = 0.0
+        net.bias[-use:] = torch.tensor(logits, dtype=net.bias.dtype)
 
 
 def _hyperparameters(config: AnyTrainingConfig) -> dict[str, Any]:
@@ -390,6 +415,8 @@ def train(
                 verbose=0,
                 **kwargs,
             )
+            if isinstance(config, PureTrainingConfig):
+                apply_use_head_prior(model, config.use_head_initial_none_probability)
 
     except BaseException:
         base_env.close()

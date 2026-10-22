@@ -23,6 +23,16 @@ NEUTRAL_FACTS = {
         "pill": 0,
         "trinket": 0,
     },
+    "stats": {
+        "damage": 3.5,
+        "tears_per_second": 2.73,
+        "range": 260.0,
+        "shot_speed": 1.0,
+        "move_speed": 1.0,
+        "luck": 0.0,
+    },
+    "tear_flags": [False] * 16,
+    "weapons": [True] + [False] * 14,
     "collectibles": [],
     "collectible_overflow": 0,
     "room": {"type": 1, "stage": 1, "stage_type": 0, "clear": False, "doors": [False] * 8},
@@ -30,16 +40,17 @@ NEUTRAL_FACTS = {
 
 
 def upgraded(name: str, tmp_path: Path) -> Path:
-    """Copy a recorded schema 1 fixture to schema 3 with neutral, clearly invented facts.
+    """Copy a recorded schema 1 fixture to schema 4 with neutral, clearly invented facts.
 
     Only the real positions, velocities and identities are replayed; the added inventory,
-    room and pickup fields are placeholders (pickups become 'other' variant 999, free).
+    stats, weapon, room and pickup fields are placeholders (pickups become 'other' variant
+    999, free).
     """
     lines = (FIXTURES / name).read_text("utf-8").splitlines()
     out = []
     for line in lines:
         record = json.loads(line)
-        record["observation_schema_version"] = 3
+        record["observation_schema_version"] = 4
         if record["type"] == "entity_frame":
             record.update(NEUTRAL_FACTS)
             for entity in record["entities"]:

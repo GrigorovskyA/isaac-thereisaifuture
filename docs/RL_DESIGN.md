@@ -8,7 +8,7 @@ Current since 2026-10-22 (`docs/UPDATE_DECISION.md`, OpenSpec change
 
 One RecurrentPPO agent (`MlpLstmPolicy`, CPU) plays Repentance+ on file 2 through
 the Lua bridge and learns from experience only. It is trained continuously as one
-lineage (`pure-v2`). The long-term goal is Dead God; the honest near-term goal is
+lineage (`pure-v3`; `pure-v2` is preserved, not resumed). The long-term goal is Dead God; the honest near-term goal is
 learning to damage and kill enemies, survive rooms, pick up items and progress.
 
 Principles:
@@ -19,7 +19,7 @@ Principles:
 - Every reward term has an exploit test.
 - Training reward, optimizer updates and synthetic smoke do not prove better play.
 
-## Observation schema 3 (1837 floats)
+## Observation schema 4 (2038 floats)
 
 | Block | Features |
 | --- | --- |
@@ -29,20 +29,29 @@ Principles:
 | Enemies, projectiles, obstacles | nearest-first slots: present, position, velocity, HP fraction (16/32/24 x 8) |
 | Pickups | base slot plus variant class one-hot (12), subtype, shop flag (8 x 22) |
 | Collectibles | multi-hot of held collectible IDs 1..1024 |
+| Stats | damage, tears per second, range, shot speed, move speed, luck (6, scaled) |
+| Tear flags | 16 booleans: spectral, piercing, homing, slow, poison, freeze, split, growing, boomerang, persistent, wiggle, explosive, charm, confusion, burn, bouncing |
+| Weapons | 15 weapon-type booleans (tears, Brimstone, laser, knife, bombs, rockets, ...) |
+| Own attacks | nearest-first slots for own tears, lasers and knives (16 x 8) |
+| Bombs | all bombs with age (4 x 9) |
 
-Positions are relative to the player and scaled; values are clipped with a
+The schema 3 vector was 1837 floats; schema 4 appends the last five blocks. Messages
+are bounded at 32 KiB (the larger frames need it). Positions are relative to the player and scaled; values are clipped with a
 counter. Oracle data (`room_index`, hidden enemy HP) is used only for reward and
 novelty keys and never enters the policy vector, normalizer or recurrent state.
 
 ## Actions v2
 
 `MultiDiscrete([5, 5, 4])`: move (none/left/right/up/down), shoot (same), use
-(none/bomb/active item/pill-card). Each action holds for 3 game updates. Use
-buttons are a one-shot press per accepted command. Commands are bound to
+(none/bomb/active item/pill-card). Each action holds for 6 game updates
+(0.2 s; pure-v2 held 3, which made random movement jitter in place). Use
+buttons are a one-shot press per accepted command. The use head starts at
+P(none)=0.85 and 0.05 for each press (initial logits only, set at fresh model
+creation and never on resume; learning may move it anywhere). Commands are bound to
 session, epoch, room visit and frame; stale or replayed commands are refused and
 input is released on expiry, disconnect, fault and stop.
 
-## Reward v3 (`configs/reward-v3.yaml`)
+## Reward v4 (`configs/reward-v4.yaml`)
 
 | Term | Value | Rule |
 | --- | --- | --- |
@@ -55,14 +64,23 @@ input is released on expiry, disconnect, fault and stop.
 | Stall restart | -5.0 | once, on the final step of an episode truncated by the stall watchdog; never with death |
 | Time | -0.005 per second | active time only |
 | Coin / bomb / key | 0.05 / 0.1 / 0.1 | only above the run's peak count; shared cap 3.0 per run |
-| New collectible | 1.0 | per item ID per run |
+| New collectible | 2.0 | per item ID per run (reward v3 paid 1.0) |
 | Healing | 0.5 per half-heart | only up to health lost earlier in the run |
 | Novelty | 0.02 | first visit only, per (stage, room, 40-unit cell) per run (about 1.8 for a full 1x1 room) |
 
 There is no reward for using items; item value and synergies must show up through
-combat and progress. Ledger columns are logged separately. Reward v2 paid most
+combat and progress. Ledger columns are logged separately. Reward v4 equals reward v3 except for the collectible term. Reward v2 paid most
 for idling (novelty grew like 2*sqrt(n) and a stall restart was free), so it
 was replaced and its lineage `pure-v1` retired; its config is in `archive/configs/`.
+
+## Lineages
+
+`pure-v3` replaces `pure-v2` (OpenSpec change `pure-v3-observation-and-control`). After 23k
+`pure-v2` steps (45 updates) the policy was still about 96% of maximum entropy, the
+agent could not see its own attacks, bombs, stats or weapon, decisions every 3 game
+updates made random movement jitter, and the uniform use head pressed bomb/item/card
+on 75% of decisions. `pure-v2` is preserved under `runs/pure-v2` and its config is in
+`archive/configs/`; its checkpoints are refused (different contract hash, schema 3).
 
 ## Episodes and restarts
 
@@ -73,8 +91,8 @@ disconnects are infrastructure faults, never stalls, and are not learning outcom
 
 ## Continuous training
 
-`configs/training-pure-v2.yaml` (lineage `pure-v2`): the `contract` section (seed, algorithm, LSTM
-size, action repeat, observation/action/reward versions) is the lineage hash;
+`configs/training-pure-v3.yaml` (lineage `pure-v3`): the `contract` section (seed, algorithm, LSTM
+size, action repeat, observation/action/reward versions, use-head prior) is the lineage hash;
 `hyperparameters` may be tuned between sessions and are recorded per checkpoint.
 Weights, optimizer state, normalizer and RNG always resume from `latest`. A
 checkpoint is published after every rollout; retention keeps the 5 newest plus

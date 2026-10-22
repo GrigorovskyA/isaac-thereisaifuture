@@ -41,6 +41,7 @@ from .training import (
 from .windows_menu import WindowsMenu
 
 TIME_ONLY_STEPS = 1_000_000_000
+IDLE_SECONDS = 180
 TIME_ONLY_RESTARTS = 5000
 TIME_ONLY_MAX_SECONDS = 4 * 3600
 MAX_SESSION_SECONDS = 28740  # the 8 h Lua lease minus a minute of margin
@@ -163,9 +164,11 @@ class Progress:
         self.phase, self.phase_since = phase, now
 
     def tick(self, now: float) -> None:
+        # Pure training collects all the time; it is only "waiting" when no episode or
+        # checkpoint event arrived for longer than a rollout plus a stall restart.
         if self.phase in ("training", "checkpointing"):
-            if self.last_activity is not None and now - self.last_activity > 5:
-                self.transition("waiting", max(self.phase_since, self.last_activity + 5))
+            if self.last_activity is not None and now - self.last_activity > IDLE_SECONDS:
+                self.transition("waiting", max(self.phase_since, self.last_activity + IDLE_SECONDS))
 
     def event(self, item: dict[str, Any]) -> None:
         now = float(item["monotonic"])
@@ -189,7 +192,7 @@ class Progress:
         elif event == "checkpointing":
             self.transition("checkpointing", now)
         elif event == "checkpoint_completed":
-            self.transition("waiting", now)
+            self.transition("training", now)  # the learner resumes collecting right away
 
     def snapshot(self, now: float) -> dict[str, Any]:
         self.tick(now)
@@ -820,7 +823,7 @@ def main() -> None:
         derived = ("parent_id", "seed", "seconds", "steps", "max_restarts", "output")
         if any(getattr(args, name) is not None for name in derived) or args.time_budget_only:
             parser.error("--forever derives its limits from the config; pass only the paths")
-        run_root = (args.run_root or Path("runs/pure-v2")).resolve()
+        run_root = (args.run_root or Path("runs/pure-v3")).resolve()
         outcome = run_forever(
             ForeverOptions(
                 args.game.resolve(),

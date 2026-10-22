@@ -27,7 +27,7 @@ adds 10.
 
 ## Episode summary additions
 
-`use_bomb`, `use_active`, `use_pillcard` (accepted actions with that use per
+`use_bomb`, `use_active`, `use_pillcard` (steps whose policy action requested that use, not acknowledged presses, per
 episode), `half_hearts_lost`, `steps_to_first_exit` (empty if none),
 `steps_to_first_damage` (empty if none). Appended to `metrics/episodes.csv`.
 

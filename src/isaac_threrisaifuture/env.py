@@ -46,7 +46,7 @@ class RewardAccountant(Protocol):
 
 @runtime_checkable
 class StateAwareAccountant(RewardAccountant, Protocol):
-    """An accountant that also sees the frame and the oracle room index (reward v3)."""
+    """An accountant that also sees the frame and the oracle room index (reward v4)."""
 
     def begin(self, frame: EntityFrame, room_index: int | None) -> None: ...
 

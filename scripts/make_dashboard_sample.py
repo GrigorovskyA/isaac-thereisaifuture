@@ -19,7 +19,7 @@ from pathlib import Path
 
 from isaac_threrisaifuture.checkpoints import save_checkpoint
 from isaac_threrisaifuture.episode_metrics import FIELDS, PICKUPS
-from isaac_threrisaifuture.rewards import REWARD_V3_COLUMNS
+from isaac_threrisaifuture.rewards import REWARD_V4_COLUMNS
 from isaac_threrisaifuture.training_metrics import TRAIN_FIELDS
 
 
@@ -121,7 +121,7 @@ def build(root: Path, episodes: int, seed: int, updates: int = 1000) -> None:
             for name in PICKUPS:
                 row[f"pickups_{name}"] = max(0, round(rng.gauss(0.5 + 2 * skill, 1)))
             total = 0.0
-            for name in REWARD_V3_COLUMNS:
+            for name in REWARD_V4_COLUMNS:
                 part = round(rng.gauss(0.5 * skill, 0.3), 3)
                 if name == "stall":
                     part = -5.0 if stall else 0.0
@@ -144,7 +144,7 @@ def build(root: Path, episodes: int, seed: int, updates: int = 1000) -> None:
         timesteps=total_steps,
         parent_checkpoint_id=None,
         rng_state={},
-        reward_contract="pure-v3",
+        reward_contract="pure-v4",
         hyperparameters={"learning_rate": 3e-4, "n_steps": 2048, "synthetic": True},
     )
     session = root / "supervisor" / "session-synthetic-0001"

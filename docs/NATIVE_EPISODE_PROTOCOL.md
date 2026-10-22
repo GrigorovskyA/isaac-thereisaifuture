@@ -65,7 +65,7 @@ renews game authority. This cursor does not infer outcomes or manufacture events
 The explicit native_oracle_events recording stream preserves the full envelope,
 including event_id. Existing oracle_events and policy_frames streams remain
 separate. Mixed, malformed, incompatible or synthetic native records fail closed.
-Wire records retain the 16384-byte bound; recording lines retain their separate
+Wire records are bounded at 32768 bytes (32 KiB since observation schema 4; the per-record 16384 limits below belong to archived components); recording lines retain their separate
 65536-byte bound. No unbounded queue is introduced by these models.
 
 A new native_oracle_events recording must be created with an explicit tuple of the requested

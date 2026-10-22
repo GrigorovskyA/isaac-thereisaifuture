@@ -10,14 +10,28 @@ from .entities import (
     COLLECTIBLE_ID_MAX,
     DOOR_SLOTS,
     ENTITY_KINDS,
+    TEAR_FLAG_NAMES,
+    WEAPON_NAMES,
     Entity,
     EntityFrame,
     EntityKind,
 )
 from .observation import ProtocolError
 
-# Hypotheses fixed by observation schema version 3; changing one needs a new version.
-CAPACITY: dict[EntityKind, int] = {"enemy": 16, "projectile": 32, "obstacle": 24, "pickup": 8}
+# Hypotheses fixed by observation schema version 4; changing one needs a new version.
+CAPACITY: dict[EntityKind, int] = {
+    "enemy": 16,
+    "projectile": 32,
+    "obstacle": 24,
+    "pickup": 8,
+    "own_attack": 16,
+    "bomb": 4,
+}
+# Blocks before the collectible bitmap keep the schema 3 order; schema 4 appends the rest.
+BASE_KINDS: tuple[EntityKind, ...] = ("enemy", "projectile", "obstacle", "pickup")
+EXTRA_KINDS: tuple[EntityKind, ...] = ("own_attack", "bomb")
+STAT_SCALES = (50.0, 30.0, 1000.0, 5.0, 5.0, 10.0)  # damage, tears/s, range, shot, move, luck
+BOMB_AGE_SCALE = 120.0
 POSITION_SCALE = 1000.0
 VELOCITY_SCALE = 20.0
 HEART_SCALE = 24.0
@@ -49,12 +63,19 @@ SLOT_WIDTH: dict[EntityKind, int] = {
     "projectile": SLOT_FEATURES,
     "obstacle": SLOT_FEATURES,
     "pickup": PICKUP_SLOT_FEATURES,
+    "own_attack": SLOT_FEATURES,
+    "bomb": SLOT_FEATURES + 1,  # plus age / BOMB_AGE_SCALE
 }
 INVENTORY_OFFSET = PLAYER_FEATURES
 ROOM_OFFSET = INVENTORY_OFFSET + INVENTORY_FEATURES
-ENEMY_OFFSET = ROOM_OFFSET + ROOM_FEATURES  # entity blocks follow in ENTITY_KINDS order
-COLLECTIBLE_OFFSET = ENEMY_OFFSET + sum(CAPACITY[k] * SLOT_WIDTH[k] for k in ENTITY_KINDS)
-OBSERVATION_SIZE = COLLECTIBLE_OFFSET + COLLECTIBLE_ID_MAX
+ENEMY_OFFSET = ROOM_OFFSET + ROOM_FEATURES  # entity blocks follow in BASE_KINDS order
+COLLECTIBLE_OFFSET = ENEMY_OFFSET + sum(CAPACITY[k] * SLOT_WIDTH[k] for k in BASE_KINDS)
+STATS_OFFSET = COLLECTIBLE_OFFSET + COLLECTIBLE_ID_MAX
+TEAR_FLAG_OFFSET = STATS_OFFSET + len(STAT_SCALES)
+WEAPON_OFFSET = TEAR_FLAG_OFFSET + len(TEAR_FLAG_NAMES)
+EXTRA_OFFSET = WEAPON_OFFSET + len(WEAPON_NAMES)  # then EXTRA_KINDS blocks
+OBSERVATION_SIZE = EXTRA_OFFSET + sum(CAPACITY[k] * SLOT_WIDTH[k] for k in EXTRA_KINDS)
+assert set(BASE_KINDS + EXTRA_KINDS) == set(ENTITY_KINDS)
 
 
 @dataclass(frozen=True)
@@ -157,8 +178,27 @@ def encode(frame: EntityFrame) -> EncodedObservation:
     _encode_inventory(vector, frame)
     _encode_room(vector, frame)
     overflow: dict[EntityKind, int] = dict(frame.source_overflow)
+    for collectible in frame.collectibles:
+        vector[COLLECTIBLE_OFFSET + collectible - 1] = 1.0
+    stats = frame.stats
+    raw_stats = (
+        stats.damage,
+        stats.tears_per_second,
+        stats.range,
+        stats.shot_speed,
+        stats.move_speed,
+        stats.luck,
+    )
+    for i, (value, scale) in enumerate(zip(raw_stats, STAT_SCALES, strict=True)):
+        vector[STATS_OFFSET + i] = clip(value, scale)
+    for i, flag in enumerate(frame.tear_flags):
+        vector[TEAR_FLAG_OFFSET + i] = float(flag)
+    for i, flag in enumerate(frame.weapons):
+        vector[WEAPON_OFFSET + i] = float(flag)
     offset = ENEMY_OFFSET
-    for kind in ENTITY_KINDS:
+    for kind in (*BASE_KINDS, *EXTRA_KINDS):
+        if kind == "own_attack":
+            offset = EXTRA_OFFSET
         capacity = CAPACITY[kind]
         width = SLOT_WIDTH[kind]
         ordered = sorted((e for e in frame.entities if e.kind == kind), key=_order)
@@ -178,7 +218,8 @@ def encode(frame: EntityFrame) -> EncodedObservation:
                 vector[base + 7] = entity.hp / entity.max_hp
             if kind == "pickup":
                 _encode_pickup(vector, base + SLOT_FEATURES, entity)
+            if kind == "bomb":
+                assert entity.age_frames is not None
+                vector[base + SLOT_FEATURES] = clip(entity.age_frames, BOMB_AGE_SCALE)
         offset += capacity * width
-    for collectible in frame.collectibles:
-        vector[COLLECTIBLE_OFFSET + collectible - 1] = 1.0
     return EncodedObservation(vector, overflow, clip.count)

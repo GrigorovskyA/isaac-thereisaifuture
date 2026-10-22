@@ -1,4 +1,4 @@
-"""Reward v3 terms, exploit bounds, new oracle events and episode semantics. All offline."""
+"""Reward v4 terms, exploit bounds, new oracle events and episode semantics. All offline."""
 
 import copy
 import csv
@@ -19,14 +19,14 @@ from isaac_threrisaifuture.episodes import Scenario, StepResult
 from isaac_threrisaifuture.live import LIVE_SCENARIO, EventDeriver, LiveSnapshot
 from isaac_threrisaifuture.recording import JsonlRecorder, open_replay
 from isaac_threrisaifuture.rewards import (
-    DEFAULT_CONFIG_V3,
-    REWARD_V3_COLUMNS,
-    RewardLedgerV3,
-    RewardV3Coefficients,
+    DEFAULT_CONFIG_V4,
+    REWARD_V4_COLUMNS,
+    RewardLedgerV4,
+    RewardV4Coefficients,
 )
 
 SESSION = "a" * 32
-COEF = RewardV3Coefficients.load()
+COEF = RewardV4Coefficients.load()
 
 
 def live(seq, *, epoch=1, room=84, stage=1, coins=0, bombs=0, keys=0, items=(), red=6, dead=False):
@@ -65,7 +65,7 @@ def test_coefficients_load_the_shipped_file():
 
 
 def test_coefficient_keys_are_strict(tmp_path: Path):
-    raw = yaml.safe_load(DEFAULT_CONFIG_V3.read_text(encoding="utf-8"))
+    raw = yaml.safe_load(DEFAULT_CONFIG_V4.read_text(encoding="utf-8"))
     for mutate in (
         lambda r: r["outcome"].pop("death"),
         lambda r: r["pickups"].update(extra=1.0),
@@ -79,14 +79,14 @@ def test_coefficient_keys_are_strict(tmp_path: Path):
         path = tmp_path / "bad.yaml"
         path.write_text(yaml.safe_dump(bad), encoding="utf-8")
         with pytest.raises(ValueError):
-            RewardV3Coefficients.load(path)
+            RewardV4Coefficients.load(path)
 
 
 # --- ledger terms -------------------------------------------------------------------
 
 
-def ledger(start_frame=None, room=1) -> RewardLedgerV3:
-    ledger = RewardLedgerV3(COEF)
+def ledger(start_frame=None, room=1) -> RewardLedgerV4:
+    ledger = RewardLedgerV4(COEF)
     ledger.reset(1)
     ledger.begin(start_frame or frame(), room)
     return ledger
@@ -118,7 +118,7 @@ def test_each_term_has_its_own_column_and_columns_sum_to_the_reward():
         event("player_healed", amount=1.0),
     ]
     total, parts = ledger_.consume(events, 30)  # one second
-    assert set(parts) == set(REWARD_V3_COLUMNS)
+    assert set(parts) == set(REWARD_V4_COLUMNS)
     assert parts["enemy_damage"] == pytest.approx(COEF.enemy_hp_fraction_total / 2)
     assert parts["room_clear"] == COEF.room_clear_first
     assert parts["room_visit"] == COEF.room_first_visit
@@ -206,6 +206,12 @@ def test_damage_then_heal_is_capped_by_earlier_loss():
     assert consume(ledger_, event("player_healed", amount=2.0))[1]["heal"] == 0.0
     consume(ledger_, event("player_damaged", amount=1.0, damage_source="enemy"))
     assert consume(ledger_, event("player_healed", amount=1.0))[1]["heal"] > 0
+
+
+def test_new_collectible_pays_two_in_reward_v4():
+    ledger_ = ledger(frame(collectibles=[7]))
+    assert COEF.collectible_new == 2.0
+    assert consume(ledger_, collectible(9))[1]["collectible_new"] == 2.0
 
 
 def test_drop_and_repickup_of_a_collectible_pays_once():
@@ -307,7 +313,7 @@ def test_stall_penalty_is_the_configured_term_and_death_never_pays_it():
 
 
 def test_no_item_use_term_exists():
-    assert not any("use" in name or "item" in name for name in REWARD_V3_COLUMNS)
+    assert not any("use" in name or "item" in name for name in REWARD_V4_COLUMNS)
 
 
 # --- event derivation ---------------------------------------------------------------
@@ -429,7 +435,7 @@ class Script:
 
 
 def run_env(steps, scenario=LIVE_SCENARIO, truncate_at=None):
-    env = IsaacCombatEnv(Script(steps), [scenario], accountant=RewardLedgerV3(COEF))
+    env = IsaacCombatEnv(Script(steps), [scenario], accountant=RewardLedgerV4(COEF))
     env.reset()
     results = []
     for index in range(len(steps)):
@@ -545,7 +551,7 @@ def test_summary_adds_use_counts_hearts_lost_and_first_exit_and_damage():
         (7, [("player_died", {})], 2),
     ]
     uses = [0, 1, 1, 2, 3, 0]
-    env = IsaacCombatEnv(Script(steps), [LIVE_SCENARIO], accountant=RewardLedgerV3(COEF))
+    env = IsaacCombatEnv(Script(steps), [LIVE_SCENARIO], accountant=RewardLedgerV4(COEF))
     env.reset()
     info = {}
     for use in uses:

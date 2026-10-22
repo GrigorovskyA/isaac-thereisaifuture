@@ -10,13 +10,14 @@ from isaac_threrisaifuture.entities import EntitySnapshot
 from isaac_threrisaifuture.observation import CAPABILITIES, decode
 
 STUBS = """
-EntityType={ ENTITY_PROJECTILE=9, ENTITY_PICKUP=5 }
+EntityType={ ENTITY_PLAYER=1, ENTITY_TEAR=2, ENTITY_FAMILIAR=3, ENTITY_BOMB=4,
+ ENTITY_PICKUP=5, ENTITY_LASER=7, ENTITY_KNIFE=8, ENTITY_PROJECTILE=9 }
 GridEntityType={ GRID_ROCK=2, GRID_WALL=15, GRID_DOOR=16 }
 ROOM_ENTITIES, GRID_ENTITIES = {}, {}
 GRID_SIZE, SCANS, GRID_SCANS = 3, 0, 0
 function make_entity(id, x, y, kind, visible)
  return { Index=id, InitSeed=id+5000, Type=kind, Visible=visible~=false,
-  Variant=10, SubType=1, Price=0,
+  Variant=10, SubType=1, Price=0, FrameCount=0,
   ToPickup=function(self) if kind==5 then return self end end,
   Position={X=x,Y=y}, Velocity={X=2,Y=-1},
   Exists=function() return true end, IsDead=function() return false end,
@@ -183,7 +184,7 @@ def test_mixed_capacity_frame_fits_existing_wire_limit(room):
     state = frames(room)[-1].entity_frame
     assert len(state.entities) == 52
     assert state.source_overflow == {"enemy": 18, "projectile": 10, "obstacle": 18, "pickup": 22}
-    assert max(len(line.encode()) for line in room.globals().OUTGOING.split("\n")[:-1]) <= 16384
+    assert max(len(line.encode()) for line in room.globals().OUTGOING.split("\n")[:-1]) <= 32768
 
 
 @pytest.mark.parametrize("extra", [["death_restart_v1"], ["safe_actions_v1"]])
@@ -287,6 +288,21 @@ def fill_worst_case(lua):
       end
       COINS, BOMBS, KEYS, ACTIVE, CHARGE, MAX_CHARGES = 999, 999, 999, 1024, 24, 24
       CARD, PILL, TRINKET, ROOM_TYPE, STAGE, STAGE_TYPE = 65535, 65535, 65535, 31, 15, 7
+      -- Own attacks and bombs overfill their caps; every flag and weapon on; widest stats.
+      for i=1,20 do
+        local a=make_entity(200+i,-700.123+i,-600.456,2)
+        a.SpawnerType, a.Velocity = 1, {X=-12.345,Y=-12.345}
+        ROOM_ENTITIES[#ROOM_ENTITIES+1]=a
+      end
+      for i=1,6 do
+        local b=make_entity(300+i,-700.123+i,-600.456,4)
+        b.FrameCount, b.Velocity = 99999, {X=-12.345,Y=-12.345}
+        ROOM_ENTITIES[#ROOM_ENTITIES+1]=b
+      end
+      STAT_DAMAGE, STAT_FIRE_DELAY, STAT_RANGE = -999.123, -1, 99999.987
+      STAT_SHOT, STAT_MOVE, STAT_LUCK = -9.999, 9.999, -99.999
+      PLAYER_TEAR_FLAGS = bit_set(0xFFFF, 1)
+      for _, kind in pairs(WeaponType) do WEAPONS[kind] = true end
     """)
 
 
@@ -295,6 +311,123 @@ def test_maximal_snapshot_stays_below_the_wire_limit(room):
     connect(room)
     tick(room, 20)
     state = latest(room)
-    assert len(state.collectibles) == 256 and len(state.entities) == 52
+    assert len(state.collectibles) == 256 and len(state.entities) == 72
+    kinds = [e.kind for e in state.entities]
+    assert (kinds.count("own_attack"), kinds.count("bomb")) == (16, 4)
+    assert state.source_overflow["own_attack"] == 4 and state.source_overflow["bomb"] == 2
     sizes = [len(line.encode()) for line in room.globals().OUTGOING.split("\n")[:-1]]
-    assert sizes and max(sizes) < 16384
+    print("worst-case lua snapshot bytes:", max(sizes))
+    assert sizes and max(sizes) < 32768
+
+
+def test_stats_are_read_derived_and_clamped(room):
+    room.execute("STAT_DAMAGE, STAT_FIRE_DELAY, STAT_RANGE = 7.25, 9, 300")
+    room.execute("STAT_SHOT, STAT_MOVE, STAT_LUCK = 1.5, 1.2, 3")
+    connect(room)
+    stats = latest(room).stats
+    assert (stats.damage, stats.tears_per_second, stats.range) == (7.25, 3.0, 300.0)
+    assert (stats.shot_speed, stats.move_speed, stats.luck) == (1.5, 1.2, 3.0)
+    room.execute("STAT_DAMAGE, STAT_FIRE_DELAY, STAT_RANGE = 5000, -1, -5")
+    room.execute("STAT_SHOT, STAT_MOVE, STAT_LUCK = 99, -4, -500")
+    tick(room, 20)
+    stats = latest(room).stats
+    assert (stats.damage, stats.tears_per_second, stats.range) == (1000.0, 60.0, 0.0)
+    assert (stats.shot_speed, stats.move_speed, stats.luck) == (10.0, 0.0, -100.0)
+
+
+def test_tear_flags_follow_the_set_bits_in_fixed_order(room):
+    connect(room)
+    assert latest(room).tear_flags == [False] * 16
+    # Spectral, piercing and (high word) bounce.
+    room.execute("PLAYER_TEAR_FLAGS = bit_set(0x3, 1)")
+    tick(room, 20)
+    flags = latest(room).tear_flags
+    assert [i for i, on in enumerate(flags) if on] == [0, 1, 15]
+    room.execute("TearFlags.TEAR_HOMING = nil")  # a missing enum entry reads false
+    room.execute("PLAYER_TEAR_FLAGS = bit_set(0xFFFF, 1)")
+    tick(room, 20)
+    flags = latest(room).tear_flags
+    assert flags[2] is False and sum(flags) == 15
+
+
+def test_tear_flag_api_faults_read_false(room):
+    room.execute("PLAYER_TEAR_FLAGS = 5")  # not a set: the & fails inside pcall
+    connect(room)
+    assert latest(room).tear_flags == [False] * 16
+    assert not room.globals().CLOSED
+
+
+def test_weapons_follow_has_weapon_type_and_missing_enum_is_false(room):
+    room.execute("WEAPONS = { [2]=true, [14]=true }")  # brimstone, fetus
+    connect(room)
+    weapons = latest(room).weapons
+    assert [i for i, on in enumerate(weapons) if on] == [1, 13] and len(weapons) == 15
+    room.execute("for _, kind in pairs(WeaponType) do WEAPONS[kind]=true end")
+    tick(room, 20)
+    weapons = latest(room).weapons
+    assert weapons[:14] == [True] * 14 and weapons[14] is False  # umbilical whip not in enum
+
+
+def test_own_attacks_are_told_apart_from_enemy_projectiles(room):
+    room.execute("""
+      local mine = make_entity(1,110,200,2); mine.SpawnerType = 1
+      local familiar = make_entity(2,120,200,7); familiar.SpawnerType = 3
+      local child = make_entity(3,130,200,8); child.Parent = Isaac.GetPlayer(0)
+      local hostile = make_entity(4,140,200,2); hostile.SpawnerType = 10
+      local unowned = make_entity(5,150,200,2)
+      local shot = make_entity(6,160,200,9); shot.SpawnerType = 10
+      ROOM_ENTITIES = { mine, familiar, child, hostile, unowned, shot }
+    """)
+    connect(room)
+    by_id = {(e.kind, e.position.x): e for e in latest(room).entities}
+    assert sorted(x for kind, x in by_id if kind == "own_attack") == [10, 20, 30]
+    assert [x for kind, x in by_id if kind == "projectile"] == [60]
+    assert len(by_id) == 4  # the other player's or monster's tears are not reported
+
+
+def test_bombs_carry_a_growing_clamped_age_and_are_not_pickups(room):
+    room.execute("""
+      BOMB = make_entity(1,110,200,4); BOMB.FrameCount = 5
+      ROOM_ENTITIES = { BOMB, make_entity(2,150,200,5) }
+      ROOM_ENTITIES[2].Variant = 40
+    """)
+    connect(room)
+    bomb = [e for e in latest(room).entities if e.kind == "bomb"][0]
+    assert (bomb.age_frames, bomb.variant) == (5, None)
+    assert [e.kind for e in latest(room).entities].count("pickup") == 1
+    room.execute("BOMB.FrameCount = 35")
+    tick(room, 20)
+    assert [e.age_frames for e in latest(room).entities if e.kind == "bomb"] == [35]
+    room.execute("BOMB.FrameCount = 123456")
+    tick(room, 20)
+    assert [e.age_frames for e in latest(room).entities if e.kind == "bomb"] == [10000]
+
+
+def test_own_attack_and_bomb_caps_keep_the_nearest_and_count_overflow(room):
+    room.execute("""
+      for i=1,20 do
+        local a = make_entity(i,100+i*10,200,2); a.SpawnerType = 1
+        ROOM_ENTITIES[#ROOM_ENTITIES+1] = a
+      end
+      for i=1,6 do
+        local b = make_entity(100+i,100+i*10,200,4)
+        ROOM_ENTITIES[#ROOM_ENTITIES+1] = b
+      end
+    """)
+    connect(room)
+    state = latest(room)
+    own = [e.position.x for e in state.entities if e.kind == "own_attack"]
+    bombs = [e.position.x for e in state.entities if e.kind == "bomb"]
+    assert own == [10.0 * i for i in range(1, 17)] and bombs == [10.0, 20.0, 30.0, 40.0]
+    assert state.source_overflow == {"own_attack": 4, "bomb": 2}
+
+
+def test_lua_frame_encodes_stats_flags_and_weapons_into_the_vector(room):
+    from isaac_threrisaifuture.encoding import STATS_OFFSET, TEAR_FLAG_OFFSET, WEAPON_OFFSET
+
+    room.execute("PLAYER_TEAR_FLAGS = bit_set(1, 0); STAT_DAMAGE = 25")
+    connect(room)
+    vector = encode(latest(room)).vector
+    assert vector[STATS_OFFSET] == pytest.approx(0.5)
+    assert vector[TEAR_FLAG_OFFSET] == 1.0 and vector[TEAR_FLAG_OFFSET + 1] == 0.0
+    assert vector[WEAPON_OFFSET] == 1.0

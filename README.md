@@ -9,9 +9,10 @@ for gameplay. All project artifacts are English.
 ## Current state
 
 Since 2026-10-22 the project is **pure self-learning** ([decision](docs/UPDATE_DECISION.md)):
-one RecurrentPPO model (`pure-v2`) learns from scratch and continuously, from raw
-game facts (observation schema 3) and outcome rewards only (reward v3), with a
-use-item action head, a stall watchdog and unlimited New Run after death. There is
+one RecurrentPPO model (`pure-v3`) learns from scratch and continuously, from raw
+game facts (observation schema 4: 2038 floats incl. stats, tear flags, weapons, own attacks and
+bombs) and outcome rewards only (reward v4), deciding every 6 game updates (0.2 s) with a
+use-item action head that starts at P(none)=0.85, a stall watchdog and unlimited New Run after death. There is
 no scripted setup or advice feature. The hinted work is history in `archive/`.
 The refactor is verified offline; native acceptance is pending. Read
 [STATUS](docs/STATUS.md) for the exact state and next action.
@@ -34,7 +35,7 @@ Pure training on Windows (see [runtime authority](docs/RUNTIME_AUTHORITY.md)); d
 `mod/observer` to the game while Isaac is closed first:
 
 ```powershell
-# First session ever (fresh pure-v2 model):
+# First session ever (fresh pure-v3 model):
 .\Start-Pure.cmd "<Isaac install dir>" "<path to log.txt>" --initialize
 # Every later start (resumes latest, runs sessions back to back):
 .\Start-Pure.cmd "<Isaac install dir>" "<path to log.txt>"
@@ -42,9 +43,9 @@ Pure training on Windows (see [runtime authority](docs/RUNTIME_AUTHORITY.md)); d
 
 Live training dashboard (read-only, http://127.0.0.1:8765): `.\Start-Dashboard.cmd`
 
-Stop with `runs\pure-v2\supervisor\stop.forever` or Ctrl+C. Progress per episode is
-in `runs\pure-v2\metrics\episodes.csv` (training statistics in `train.csv`); hyperparameters in
-`configs/training-pure-v2.yaml` may be tuned between sessions without a new lineage.
+Stop with `runs\pure-v3\supervisor\stop.forever` or Ctrl+C. Progress per episode is
+in `runs\pure-v3\metrics\episodes.csv` (training statistics in `train.csv`); hyperparameters in
+`configs/training-pure-v3.yaml` may be tuned between sessions without a new lineage.
 
 ## Setup on another computer
 

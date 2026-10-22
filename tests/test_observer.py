@@ -162,6 +162,7 @@ def test_invalid_handshake_closes_peer(peers, field, value) -> None:
         b"{}\r",
         b"{}\n",
     ],
+    ids=["empty", "unfinished", "array", "null", "utf8", "duplicate", "oversize", "cr", "lf"],
 )
 def test_malformed_json_and_bounds(raw) -> None:
     with pytest.raises(ProtocolError):
@@ -279,7 +280,10 @@ def test_accept_handshake_disconnect_and_oversize(peers) -> None:
     with ObservationClient(config(accept_timeout=0.01)) as client:
         with pytest.raises(BridgeTimeout):
             client.accept()
-    for payload, error in ((b"", PeerDisconnected), (b"x" * 16385, ProtocolError)):
+    for payload, error in (
+        (b"", PeerDisconnected),
+        (b"x" * (MAX_MESSAGE_BYTES + 1), ProtocolError),
+    ):
 
         def send(conn, session, payload=payload):
             conn.sendall(record(ack(session)) + payload)

@@ -92,7 +92,7 @@ def main() -> None:
         "--config",
         type=Path,
         default=PURE_CONFIG,
-        help="Training config (train mode); default configs/training-pure-v2.yaml",
+        help="Training config (train mode); default configs/training-pure-v3.yaml",
     )
     live.add_argument("--resume", action="store_true")
     live.add_argument("--out-dir", type=Path, default=Path("runs/live"))

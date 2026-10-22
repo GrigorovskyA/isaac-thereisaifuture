@@ -25,7 +25,7 @@ The offline tests validate schema/encoding/replay; they do not replay game actio
 or establish Gymnasium integration, rewards or learning.
 
 Schema note: the fixtures are observation schema 1 recordings and are kept unmodified.
-Observation schema 3 adds pickup, inventory, collectible and room facts that these
+Observation schema 4 adds pickup, inventory, stats, tear flag, weapon, collectible and room facts that these
 frames never carried, so `tests/test_real_entity_fixtures.py` upgrades a temporary copy
 with neutral placeholders before replay. Only positions, velocities and identities are
-real; the schema 3 fields are not game evidence.
+real; the later schema fields are not game evidence.

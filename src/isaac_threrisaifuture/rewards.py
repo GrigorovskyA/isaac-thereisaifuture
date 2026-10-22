@@ -1,4 +1,4 @@
-"""Event-driven reward ledgers: combat reward-v1 and outcome-only reward-v3.
+"""Event-driven reward ledgers: combat reward-v1 and outcome-only reward-v4.
 
 Coefficients are hypotheses, not tuned values.
 """
@@ -127,8 +127,8 @@ class RewardLedger:
             parts["death"] += c.death
 
 
-DEFAULT_CONFIG_V3 = Path(__file__).resolve().parents[2] / "configs" / "reward-v3.yaml"
-REWARD_V3_COLUMNS = (
+DEFAULT_CONFIG_V4 = Path(__file__).resolve().parents[2] / "configs" / "reward-v4.yaml"
+REWARD_V4_COLUMNS = (
     "enemy_damage",
     "room_clear",
     "room_visit",
@@ -144,7 +144,7 @@ REWARD_V3_COLUMNS = (
     "novelty",
     "stall",
 )
-_V3_SECTIONS: dict[str, tuple[str, ...]] = {
+_V4_SECTIONS: dict[str, tuple[str, ...]] = {
     "outcome": (
         "enemy_hp_fraction_total",
         "room_clear_first",
@@ -168,7 +168,7 @@ _V3_SECTIONS: dict[str, tuple[str, ...]] = {
 
 
 @dataclass(frozen=True)
-class RewardV3Coefficients:
+class RewardV4Coefficients:
     enemy_hp_fraction_total: float
     room_clear_first: float
     room_first_visit: float
@@ -191,13 +191,13 @@ class RewardV3Coefficients:
             raise ValueError("The consumable cap must be >= 0 and the novelty cell size positive")
 
     @classmethod
-    def load(cls, path: Path = DEFAULT_CONFIG_V3) -> Self:
+    def load(cls, path: Path = DEFAULT_CONFIG_V4) -> Self:
         raw: Any = yaml.safe_load(path.read_text(encoding="utf-8"))
-        top = {"reward_version", "status", *_V3_SECTIONS}
-        if not isinstance(raw, dict) or set(raw) != top or raw["reward_version"] != 3:
-            raise ValueError(f"Reward v3 configuration must define exactly {sorted(top)}")
+        top = {"reward_version", "status", *_V4_SECTIONS}
+        if not isinstance(raw, dict) or set(raw) != top or raw["reward_version"] != 4:
+            raise ValueError(f"Reward v4 configuration must define exactly {sorted(top)}")
         values: dict[str, float] = {}
-        for name, keys in _V3_SECTIONS.items():
+        for name, keys in _V4_SECTIONS.items():
             section = raw[name]
             if not isinstance(section, dict) or set(section) != set(keys):
                 raise ValueError(f"The {name} section must define exactly {keys}")
@@ -210,14 +210,14 @@ class RewardV3Coefficients:
 
 
 @dataclass
-class RewardLedgerV3:
+class RewardLedgerV4:
     """Outcome-only reward with per-term columns; the sum of the columns is the reward.
 
     "First" sets, the consumable cap, the heal pool and visited novelty cells belong to a run, so
     they reset only when `begin` sees a new session or game epoch (a new run).
     """
 
-    coefficients: RewardV3Coefficients
+    coefficients: RewardV4Coefficients
     _run: tuple[str, int] | None = None
     # Room indexes repeat on every floor, so rooms are keyed by (stage, room index).
     _visited: set[tuple[int, int]] = field(default_factory=set)
@@ -272,7 +272,7 @@ class RewardLedgerV3:
         room_index: int | None = None,
     ) -> tuple[float, dict[str, float]]:
         c = self.coefficients
-        parts = dict.fromkeys(REWARD_V3_COLUMNS, 0.0)
+        parts = dict.fromkeys(REWARD_V4_COLUMNS, 0.0)
         if not self._dead:
             parts["time"] = c.time_second * elapsed_updates / UPDATES_PER_SECOND
         if frame is not None:

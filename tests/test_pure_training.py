@@ -12,9 +12,11 @@ import pytest
 import yaml
 
 from isaac_threrisaifuture import checkpoints as cp
-from isaac_threrisaifuture import live
+from isaac_threrisaifuture import live, training
 from isaac_threrisaifuture import session_runner as runner
 from isaac_threrisaifuture.checkpoints import CheckpointError, config_hash
+from isaac_threrisaifuture.encoding import OBSERVATION_SIZE
+from isaac_threrisaifuture.entities import OBSERVATION_SCHEMA_VERSION
 from isaac_threrisaifuture.env import IsaacCombatEnv
 from isaac_threrisaifuture.episode_metrics import (
     FIELDS,
@@ -27,13 +29,16 @@ from isaac_threrisaifuture.training import (
     PURE_CONFIG,
     PureTrainingConfig,
     TrainingConfigError,
+    apply_use_head_prior,
     load_training_config,
     train,
 )
 from isaac_threrisaifuture.training_metrics import TRAIN_FIELDS
 
 TOY = Scenario("toy", "validation", 1, 90, enemy_count=2, enemy_hp=7.0)
-RAW: dict[str, Any] = yaml.safe_load(PURE_CONFIG.read_text("utf-8"))
+SHIPPED_PURE_CONFIG = PURE_CONFIG
+ARCHIVED = Path(__file__).parents[1] / "archive" / "configs"
+RAW: dict[str, Any] = yaml.safe_load(SHIPPED_PURE_CONFIG.read_text("utf-8"))
 
 
 def synthetic_env(_: int = 0) -> IsaacCombatEnv:
@@ -51,11 +56,18 @@ def write_config(path: Path, **changes: dict[str, Any]) -> Path:
     return path
 
 
+def current_config(path: Path) -> Path:
+    """Full-size pure config at the current observation schema."""
+    out = path / "current.yaml"
+    out.write_text(yaml.safe_dump(RAW), "utf-8")
+    return out
+
+
 # --- config v2 -------------------------------------------------------------------------------
 
 
 def test_pure_config_loads_and_hashes_only_the_contract(tmp_path):
-    config, digest = load_training_config(PURE_CONFIG)
+    config, digest = load_training_config(current_config(tmp_path))
     assert isinstance(config, PureTrainingConfig)
     assert digest == config_hash(RAW["contract"])
     tuned = write_config(
@@ -86,19 +98,75 @@ def test_pure_config_is_strict(tmp_path, section, change):
         load_training_config(write_config(tmp_path / "x.yaml", **{section: change}))
 
 
-def test_pure_v2_config_requires_reward_v3_and_refuses_pure_v1(tmp_path):
-    config, digest = load_training_config(PURE_CONFIG)
-    assert config.status == "pure_v2" and config.contract.reward_version == 3
-    assert PURE_CONFIG.name == "training-pure-v2.yaml"
-    old = Path(__file__).parents[1] / "archive" / "configs" / "training-pure-v1.yaml"
-    with pytest.raises(TrainingConfigError, match="reward version"):
-        load_training_config(old)
-    assert config_hash(yaml.safe_load(old.read_text("utf-8"))["contract"]) != digest
+def test_pure_v3_config_pins_the_new_contract_and_refuses_older_lineages(tmp_path):
+    config, digest = load_training_config(SHIPPED_PURE_CONFIG)
+    assert SHIPPED_PURE_CONFIG.name == "training-pure-v3.yaml" and config.status == "pure_v3"
+    contract = config.contract
+    assert contract.observation_schema_version == OBSERVATION_SCHEMA_VERSION == 4
+    assert contract.reward_version == 4 and contract.action_repeat_game_updates == 6
+    assert contract.use_head_initial_none_probability == 0.85
+    assert config.retention.keep_every == 200
+    for name in ("training-pure-v1.yaml", "training-pure-v2.yaml"):
+        old = ARCHIVED / name  # schema 3 / reward 3 files are refused by this code
+        with pytest.raises(TrainingConfigError, match="use_head|reward version|schema"):
+            load_training_config(old)
+        assert config_hash(yaml.safe_load(old.read_text("utf-8"))["contract"]) != digest
     with pytest.raises(TrainingConfigError):
-        load_training_config(write_config(tmp_path / "x.yaml", contract={"reward_version": 2}))
+        load_training_config(write_config(tmp_path / "x.yaml", contract={"reward_version": 3}))
 
 
-def test_pure_v1_checkpoints_are_refused_by_the_pure_v2_lineage(tmp_path):
+@pytest.mark.parametrize("value", [0.0, 1.0, 1, -0.1, "0.85"])
+def test_use_head_prior_must_be_a_float_strictly_between_zero_and_one(tmp_path, value):
+    path = write_config(tmp_path / "x.yaml", contract={"use_head_initial_none_probability": value})
+    with pytest.raises(TrainingConfigError):
+        load_training_config(path)
+
+
+def _head_probabilities(model, obs):
+    import torch
+
+    tensor = torch.as_tensor(obs, dtype=torch.float32)
+    zeros = torch.zeros(1, len(obs), model.policy.lstm_actor.hidden_size)
+    starts = torch.zeros(len(obs))
+    heads = model.policy.get_distribution(tensor, (zeros, zeros), starts)[0].distribution
+    return [head.probs.detach().numpy() for head in heads]
+
+
+def test_use_head_prior_sets_only_the_use_head_probabilities():
+    import numpy as np
+    import torch
+    from sb3_contrib import RecurrentPPO
+    from stable_baselines3.common.vec_env import DummyVecEnv
+
+    env = DummyVecEnv([synthetic_env])
+    kwargs: dict[str, Any] = {"policy_kwargs": {"lstm_hidden_size": 16}, "seed": 3}
+    fresh = RecurrentPPO("MlpLstmPolicy", env, **kwargs)
+    reference = RecurrentPPO("MlpLstmPolicy", env, **kwargs)
+    obs = np.random.default_rng(0).normal(size=(8, OBSERVATION_SIZE)).astype(np.float32)
+    apply_use_head_prior(fresh, 0.85)
+    move, shoot, use = _head_probabilities(fresh, obs)
+    assert np.allclose(use, [0.85, 0.05, 0.05, 0.05], atol=1e-3)
+    # SB3 initialises action_net with gain 0.01, so the other heads stay near uniform.
+    assert np.allclose(move, 0.2, atol=0.02) and np.allclose(shoot, 0.2, atol=0.02)
+    assert torch.equal(reference.policy.action_net.weight[:10], fresh.policy.action_net.weight[:10])
+    assert torch.equal(reference.policy.action_net.bias[:10], fresh.policy.action_net.bias[:10])
+
+
+def test_use_head_prior_applies_to_a_fresh_model_and_never_on_resume(tmp_path, monkeypatch):
+    calls: list[float] = []
+    original = training.apply_use_head_prior
+    monkeypatch.setattr(
+        training, "apply_use_head_prior", lambda m, p: (calls.append(p), original(m, p))
+    )
+    out = tmp_path / "run"
+    path = write_config(tmp_path / "c.yaml")
+    run(path, out, 32)
+    assert calls == [0.85]
+    run(path, out, 64, resume=True)
+    assert calls == [0.85]  # the resumed session did not apply it again
+
+
+def test_pure_v1_and_v2_checkpoints_are_refused_by_the_pure_v3_lineage(tmp_path):
     out = tmp_path / "run"
     path = write_config(tmp_path / "c.yaml")
     run(path, out, 32)
@@ -107,7 +175,23 @@ def test_pure_v1_checkpoints_are_refused_by_the_pure_v2_lineage(tmp_path):
     assert old_digest != digest
     with pytest.raises(CheckpointError):  # a checkpoint of the old contract hash
         train(config, old_digest, seed=1, env_factory=synthetic_env, out_dir=out, resume=True,
-              reward_contract="pure-v3")  # fmt: skip
+              reward_contract="pure-v4")  # fmt: skip
+
+
+def test_pure_v2_checkpoint_is_refused_by_the_pure_v3_lineage(tmp_path):
+    import json
+
+    out = tmp_path / "run"
+    path = write_config(tmp_path / "c.yaml")
+    run(path, out, 32)
+    # Make the checkpoint look like pure-v2: its contract hash and its reward contract name.
+    v2 = yaml.safe_load((ARCHIVED / "training-pure-v2.yaml").read_text("utf-8"))
+    manifest_path = cp.latest_checkpoint_dir(out / "checkpoints") / "manifest.json"
+    manifest = json.loads(manifest_path.read_text("utf-8"))
+    manifest.update(config_hash=config_hash(v2["contract"]), reward_contract="pure-v3")
+    manifest_path.write_text(json.dumps(manifest), "utf-8")
+    with pytest.raises(CheckpointError):
+        run(path, out, 64, resume=True)
 
 
 def test_train_csv_has_one_aligned_row_per_update_with_action_shares(tmp_path):
@@ -116,7 +200,7 @@ def test_train_csv_has_one_aligned_row_per_update_with_action_shares(tmp_path):
     config, digest = load_training_config(write_config(tmp_path / "c.yaml"))
     for steps in (64, 128):  # two sessions append to the same file
         train(config, digest, seed=1, env_factory=synthetic_env, out_dir=out / "seed-1",
-              max_timesteps=steps, resume=steps > 64, reward_contract="pure-v3",
+              max_timesteps=steps, resume=steps > 64, reward_contract="pure-v4",
               train_metrics_path=metrics)  # fmt: skip
     rows = list(csv.DictReader(metrics.open(encoding="utf-8")))
     assert [r["timesteps"] for r in rows] == ["32", "64", "96", "128"]
@@ -137,7 +221,7 @@ def test_train_csv_write_failure_is_logged_once_and_training_continues(tmp_path,
     blocked.write_text("a file, not a directory", "utf-8")
     config, digest = load_training_config(write_config(tmp_path / "c.yaml"))
     result = train(config, digest, seed=1, env_factory=synthetic_env, out_dir=out,
-                   max_timesteps=64, reward_contract="pure-v3",
+                   max_timesteps=64, reward_contract="pure-v4",
                    train_metrics_path=blocked / "train.csv")  # fmt: skip
     assert result.timesteps == 64
     assert len([r for r in caplog.records if "Training metrics disabled" in r.message]) == 1
@@ -318,7 +402,7 @@ def run(path: Path, out: Path, steps: int, **kwargs: Any) -> Any:
         env_factory=synthetic_env,
         out_dir=out,
         max_timesteps=steps,
-        reward_contract="pure-v3",
+        reward_contract="pure-v4",
         **kwargs,
     )
 
@@ -371,10 +455,10 @@ def test_resume_refuses_contract_change_and_missing_state(tmp_path):
     config, digest = load_training_config(changed)
     with pytest.raises(CheckpointError, match="different training configuration"):
         train(config, digest, seed=1, env_factory=factory, out_dir=out, resume=True,
-              reward_contract="pure-v3")  # fmt: skip
+              reward_contract="pure-v4")  # fmt: skip
     with pytest.raises(CheckpointError, match="No checkpoint to resume"):
         train(config, digest, seed=1, env_factory=factory, out_dir=tmp_path / "empty",
-              resume=True, reward_contract="pure-v3")  # fmt: skip
+              resume=True, reward_contract="pure-v4")  # fmt: skip
     assert not created
 
 
@@ -397,10 +481,11 @@ def test_live_train_wires_watchdog_fault_cap_and_metrics(tmp_path, monkeypatch):
     live._train_run(None, options, lambda *_: None, lambda _: None)  # type: ignore[arg-type]
     assert seen["stall_seconds"] == 45.0 and seen["max_consecutive_faults"] == 4
     assert seen["max_faults"] > 1000  # no total budget in the pure profile
+    assert seen["action_repeat"] == 6  # taken from the contract
     rows = list(csv.DictReader((tmp_path / "out/metrics/episodes.csv").open(encoding="utf-8")))
     assert rows
     manifest = cp.read_manifest(cp.latest_checkpoint_dir(tmp_path / "out/seed-1/checkpoints"))
-    assert manifest.hyperparameters is not None and manifest.reward_contract == "pure-v3"
+    assert manifest.hyperparameters is not None and manifest.reward_contract == "pure-v4"
 
 
 # --- forever supervisor ----------------------------------------------------------------------
@@ -437,7 +522,7 @@ def test_forever_resumes_latest_after_each_lease_end_until_stop_file(forever):
             timesteps=len(plans) * 10,
             parent_checkpoint_id=parent,
             rng_state={},
-            reward_contract="pure-v3",
+            reward_contract="pure-v4",
         )
         if len(plans) == 3:
             options.stop_file.touch()
@@ -518,7 +603,7 @@ def test_forever_refuses_a_changed_contract_and_stops_on_ctrl_c(forever, tmp_pat
     cp.save_checkpoint(
         root, model=Artifact(b"m"), vec_normalize=Artifact(b"n"), algorithm="RecurrentPPO",
         cfg_hash=digest, seed=1, timesteps=10, parent_checkpoint_id=None, rng_state={},
-        reward_contract="pure-v3",
+        reward_contract="pure-v4",
     )  # fmt: skip
 
     def interrupt(plan: runner.SessionPlan) -> dict[str, Any]:

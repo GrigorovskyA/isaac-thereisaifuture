@@ -357,5 +357,7 @@ def test_worst_case_live_snapshot_with_oracle_fits_the_wire_limit():
     snap = live_snapshots(lua)[-1]
     assert snap.oracle is not None and len(snap.oracle.enemies) == 64
     assert len(snap.entity_frame.collectibles) == 256
+    assert len(snap.entity_frame.entities) == 72  # every kind at its cap, incl. 16 own, 4 bombs
     sizes = [len(line.encode()) for line in records(lua, "snapshot")]
-    assert max(sizes) < 16384 and not lua.globals().CLOSED
+    print("worst-case live snapshot bytes:", max(sizes))
+    assert max(sizes) < 32768 and not lua.globals().CLOSED

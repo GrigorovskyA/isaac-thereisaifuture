@@ -11,7 +11,7 @@ Append `entity_observation_v1` to the existing required capabilities. A missing
 capability fails before any snapshot; there is no silent fallback. Only a peer
 that requests this capability receives the extra `entity_frame` key in each
 snapshot. Default clients receive no extra fields and trigger no entity scans.
-Both modes retain UTF-8 newline JSON, loopback TCP, 16384-byte wire records,
+Both modes retain UTF-8 newline JSON, loopback TCP, 32768-byte wire records,
 nonblocking bounded Lua I/O and the existing 200 ms sampling cadence.
 
 Available snapshots carry an EntityFrame; unavailable snapshots carry null.
@@ -56,7 +56,7 @@ an API read failure produces unavailable state with null entity_frame, never a
 successful partial scan. Native per-kind capacities are 12 enemies, 20
 projectiles, 12 obstacles and 4 pickups (48 total); select nearest first with
 opaque ID ties. Offsets/velocity round to 0.001 game units. Oversized encoded
-messages close the peer under the existing 16384-byte limit.
+messages close the peer under the existing 32768-byte limit.
 
 The Python encoder retains schema-1 capacities 16/32/24/8 and outputs 649 float32
 values. Presence and optional-field masks distinguish missing objects from

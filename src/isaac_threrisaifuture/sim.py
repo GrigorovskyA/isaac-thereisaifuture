@@ -8,7 +8,17 @@ import random
 import uuid
 from dataclasses import dataclass
 
-from .entities import Entity, EntityFrame, Inventory, OracleEvent, RoomFacts, Vec
+from .entities import (
+    TEAR_FLAG_NAMES,
+    WEAPON_NAMES,
+    Entity,
+    EntityFrame,
+    Inventory,
+    OracleEvent,
+    RoomFacts,
+    Stats,
+    Vec,
+)
 from .episodes import ALL_TERMINAL_KINDS, Action, Scenario, StepResult
 from .observation import BridgeTimeout, Health
 
@@ -214,7 +224,7 @@ class SyntheticRoomBackend:
             for e in self._enemies
         ] + [
             Entity(
-                kind="projectile",
+                kind="own_attack",
                 entity_id=t.entity_id,
                 spawn_generation=0,
                 position=Vec(x=t.x - self._px, y=t.y - self._py),
@@ -248,6 +258,16 @@ class SyntheticRoomBackend:
                 pill=0,
                 trinket=0,
             ),
+            stats=Stats(
+                damage=3.5,
+                tears_per_second=2.73,
+                range=260.0,
+                shot_speed=1.0,
+                move_speed=1.0,
+                luck=0.0,
+            ),
+            tear_flags=[False] * len(TEAR_FLAG_NAMES),
+            weapons=[name == "tears" for name in WEAPON_NAMES],
             collectibles=[],
             collectible_overflow=0,
             room=RoomFacts(

@@ -402,6 +402,35 @@ class EncodedOnly(gym.Wrapper):
         return (self._check(obs), *rest)
 
 
+def test_live_env_sends_the_action_repeat_of_the_shipped_contract(loop_game):
+    from isaac_threrisaifuture.training import PURE_CONFIG, load_training_config
+
+    config, _ = load_training_config(PURE_CONFIG)
+    assert config.action_repeat_game_updates == 6
+    client, _ = loop_game
+    frames: list[int] = []
+    original = client.command
+
+    def command(kind, reference, **kwargs):
+        if kind == "action":
+            frames.append(kwargs["frames"])
+        return original(kind, reference, **kwargs)
+
+    client.command = command
+    env = make_live_env(
+        client,
+        action_repeat=config.action_repeat_game_updates,
+        max_faults=0,
+        run_deadline=time.monotonic() + 60,
+    )
+    client.connect()
+    env.reset()
+    for _ in range(3):
+        env.step(A)
+    env.close()
+    assert frames == [6, 6, 6]
+
+
 def test_loopback_async_restart_through_the_plain_live_env(loop_game):
     client, game = loop_game
     deadline = time.monotonic() + 60

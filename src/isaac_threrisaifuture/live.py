@@ -50,7 +50,7 @@ APPROVAL_NAME = "action_authorization.json"
 TRAINING_MAX_SECONDS = 28800  # mirrors Config.training_max_seconds in main.lua
 MAX_RESTARTS = 5000
 MAX_REWARD_IDENTITIES = 4096
-LIVE_REWARD_CONTRACT: Literal["pure-v3"] = "pure-v3"
+LIVE_REWARD_CONTRACT: Literal["pure-v4"] = "pure-v4"
 _CONSUMABLES: tuple[Literal["coin", "bomb", "key"], ...] = ("coin", "bomb", "key")
 SNAPSHOT_BACKLOG = 512
 ACK_TIMEOUT = 1.0
@@ -702,22 +702,22 @@ def make_live_env(
     oracle_sink: Callable[[OracleEvent], None] | None = None,
     run_deadline: float | None = None,
     stop_file: Path | None = None,
-    reward_version: Literal[1, 3] = 3,
+    reward_version: Literal[1, 4] = 4,
     stall_seconds: float | None = None,
     clock: Callable[[], float] = time.monotonic,
     max_consecutive_faults: int | None = None,
 ) -> FaultTolerantEnv:
-    """Live env; the pure profile pays reward v3 (v1 stays selectable for old comparisons).
+    """Live env; the pure profile pays reward v4 (v1 stays selectable for old comparisons).
 
     With `stall_seconds`, a stall truncates the episode with reason `stall` and sends
     one restart command. Leave it unset for attach-only runs such as evaluation.
     """
     from .env import IsaacCombatEnv, RewardAccountant
-    from .rewards import CombatCoefficients, RewardLedger, RewardLedgerV3, RewardV3Coefficients
+    from .rewards import CombatCoefficients, RewardLedger, RewardLedgerV4, RewardV4Coefficients
 
     accountant: RewardAccountant = (
-        RewardLedgerV3(RewardV3Coefficients.load())
-        if reward_version == 3
+        RewardLedgerV4(RewardV4Coefficients.load())
+        if reward_version == 4
         else RewardLedger(CombatCoefficients.load())
     )
 

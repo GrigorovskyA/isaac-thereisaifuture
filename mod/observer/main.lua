@@ -1,7 +1,7 @@
 -- Default read-only observer; opt-in lifecycle and explicitly authorized native actions.
 local mod = RegisterMod("Isaac Future Observer", 1)
 local Config = {
-    host = "127.0.0.1", port = 9528, max_bytes = 16384, io_bytes = 4096,
+    host = "127.0.0.1", port = 9528, max_bytes = 32768, hello_bytes = 16384, io_bytes = 4096,
     timeout_ms = 3000, retry_ms = 1000, sample_ms = 200,
     -- Operator-supplied metadata is optional; never pretend it is runtime detection.
     game_version = nil, steam_build = nil,
@@ -33,7 +33,7 @@ local diagnostic = nil
 
 -- Opt-in read-only entity export; these tables never contain oracle/reward data.
 local entities = { requested = false, ids = {}, next_id = 0 }
-local entity_caps = { enemy=12, projectile=20, obstacle=12, pickup=8 }
+local entity_caps = { enemy=12, projectile=20, obstacle=12, pickup=8, own_attack=16, bomb=4 }
 -- Held collectibles change rarely, so the scan is cached and refreshed on a short cadence.
 local collectible_cap, collectible_max_id, collectible_period = 256, 1024, 30
 local collectible_cache = { dirty = true, frame = nil, ids = {}, overflow = 0 }
@@ -264,6 +264,68 @@ local function collectible_list(player, frame)
     return cache.ids, cache.overflow
 end
 
+-- Like clamp_int but keeps fractions (3 decimals). Declared wire ranges are in entities.py
+-- STAT_RANGES; infinite or NaN raw values (e.g. MaxFireDelay of -1) land on the bounds.
+local function clamp_num(value, low, high)
+    value = tonumber(value)
+    if not value or value ~= value then return low end
+    return math.floor(math.max(low, math.min(high, value)) * 1000 + 0.5) / 1000
+end
+
+local function player_stats(player)
+    local delay = tonumber(player.MaxFireDelay) or 0
+    return {
+        damage = clamp_num(player.Damage, 0, 1000),
+        tears_per_second = clamp_num(30 / (delay + 1), 0, 60),
+        range = clamp_num(player.TearRange, 0, 10000),
+        shot_speed = clamp_num(player.ShotSpeed, 0, 10),
+        move_speed = clamp_num(player.MoveSpeed, 0, 10),
+        luck = clamp_num(player.Luck, -100, 100),
+    }
+end
+
+-- Fixed wire order; keep in sync with TEAR_FLAG_NAMES and WEAPON_NAMES in entities.py.
+local tear_flag_names = { "TEAR_SPECTRAL", "TEAR_PIERCING", "TEAR_HOMING", "TEAR_SLOW",
+    "TEAR_POISON", "TEAR_FREEZE", "TEAR_SPLIT", "TEAR_GROW", "TEAR_BOOMERANG",
+    "TEAR_PERSISTENT", "TEAR_WIGGLE", "TEAR_EXPLOSIVE", "TEAR_CHARM", "TEAR_CONFUSION",
+    "TEAR_BURN", "TEAR_BOUNCE" }
+local weapon_names = { "WEAPON_TEARS", "WEAPON_BRIMSTONE", "WEAPON_LASER", "WEAPON_KNIFE",
+    "WEAPON_BOMBS", "WEAPON_ROCKETS", "WEAPON_MONSTROS_LUNGS", "WEAPON_LUDOVICO_TECHNIQUE",
+    "WEAPON_TECH_X", "WEAPON_BONE", "WEAPON_NOTCHED_AXE", "WEAPON_URN_OF_SOULS",
+    "WEAPON_SPIRIT_SWORD", "WEAPON_FETUS", "WEAPON_UMBILICAL_WHIP" }
+
+-- Repentance tear flags are 128-bit sets: `player.TearFlags & TearFlags.X` is a set that
+-- equals TearFlags.TEAR_NORMAL (empty) when the flag is off. Any API surprise reads false.
+local function has_tear_flag(player, name)
+    local ok, result = pcall(function()
+        local flag = TearFlags and TearFlags[name]
+        if flag == nil then return false end
+        local both = player.TearFlags & flag
+        if type(both) == "number" then return both ~= 0 end
+        if type(both) == "table" or type(both) == "userdata" then
+            if both.l ~= nil and both.h ~= nil then return both.l ~= 0 or both.h ~= 0 end
+            return both ~= TearFlags.TEAR_NORMAL
+        end
+        return false
+    end)
+    return ok and result == true
+end
+
+local function has_weapon(player, name)
+    local ok, result = pcall(function()
+        local kind = WeaponType and WeaponType[name]
+        if kind == nil then return false end
+        return player:HasWeaponType(kind)
+    end)
+    return ok and result == true
+end
+
+local function flag_list(names, test, player)
+    local list = {}
+    for i, name in ipairs(names) do list[i] = test(player, name) end
+    return list
+end
+
 local function inventory_facts(player)
     local slot = ActiveSlot.SLOT_PRIMARY
     local active = clamp_int(player:GetActiveItem(slot), 0, collectible_max_id)
@@ -304,7 +366,7 @@ local function capture_entities(room, player, data)
     local grid_size = room:GetGridSize()
     assert(type(grid_size) == "number" and grid_size % 1 == 0
         and grid_size >= 0 and grid_size <= 2048, "Room grid scan exceeds 2048")
-    local groups = { enemy={}, projectile={}, obstacle={}, pickup={} }
+    local groups = { enemy={}, projectile={}, obstacle={}, pickup={}, own_attack={}, bomb={} }
     local retained = {}
     local oracle_enemies, oracle_overflow = {}, 0
     local function identity(key)
@@ -317,11 +379,22 @@ local function capture_entities(room, player, data)
         retained[key] = id
         return id
     end
-    local function add(kind, key, position, velocity, pickup)
+    local player_hash = GetPtrHash(player)
+    -- Attacks of the player or its familiars; the Parent link covers spawners left unset.
+    local function own_attack(entity)
+        local spawner = entity.SpawnerType
+        if spawner == EntityType.ENTITY_PLAYER or spawner == EntityType.ENTITY_FAMILIAR then
+            return true
+        end
+        local parent = entity.Parent
+        return parent ~= nil and GetPtrHash(parent) == player_hash
+    end
+    local function add(kind, key, position, velocity, pickup, age)
         local relative = vector({ X=position.X-player.Position.X, Y=position.Y-player.Position.Y })
         local item = { kind=kind, entity_id=identity(key), spawn_generation=0,
             position=relative, velocity=vector(velocity), hp=json.null, max_hp=json.null,
-            variant=json.null, subtype=json.null, price=json.null }
+            variant=json.null, subtype=json.null, price=json.null, age_frames=json.null }
+        if age then item.age_frames = clamp_int(age, 0, 10000) end
         if pickup then
             -- Price: 0 free; non-zero shop or devil deal. Modded values are clamped.
             local native = pickup:ToPickup()
@@ -339,10 +412,16 @@ local function capture_entities(room, player, data)
             local kind
             if entity:IsActiveEnemy(false) then kind = "enemy"
             elseif entity.Type == EntityType.ENTITY_PROJECTILE then kind = "projectile"
-            elseif entity.Type == EntityType.ENTITY_PICKUP then kind = "pickup" end
+            elseif entity.Type == EntityType.ENTITY_PICKUP then kind = "pickup"
+            elseif entity.Type == EntityType.ENTITY_BOMB then kind = "bomb"
+            elseif (entity.Type == EntityType.ENTITY_TEAR or entity.Type == EntityType.ENTITY_LASER
+                or entity.Type == EntityType.ENTITY_KNIFE) and own_attack(entity) then
+                kind = "own_attack"
+            end
             if kind then
                 add(kind, key, entity.Position, entity.Velocity,
-                    kind == "pickup" and entity or nil)
+                    kind == "pickup" and entity or nil,
+                    kind == "bomb" and entity.FrameCount or nil)
             end
         end
         -- Live-loop reward labels only; leaves through the separate oracle block.
@@ -379,7 +458,7 @@ local function capture_entities(room, player, data)
     end
     entities.ids = retained
     local result, overflow = {}, {}
-    for _, kind in ipairs({ "enemy", "projectile", "obstacle", "pickup" }) do
+    for _, kind in ipairs({ "enemy", "projectile", "obstacle", "pickup", "own_attack", "bomb" }) do
         local group = groups[kind]
         table.sort(group, function(a,b)
             local ad = a.position.x*a.position.x + a.position.y*a.position.y
@@ -398,13 +477,15 @@ local function capture_entities(room, player, data)
     end
     local held, held_overflow = collectible_list(player, data.frame)
     return {
-        type="entity_frame", observation_schema_version=3, provenance="game_api",
+        type="entity_frame", observation_schema_version=4, provenance="game_api",
         session_id=state.session, game_epoch=state.epoch, room_visit=state.visit,
         frame_id=data.frame, player_position=data.player.position,
         player_velocity=vector(player.Velocity), health=data.player.health,
         entities=#result > 0 and result or json.EMPTY_ARRAY,
         source_overflow=next(overflow) and overflow or json.EMPTY_OBJECT,
-        inventory=inventory_facts(player),
+        inventory=inventory_facts(player), stats=player_stats(player),
+        tear_flags=flag_list(tear_flag_names, has_tear_flag, player),
+        weapons=flag_list(weapon_names, has_weapon, player),
         collectibles=#held > 0 and held or json.EMPTY_ARRAY,
         collectible_overflow=held_overflow, room=room_facts(room),
     }, oracle
@@ -594,7 +675,7 @@ local function pump()
         end
         state.rx = state.rx .. chunk
     end
-    local limit = state.phase == "hello" and Config.max_bytes or 1024
+    local limit = state.phase == "hello" and Config.hello_bytes or 1024
     local newline = state.rx:find("\n", 1, true)
     if #state.rx > limit + 1 or (not newline and #state.rx > limit) then
         close("Input limit exceeded"); return

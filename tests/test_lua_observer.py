@@ -36,6 +36,25 @@ COINS, BOMBS, KEYS, ACTIVE, CHARGE, MAX_CHARGES = 0, 0, 0, 0, 0, nil
 CARD, PILL, TRINKET, HELD, HAS_CALLS, ITEM_SIZE = 0, 0, 0, {}, 0, 733
 ROOM_TYPE, STAGE, STAGE_TYPE, ROOM_INDEX, DOORS = 1, 1, 0, 84, {}
 ActiveSlot = { SLOT_PRIMARY = 0 }
+-- Simulated stats, 128-bit tear flag sets and weapons (not engine evidence). A set is
+-- {l, h} with & and ==, like Repentance BitSet128; TEAR_BOUNCE sits in the high word.
+STAT_DAMAGE, STAT_FIRE_DELAY, STAT_RANGE, STAT_SHOT, STAT_MOVE, STAT_LUCK =
+ 3.5, 10, 260, 1, 1, 0
+local bits_meta = {}
+bits_meta.__band = function(a, b) return bit_set(a.l & b.l, a.h & b.h) end
+bits_meta.__eq = function(a, b) return a.l == b.l and a.h == b.h end
+function bit_set(l, h) return setmetatable({l=l, h=h}, bits_meta) end
+TearFlags = { TEAR_NORMAL = bit_set(0, 0) }
+for i, name in ipairs({ "SPECTRAL", "PIERCING", "HOMING", "SLOW", "POISON", "FREEZE",
+ "SPLIT", "GROW", "BOOMERANG", "PERSISTENT", "WIGGLE", "EXPLOSIVE", "CHARM",
+ "CONFUSION", "BURN" }) do TearFlags["TEAR_" .. name] = bit_set(1 << (i - 1), 0) end
+TearFlags.TEAR_BOUNCE = bit_set(0, 1)
+PLAYER_TEAR_FLAGS = bit_set(0, 0)
+WeaponType = { WEAPON_TEARS=1, WEAPON_BRIMSTONE=2, WEAPON_LASER=3, WEAPON_KNIFE=4,
+ WEAPON_BOMBS=5, WEAPON_ROCKETS=6, WEAPON_MONSTROS_LUNGS=7, WEAPON_LUDOVICO_TECHNIQUE=8,
+ WEAPON_TECH_X=9, WEAPON_BONE=10, WEAPON_NOTCHED_AXE=11, WEAPON_URN_OF_SOULS=12,
+ WEAPON_SPIRIT_SWORD=13, WEAPON_FETUS=14 }  -- UMBILICAL_WHIP missing: reads false
+WEAPONS = { [1]=true }
 -- Optional scripted callback order run inside a dispatch (simulated, not engine evidence).
 DISPATCH_EVENTS = nil
 -- Optional deferred order: {{after=ms, event=name}, ...} queued by a dispatch that returns
@@ -84,6 +103,7 @@ ButtonAction = { ACTION_LEFT=0, ACTION_RIGHT=1, ACTION_UP=2, ACTION_DOWN=3,
 InputHook = { IS_ACTION_PRESSED=0, IS_ACTION_TRIGGERED=1, GET_ACTION_VALUE=2 }
 GetPtrHash = function(entity) return entity end
 local player = {
+ HasWeaponType=function(self, kind) return WEAPONS[kind] == true end,
  GetPlayerType=function() return 0 end, GetHearts=function() return 5 end,
  GetMaxHearts=function() return 6 end, GetSoulHearts=function() return 2 end,
  IsDead=function() return IS_DEAD end,
@@ -96,6 +116,9 @@ local player = {
 }
 player.ToPlayer = function(self) return self end
 Isaac.GetPlayer = function()
+ player.Damage, player.MaxFireDelay, player.TearRange = STAT_DAMAGE, STAT_FIRE_DELAY, STAT_RANGE
+ player.ShotSpeed, player.MoveSpeed, player.Luck = STAT_SHOT, STAT_MOVE, STAT_LUCK
+ player.TearFlags = PLAYER_TEAR_FLAGS
  if FAIL_STATE then error("Simulated game API fault") end
  if NO_PLAYER then return nil end
  player.Position = {X=X,Y=Y}

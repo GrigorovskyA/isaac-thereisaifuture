@@ -245,11 +245,12 @@ def test_status_requires_recent_training_evidence():
         }
     )
     assert progress.snapshot(104)["state"] == "training"
-    status = progress.snapshot(115)
+    assert progress.snapshot(103 + runner.IDLE_SECONDS)["state"] == "training"
+    status = progress.snapshot(115 + runner.IDLE_SECONDS)
     assert status["state"] == "waiting"
     assert status["last_checkpoint_update_at"] is None
-    assert status["phase_seconds"]["training"] == 5
-    assert status["phase_seconds"]["waiting"] == 7
+    assert status["phase_seconds"]["training"] == runner.IDLE_SECONDS
+    assert status["phase_seconds"]["waiting"] == 12
 
 
 def test_training_and_checkpointing_are_distinct():
@@ -257,7 +258,7 @@ def test_training_and_checkpointing_are_distinct():
     for now, event, data, phase in [
         (1, "training", {"seed": 7}, "training"),
         (2, "checkpointing", {"timesteps": 256}, "checkpointing"),
-        (3, "checkpoint_completed", {"id": "new"}, "waiting"),
+        (3, "checkpoint_completed", {"id": "new"}, "training"),
     ]:
         progress.event({"monotonic": now, "event": event, "data": data})
         assert progress.snapshot(now)["state"] == phase

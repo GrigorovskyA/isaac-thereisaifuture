@@ -1,11 +1,14 @@
 """Synthetic frame factory. Synthetic data never proves anything about the real game."""
 
 from isaac_threrisaifuture.entities import (
+    TEAR_FLAG_NAMES,
+    WEAPON_NAMES,
     Entity,
     EntityFrame,
     Inventory,
     OracleEvent,
     RoomFacts,
+    Stats,
     Vec,
 )
 from isaac_threrisaifuture.observation import Health
@@ -24,6 +27,20 @@ def inventory(**changes: int) -> Inventory:
     )  # fmt: skip
     values.update(changes)
     return Inventory(**values)
+
+
+def stats(**changes: float) -> Stats:
+    values = dict(damage=3.5, tears_per_second=2.73, range=260.0, shot_speed=1.0, move_speed=1.0)
+    values.update(changes, luck=changes.get("luck", 0.0))
+    return Stats(**values)
+
+
+def tear_flags(*names: str) -> list[bool]:
+    return [name in names for name in TEAR_FLAG_NAMES]
+
+
+def weapons(*names: str) -> list[bool]:
+    return [name in names for name in WEAPON_NAMES]
 
 
 def room_facts(**changes: object) -> RoomFacts:
@@ -66,6 +83,9 @@ def frame(entities: list[Entity] | None = None, frame_id: int = 1, **changes: ob
         health=health(),
         entities=entities or [],
         inventory=inventory(),
+        stats=stats(),
+        tear_flags=tear_flags(),
+        weapons=weapons("tears"),
         collectibles=[],
         collectible_overflow=0,
         room=room_facts(),

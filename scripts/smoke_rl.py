@@ -17,7 +17,7 @@ from isaac_threrisaifuture.episodes import ACTION_NVEC
 class StackSmokeEnv(gym.Env):
     """Synthetic compatibility check, not an Isaac simulator or a speed test.
 
-    It only borrows the real space shapes: 1837 observations and MultiDiscrete([5, 5, 4]).
+    It only borrows the real space shapes: 2038 observations and MultiDiscrete([5, 5, 4]).
     """
 
     observation_space = gym.spaces.Box(-1, 1, shape=(OBSERVATION_SIZE,), dtype=np.float32)

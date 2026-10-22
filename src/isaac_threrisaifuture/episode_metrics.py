@@ -8,7 +8,7 @@ from typing import Any, SupportsFloat
 
 import gymnasium as gym
 
-from .rewards import REWARD_V3_COLUMNS
+from .rewards import REWARD_V4_COLUMNS
 
 PICKUPS = ("coin", "bomb", "key", "collectible")
 BASE_FIELDS = (
@@ -36,7 +36,7 @@ EXTRA_FIELDS = (
 FIELDS = (
     *BASE_FIELDS,
     *(f"pickups_{name}" for name in PICKUPS),
-    *(f"col_{name}" for name in REWARD_V3_COLUMNS),
+    *(f"col_{name}" for name in REWARD_V4_COLUMNS),
     *EXTRA_FIELDS,
     "wall_time",  # UTC ISO-8601, seconds precision, stamped when the row is written
 )
@@ -47,7 +47,7 @@ def summary_row(summary: Mapping[str, Any]) -> dict[str, Any]:
     row: dict[str, Any] = {name: summary.get(name) for name in BASE_FIELDS}
     for name in PICKUPS:
         row[f"pickups_{name}"] = summary.get("pickups", {}).get(name)
-    for name in REWARD_V3_COLUMNS:
+    for name in REWARD_V4_COLUMNS:
         row[f"col_{name}"] = summary.get("columns", {}).get(name)
     for name in EXTRA_FIELDS:
         row[name] = summary.get(name)

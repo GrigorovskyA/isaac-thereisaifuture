@@ -324,7 +324,7 @@ class _Handler(BaseHTTPRequestHandler):
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--run-root", type=Path, default=Path("runs/pure-v2"))
+    parser.add_argument("--run-root", type=Path, default=Path("runs/pure-v3"))
     parser.add_argument("--host", default=LOOPBACK, help="loopback only; anything else is refused")
     parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args(argv)
