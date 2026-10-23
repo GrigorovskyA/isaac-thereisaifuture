@@ -35,27 +35,37 @@ NEUTRAL_FACTS = {
     "weapons": [True] + [False] * 14,
     "collectibles": [],
     "collectible_overflow": 0,
-    "room": {"type": 1, "stage": 1, "stage_type": 0, "clear": False, "doors": [False] * 8},
+    "room": {
+        "type": 1,
+        "stage": 1,
+        "stage_type": 0,
+        "clear": False,
+        "doors": [False] * 8,
+        "shape": 1,
+    },
+    "map": [],
+    "map_current_off_grid": False,
 }
 
 
 def upgraded(name: str, tmp_path: Path) -> Path:
-    """Copy a recorded schema 1 fixture to schema 4 with neutral, clearly invented facts.
+    """Copy a recorded schema 1 fixture to schema 5 with neutral, clearly invented facts.
 
     Only the real positions, velocities and identities are replayed; the added inventory,
-    stats, weapon, room and pickup fields are placeholders (pickups become 'other' variant
-    999, free).
+    stats, weapon, room, map and pickup fields are placeholders (obstacles become class
+    "other", pickups become 'other' variant 999, free).
     """
     lines = (FIXTURES / name).read_text("utf-8").splitlines()
     out = []
     for line in lines:
         record = json.loads(line)
-        record["observation_schema_version"] = 4
+        record["observation_schema_version"] = 5
         if record["type"] == "entity_frame":
             record.update(NEUTRAL_FACTS)
             for entity in record["entities"]:
                 is_pickup = entity["kind"] == "pickup"
                 entity.update(
+                    obstacle_class="other" if entity["kind"] == "obstacle" else None,
                     variant=999 if is_pickup else None,
                     subtype=0 if is_pickup else None,
                     price=0 if is_pickup else None,

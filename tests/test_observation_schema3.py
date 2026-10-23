@@ -17,6 +17,7 @@ from isaac_threrisaifuture.encoding import (
     PICKUP_SLOT_FEATURES,
     ROOM_OFFSET,
     SLOT_FEATURES,
+    SLOT_WIDTH,
     VARIANT_CLASSES,
     encode,
     variant_class,
@@ -25,8 +26,10 @@ from isaac_threrisaifuture.entities import EntityFrame
 from isaac_threrisaifuture.live_wire import LiveOracle
 from isaac_threrisaifuture.observation import ProtocolError, decode
 
-PICKUP_OFFSET = ENEMY_OFFSET + SLOT_FEATURES * (
-    CAPACITY["enemy"] + CAPACITY["projectile"] + CAPACITY["obstacle"]
+PICKUP_OFFSET = (
+    ENEMY_OFFSET
+    + SLOT_FEATURES * (CAPACITY["enemy"] + CAPACITY["projectile"])
+    + SLOT_WIDTH["obstacle"] * CAPACITY["obstacle"]
 )
 
 
@@ -39,11 +42,12 @@ def decoded(payload: dict[str, Any]) -> EntityFrame:
 
 
 def test_layout_matches_the_design_table():
-    assert COLLECTIBLE_OFFSET + 1024 == 1837  # the schema 3 vector; schema 4 appends
-    assert (INVENTORY_OFFSET, ROOM_OFFSET, ENEMY_OFFSET) == (9, 18, 61)
-    assert PICKUP_OFFSET == 61 + 128 + 256 + 192
+    # Schema 5 grew the room block by 12 (shape) and obstacle slots by 11 (class).
+    assert COLLECTIBLE_OFFSET + 1024 == 2113  # the base vector; later blocks append
+    assert (INVENTORY_OFFSET, ROOM_OFFSET, ENEMY_OFFSET) == (9, 18, 73)
+    assert PICKUP_OFFSET == 73 + 128 + 256 + 24 * 19
     assert PICKUP_SLOT_FEATURES == 22 and len(VARIANT_CLASSES) == 12
-    assert COLLECTIBLE_OFFSET == PICKUP_OFFSET + 8 * 22 == 1837 - 1024
+    assert COLLECTIBLE_OFFSET == PICKUP_OFFSET + 8 * 22 == 2113 - 1024
 
 
 def test_wire_round_trip_encodes_a_full_finite_vector():

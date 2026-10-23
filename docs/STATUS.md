@@ -10,6 +10,10 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
   outcome rewards only. No scripted setup, advice features or technique rewards.
   Hinted code, tests, docs and all previously open changes are in `archive/`.
 - Active changes:
+  - `openspec/changes/pure-v4-map-hazards-and-stall`: observation schema 5 (obstacle
+    classes, room shape, minimap, stall clock; 48 KiB messages), reward v5 (stall -10),
+    kill and damage-source metrics, `train.csv` timing, lineage `pure-v4`. Tasks 1.1-1.3
+    done offline on macOS; Windows gate 2.2, mod redeploy and native check 2.3 pending.
   - `openspec/changes/stall-watchdog-novel-progress`: only facts new for the run reset
     the stall watchdog (revisited rooms and regained counters no longer do). 1.1 and
     2.1 done on macOS; Windows gate 2.2 passed (1123 tests with Lua, smoke passed).
@@ -17,7 +21,8 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
     unarchived. No contract change.
   - `openspec/changes/pure-v3-observation-and-control`: observation schema 4, 32 KiB
     messages, action repeat 6, use-head prior, reward v4 and lineage `pure-v3`.
-    Tasks 1.1-2.3 passed, including the bounded native check; unarchived.
+    Tasks 1.1-2.3 passed, including the bounded native check; unarchived (superseded
+    by pure-v4).
   - `openspec/changes/reward-v3-and-training-metrics` (1.1-2.2 done; native hours 2.3
     answered by the pure-v2 analysis below, kept open for pure-v3) and
     `openspec/changes/pure-self-learning-v1` (all tasks done; 4.3 closed by the
@@ -25,29 +30,33 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 - [Refactor report](../reports/2026-10-22-pure-self-learning-refactor.md).
 - [Windows checks and native acceptance](../reports/2026-10-22-pure-windows-acceptance.md).
 - [Schema4 Windows gate and native plan](../reports/2026-10-22-pure-v3-schema4-acceptance.md).
+- [pure-v3 15-hour report](../reports/2026-10-23-pure-v3-overnight.md).
 
 ## Contracts
 
-- Observation schema 4: 2038 floats (schema 3's 1837 plus stats 6, tear flags 16,
-  weapons 15, own attacks 16 x 8, bombs 4 x 9). Oracle `room_index` and hidden enemy
-  HP stay out of the policy vector. Messages up to 32 KiB (Lua and Python).
+- Observation schema 5: 3499 floats (schema 4's 2038 plus obstacle class one-hot 24 x 11,
+  room shape 12, minimap 13 x 13 x 7 + off-grid flag, stall clock 1). Oracle `room_index`,
+  hidden enemy HP and the kill/hit counters stay out of the policy vector. Messages up to
+  48 KiB (Lua and Python).
 - Action v2: `MultiDiscrete([5, 5, 4])` (move, shoot, use none/bomb/active/pill-card),
   held for 6 game updates (0.2 s). The use head starts at P(none)=0.85, 0.05 per press
   (fresh model only, never on resume).
-- Reward v4: `configs/reward-v4.yaml` = reward v3 with new collectible 2.0 (was 1.0);
-  enemy damage 5.0, first clear 10, health -1 per half-heart, first room visit 3, stall
-  restart -5 (once, never with death), novelty 0.02 on the first visit of a cell only.
-  Exploit tests in `tests/test_reward_v4.py`.
+- Reward v5: `configs/reward-v5.yaml` = reward v4 with stall restart -10 (was -5; once,
+  never with death). Other terms: enemy damage 5.0, first clear 10, health -1 per
+  half-heart, first room visit 3, new collectible 2.0, novelty 0.02 on first cell visits.
+  Exploit tests in `tests/test_reward_v4.py`, v5 term in `tests/test_reward_v5.py`;
+  reward v4 is in `archive/configs/`.
 - Episode = run. Death terminates; the stall watchdog (90 active s without
   progress new for the run) truncates and sends a `restart` command.
-- Training: `configs/training-pure-v3.yaml` (contract: observation 4, action 2, reward 4,
-  action repeat 6, `use_head_initial_none_probability` 0.85; must match the code); lineage
-  hash = `contract` only; hyperparameters tunable between sessions; retention 5 newest +
+- Training: `configs/training-pure-v4.yaml` (contract: observation 5, action 2, reward 5,
+  action repeat 6, `use_head_initial_none_probability` 0.85; must match the code);
+  gamma 0.995, ent_coef 0.005; lineage hash = `contract` only; hyperparameters tunable between sessions; retention 5 newest +
   every 200th rollout.
-- Dashboard: `Start-Dashboard.cmd` serves a live read-only view of `runs\pure-v3` at
+- Dashboard: `Start-Dashboard.cmd` serves a live read-only view of `runs\pure-v4` at
   http://127.0.0.1:8765; episode CSV rows carry `wall_time`; `metrics/train.csv` has one
-  row per update (SB3 statistics, action mix).
-- Supervisor: `Start-Pure.cmd` / `session_runner --forever` (run root `runs\pure-v3`);
+  row per update (SB3 statistics, action mix, `rollout_seconds`, `update_seconds`); episode
+  rows add `enemies_killed` and `hits_*` by damage source (observer metrics only).
+- Supervisor: `Start-Pure.cmd` / `session_runner --forever` (run root `runs\pure-v4`);
   unlimited New Run, consecutive-fault cap 5, disk cap, session-log retention 20.
 
 ## Lineage
@@ -66,58 +75,44 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
   +9.13), policy entropy 4.57 -> 3.97 of 4.61, fewer "no move"/"no shoot" choices, but
   bomb presses stayed 0.234-0.238 per step and start-room exits stayed at 50-60%.
   The last two faults came from the game being closed manually.
-- `pure-v3` (schema 4, reward v4) exists: seed 1, qualification checkpoint
-  `03b9c5e3-s1-t3584`, contract hash
-  `03b9c5e3c782d6b3d59c0e6b30cc4aa7ea8818f3d68e7180f4a32c269fdc8429`.
-  Resume without --initialize. Older checkpoints are refused. First hour
-  ([report](../reports/2026-10-22-pure-v3-first-hour.md)): bomb requests 0.05-0.07 per
-  step (pure-v2 0.24), start-room exits 69-77%, explained variance positive; one
-  16-minute stall episode (watchdog hole, fixed). After 15 hours (latest
-  `03b9c5e3-s1-t243200`, 622 episodes, 243k steps, zero faults;
-  [report](../reports/2026-10-23-pure-v3-overnight.md)): start-room exits 86-91%, idle
-  moves halved, explained variance 0.42, entropy 3.59; clears flat (0.1-0.2 per
-  episode), stage 2 never reached. Fast deaths are mostly real combat, self-bombs and
-  hazards. `enemies_killed` is always 0. `ent_coef` lowered 0.01 -> 0.005 for the next
-  session (the use head drifted back toward uniform). Even older
-  lineages (v2-v5, `a0a93c29-s20-t26368`, `t27904` and ancestors) stay preserved.
+- `pure-v3` (schema 4, reward v4): stopped after 15 hours plus a one-hour test with
+  gamma 0.995 and ent_coef 0.005 ([report](../reports/2026-10-23-pure-v3-gamma-test.md):
+  stall share 0.58 -> 0.38, deaths 0.42 -> 0.62, entropy 3.59 -> 3.43, clears flat);
+  final checkpoint `03b9c5e3-s1-t257024` (661 episodes, 257k steps), preserved under
+  `runs/pure-v3`, not resumed. Its config is `archive/configs/training-pure-v3.yaml`; its
+  checkpoints are refused. Findings ([report](../reports/2026-10-23-pure-v3-overnight.md)):
+  start-room exits 86-91%, explained variance 0.42, entropy 3.59, but clears flat
+  (0.1-0.2 per episode), stage 2 never reached; stalls (-5) returned more than deaths,
+  `enemies_killed` was always 0. Causes drove `pure-v4`.
+- `pure-v4` (schema 5, reward v5): defined, no run yet. Start with `--initialize`.
 
 ## Verification
 
-- macOS offline gate for the pure-v3 change (tasks 1.1 and 1.2): ruff and format clean,
-  mypy 31 files clean, pytest 1116 passed / 1 skipped / 2 failed, strict OpenSpec 13/13,
-  RL smoke passed. The 2 failures are the known macOS-only tests (Windows input struct
-  layout, owned worker import).
-- Added in 1.2: use-head probabilities 0.85/0.05/0.05/0.05 on random observations at
-  creation, move/shoot heads untouched, no prior on resume, `pure-v1`/`pure-v2` configs and
-  checkpoints refused, live env sends frames=6 from the contract, collectible 2.0.
-- Current Windows gate with Lua suites: 1123 tests passed without skips, mypy 31
-  files, lint/format/pip clean, strict specs 14/14. RL smoke passed with 2038 inputs.
-  Oversized-message test IDs were shortened to fit Windows environment limits;
-  protocol tests and message limits were not relaxed.
-- Native `pure-v1` (reward v2) and `pure-v2` (reward v3) sessions confirmed death and
-  watchdog New Run, a user-observed use effect, checkpoint reload, frozen-source
-  cleanup and train.csv rows. Windows `Check.ps1` for reward v3: 1061 tests, no skips.
+- macOS offline gate for pure-v4 (task 2.1): 1172 passed, 1 skipped, strict OpenSpec
+  15/15, RL smoke with 3499 inputs. The two known macOS-only failures are the Windows
+  input struct layout and owned worker import.
+- Pure-v3 gate facts stay valid for unchanged code: use-head prior, older configs and
+  checkpoints refused, collectible 2.0.
+- Last Windows gate (schema 4): 1123 tests passed with Lua, mypy 31 files, strict specs
+  14/14, RL smoke passed. Pure-v4 needs a new Windows gate.
+- Native pure-v1/v2/v3 sessions confirmed death and watchdog New Run, use effect,
+  checkpoint reload, frozen-source cleanup and train.csv rows.
 - Episode `use_*` counts are requested uses (policy choice), not acknowledged presses.
-- Native schema4 qualification passed after 901.782 s: 1100 retained frames,
-  863 with own_attack; six bomb identities, accepted use acknowledgements and
-  increasing bomb age; watchdog and death New Run confirmed. Six episodes
-  (one death, five stalls), seven updates, 3584 saved steps. Actual model and
-  normalizer loaded back; 791 frozen files unchanged; clean owned shutdown.
+- Native schema4 qualification passed (901 s, 3584 saved steps, clean shutdown).
 - Scope limits: baseline Isaac stats/false tear flags/tears weapon only; other
   weapon types, positive tear flags and heavy-attack snapshot load not verified.
 
 ## Next
 
-1. `pure-v1` and `pure-v2` are stopped; do not resume them.
-2. Continue `pure-v3` from `03b9c5e3-s1-t243200` without --initialize for the authorized
-   one-hour test (`ent_coef` 0.005, `gamma` 0.995; rollback: 0.01 and 0.99).
-   Timer receipt: `runs/pure-v3/supervisor/one-hour-timer.json`. After normal shutdown,
-   record counts/checkpoint/cleanup in `reports/2026-10-23-pure-v3-gamma-test.md`.
-   Mac-agent analysis compares metrics with the [15-hour report](../reports/2026-10-23-pure-v3-overnight.md).
-3. Candidate next lineage (needs an OpenSpec change and a plan): obstacle type in the
-   observation (rock, pit, spikes, TNT; bombable or not), damage source in metrics,
-   a working `enemies_killed` counter.
-4. Do not edit the working copy during a session.
+1. `pure-v1`, `pure-v2` and `pure-v3` are stopped; do not resume them.
+2. Windows gate (`scripts\Check.ps1`) for `pure-v4-map-hazards-and-stall`; redeploy
+   `mod/observer` while Isaac is closed.
+3. Native check 2.3 (obstacle classes, no perimeter walls, minimap, stall clock, kill and
+   self-bomb counts, death and stall restart, checkpoint reload).
+4. Then `Start-Pure.cmd "<Isaac dir>" "<log.txt>" --initialize` for `pure-v4`; later
+   starts without `--initialize`. Compare clears, deaths and stall share with the
+   [15-hour report](../reports/2026-10-23-pure-v3-overnight.md).
+5. Do not edit the working copy during a session.
 
 ## Navigation
 

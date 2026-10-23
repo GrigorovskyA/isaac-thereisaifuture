@@ -10,6 +10,8 @@ from .entities import (
     COLLECTIBLE_ID_MAX,
     DOOR_SLOTS,
     ENTITY_KINDS,
+    LEVEL_GRID_CELLS,
+    OBSTACLE_CLASSES,
     TEAR_FLAG_NAMES,
     WEAPON_NAMES,
     Entity,
@@ -18,7 +20,7 @@ from .entities import (
 )
 from .observation import ProtocolError
 
-# Hypotheses fixed by observation schema version 4; changing one needs a new version.
+# Hypotheses fixed by observation schema version 5; changing one needs a new version.
 CAPACITY: dict[EntityKind, int] = {
     "enemy": 16,
     "projectile": 32,
@@ -38,7 +40,9 @@ HEART_SCALE = 24.0
 PLAYER_FEATURES = 9
 INVENTORY_FEATURES = 9
 ROOM_TYPES = 32
-ROOM_FEATURES = ROOM_TYPES + 3 + DOOR_SLOTS  # type one-hot, stage, stage type, clear, doors
+ROOM_SHAPES = 12
+# Type one-hot, stage, stage type, clear, doors, then the room shape one-hot.
+ROOM_FEATURES = ROOM_TYPES + 3 + DOOR_SLOTS + ROOM_SHAPES
 SLOT_FEATURES = 8  # present, x, y, velocity valid, vx, vy, hp valid, hp fraction
 # Pickup slots add a variant class one-hot, subtype/1024 and a shop flag.
 VARIANT_CLASSES = (
@@ -61,7 +65,7 @@ SUBTYPE_SCALE = 1024.0
 SLOT_WIDTH: dict[EntityKind, int] = {
     "enemy": SLOT_FEATURES,
     "projectile": SLOT_FEATURES,
-    "obstacle": SLOT_FEATURES,
+    "obstacle": SLOT_FEATURES + len(OBSTACLE_CLASSES),  # plus the class one-hot
     "pickup": PICKUP_SLOT_FEATURES,
     "own_attack": SLOT_FEATURES,
     "bomb": SLOT_FEATURES + 1,  # plus age / BOMB_AGE_SCALE
@@ -74,7 +78,30 @@ STATS_OFFSET = COLLECTIBLE_OFFSET + COLLECTIBLE_ID_MAX
 TEAR_FLAG_OFFSET = STATS_OFFSET + len(STAT_SCALES)
 WEAPON_OFFSET = TEAR_FLAG_OFFSET + len(TEAR_FLAG_NAMES)
 EXTRA_OFFSET = WEAPON_OFFSET + len(WEAPON_NAMES)  # then EXTRA_KINDS blocks
-OBSERVATION_SIZE = EXTRA_OFFSET + sum(CAPACITY[k] * SLOT_WIDTH[k] for k in EXTRA_KINDS)
+MAP_OFFSET = EXTRA_OFFSET + sum(CAPACITY[k] * SLOT_WIDTH[k] for k in EXTRA_KINDS)
+# Minimap channels per level grid cell: known, visited, current, boss, treasure, shop, other.
+MAP_CHANNELS = 7
+OFF_GRID_OFFSET = MAP_OFFSET + LEVEL_GRID_CELLS * MAP_CHANNELS
+STALL_OFFSET = OFF_GRID_OFFSET + 1  # idle time / stall limit; the last element
+OBSERVATION_SIZE = STALL_OFFSET + 1
+GRID_WIDTH = 13
+# (row, column) offsets of a room's cells from its anchor, by room shape 1..12.
+SHAPE_CELLS: dict[int, tuple[tuple[int, int], ...]] = {
+    1: ((0, 0),),  # 1x1
+    2: ((0, 0),),  # IH
+    3: ((0, 0),),  # IV
+    4: ((0, 0), (1, 0)),  # 1x2
+    5: ((0, 0), (1, 0)),  # IIV
+    6: ((0, 0), (0, 1)),  # 2x1
+    7: ((0, 0), (0, 1)),  # IIH
+    8: ((0, 0), (0, 1), (1, 0), (1, 1)),  # 2x2
+    9: ((0, 1), (1, 0), (1, 1)),  # LTL
+    10: ((0, 0), (1, 0), (1, 1)),  # LTR
+    11: ((0, 0), (0, 1), (1, 1)),  # LBL
+    12: ((0, 0), (0, 1), (1, 0)),  # LBR
+}
+assert set(SHAPE_CELLS) == set(range(1, ROOM_SHAPES + 1))
+BOSS_ROOM, TREASURE_ROOM, SHOP_ROOM, DEFAULT_ROOM = 5, 4, 2, 1
 assert set(BASE_KINDS + EXTRA_KINDS) == set(ENTITY_KINDS)
 
 
@@ -147,6 +174,31 @@ def _encode_room(vector: NDArray[np.float32], frame: EntityFrame) -> None:
     vector[base + ROOM_TYPES + 2] = float(room.clear)
     for slot, is_open in enumerate(room.doors):
         vector[base + ROOM_TYPES + 3 + slot] = float(is_open)
+    vector[base + ROOM_TYPES + 3 + DOOR_SLOTS + room.shape - 1] = 1.0
+
+
+def _encode_map(vector: NDArray[np.float32], frame: EntityFrame) -> None:
+    for room in frame.map:
+        row, col = divmod(room.grid_index, GRID_WIDTH)
+        for dr, dc in SHAPE_CELLS[room.shape]:
+            if row + dr >= GRID_WIDTH or col + dc >= GRID_WIDTH:
+                continue  # beyond the 13 x 13 grid: dropped, never wrapped
+            base = MAP_OFFSET + ((row + dr) * GRID_WIDTH + col + dc) * MAP_CHANNELS
+            vector[base] = 1.0
+            vector[base + 1] = float(room.visited)
+            vector[base + 2] = float(room.current)
+            kind = room.room_type
+            if kind is None or kind == DEFAULT_ROOM:
+                continue
+            if kind == BOSS_ROOM:
+                vector[base + 3] = 1.0
+            elif kind == TREASURE_ROOM:
+                vector[base + 4] = 1.0
+            elif kind == SHOP_ROOM:
+                vector[base + 5] = 1.0
+            else:
+                vector[base + 6] = 1.0
+    vector[OFF_GRID_OFFSET] = float(frame.map_current_off_grid)
 
 
 def _encode_pickup(vector: NDArray[np.float32], base: int, entity: Entity) -> None:
@@ -156,8 +208,11 @@ def _encode_pickup(vector: NDArray[np.float32], base: int, entity: Entity) -> No
     vector[base + len(VARIANT_CLASSES) + 1] = float(entity.price != 0)
 
 
-def encode(frame: EntityFrame) -> EncodedObservation:
-    """Nearest-first, fixed capacity; zero slots are told apart by the presence bit."""
+def encode(frame: EntityFrame, *, stall_fraction: float = 0.0) -> EncodedObservation:
+    """Nearest-first, fixed capacity; zero slots are told apart by the presence bit.
+
+    `stall_fraction` is the stall watchdog's idle time over its limit, clipped to [0, 1].
+    """
     if not isinstance(frame, EntityFrame):
         raise ProtocolError("Only a validated policy EntityFrame can be encoded")
     clip = _Clip()
@@ -177,6 +232,8 @@ def encode(frame: EntityFrame) -> EncodedObservation:
     vector[8] = min(h.bone_containers / HEART_SCALE, 1.0)
     _encode_inventory(vector, frame)
     _encode_room(vector, frame)
+    _encode_map(vector, frame)
+    vector[STALL_OFFSET] = min(max(stall_fraction, 0.0), 1.0)
     overflow: dict[EntityKind, int] = dict(frame.source_overflow)
     for collectible in frame.collectibles:
         vector[COLLECTIBLE_OFFSET + collectible - 1] = 1.0
@@ -216,6 +273,9 @@ def encode(frame: EntityFrame) -> EncodedObservation:
             if entity.hp is not None and entity.max_hp is not None:
                 vector[base + 6] = 1.0
                 vector[base + 7] = entity.hp / entity.max_hp
+            if kind == "obstacle":
+                assert entity.obstacle_class is not None
+                vector[base + SLOT_FEATURES + OBSTACLE_CLASSES.index(entity.obstacle_class)] = 1.0
             if kind == "pickup":
                 _encode_pickup(vector, base + SLOT_FEATURES, entity)
             if kind == "bomb":

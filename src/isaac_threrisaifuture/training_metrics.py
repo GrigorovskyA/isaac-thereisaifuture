@@ -9,6 +9,8 @@ stops training.
 
 import csv
 import logging
+import time
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -32,7 +34,10 @@ STATS = (
 )
 HEADS = (("move", DIRECTIONS), ("shoot", DIRECTIONS), ("use", USES))
 SHARES = tuple(f"{head}_{name}" for head, names in HEADS for name in names)
-TRAIN_FIELDS = ("wall_time", "timesteps", "rollout_index", *STATS, *SHARES)
+# rollout_seconds: wall clock of the rollout. update_seconds: the pause between the previous
+# rollout end and this rollout start (optimizer, checkpoint and any idle wait); empty for the first.
+TIMING = ("rollout_seconds", "update_seconds")
+TRAIN_FIELDS = ("wall_time", "timesteps", "rollout_index", *TIMING, *STATS, *SHARES)
 
 
 def action_shares(actions: Any) -> dict[str, float]:
@@ -48,9 +53,13 @@ def action_shares(actions: Any) -> dict[str, float]:
 
 
 class TrainMetricsCallback(BaseCallback):
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, clock: Callable[[], float] = time.monotonic) -> None:
         super().__init__()
         self.path = path
+        self._clock = clock
+        self._rollout_start: float | None = None
+        self._last_end: float | None = None
+        self._update_seconds: float | None = None
         self._pending: dict[str, Any] | None = None
         self._failed = False
         self._index = 0
@@ -72,11 +81,19 @@ class TrainMetricsCallback(BaseCallback):
 
     def _on_rollout_start(self) -> None:
         self._flush()  # the previous update has finished and its values are still in the logger
+        now = self._clock()
+        self._rollout_start = now
+        self._update_seconds = None if self._last_end is None else max(now - self._last_end, 0.0)
 
     def _on_rollout_end(self) -> None:
+        now = self._clock()
+        started = self._rollout_start
+        self._last_end = now
         try:
             buffer: Any = self.model.rollout_buffer  # type: ignore[attr-defined]
             self._pending = {
+                "rollout_seconds": None if started is None else max(now - started, 0.0),
+                "update_seconds": self._update_seconds,
                 "timesteps": int(self.model.num_timesteps),
                 "rollout_index": self._index,
                 **action_shares(buffer.actions),

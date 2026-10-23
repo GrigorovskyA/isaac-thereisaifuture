@@ -105,7 +105,7 @@ def test_record_replay_round_trip(tmp_path):
         for item in frames:
             recorder.record(item)
     manifest, replayed = open_replay(path, "policy_frames")
-    assert manifest.observation_schema_version == 4
+    assert manifest.observation_schema_version == 5
     for live, again in zip(frames, replayed, strict=True):
         assert np.array_equal(encode(live).vector, encode(again).vector)  # type: ignore[arg-type]
 

@@ -8,7 +8,7 @@ Current since 2026-10-22 (`docs/UPDATE_DECISION.md`, OpenSpec change
 
 One RecurrentPPO agent (`MlpLstmPolicy`, CPU) plays Repentance+ on file 2 through
 the Lua bridge and learns from experience only. It is trained continuously as one
-lineage (`pure-v3`; `pure-v2` is preserved, not resumed). The long-term goal is Dead God; the honest near-term goal is
+lineage (`pure-v4`; `pure-v3` and older are preserved, not resumed). The long-term goal is Dead God; the honest near-term goal is
 learning to damage and kill enemies, survive rooms, pick up items and progress.
 
 Principles:
@@ -19,14 +19,15 @@ Principles:
 - Every reward term has an exploit test.
 - Training reward, optimizer updates and synthetic smoke do not prove better play.
 
-## Observation schema 4 (2038 floats)
+## Observation schema 5 (3499 floats)
 
 | Block | Features |
 | --- | --- |
 | Player | position, velocity, red/max red/soul hearts, bone containers (9) |
 | Inventory | coins, bombs, keys, active item present/ID/charge fraction, card, pill, trinket held (9) |
-| Room | room type one-hot (32), stage, stage type, clear flag, 8 open doors (43) |
-| Enemies, projectiles, obstacles | nearest-first slots: present, position, velocity, HP fraction (16/32/24 x 8) |
+| Room | room type one-hot (32), stage, stage type, clear flag, 8 open doors, room shape one-hot (12) (55) |
+| Enemies, projectiles | nearest-first slots: present, position, velocity, HP fraction (16/32 x 8) |
+| Obstacles | nearest-first slots (24 x 19): the 8 slot features plus a class one-hot (rock, marked rock, bomb rock, block, pit, spikes, poop, TNT, fire, wall, other); fireplaces included, perimeter walls dropped |
 | Pickups | base slot plus variant class one-hot (12), subtype, shop flag (8 x 22) |
 | Collectibles | multi-hot of held collectible IDs 1..1024 |
 | Stats | damage, tears per second, range, shot speed, move speed, luck (6, scaled) |
@@ -34,9 +35,11 @@ Principles:
 | Weapons | 15 weapon-type booleans (tears, Brimstone, laser, knife, bombs, rockets, ...) |
 | Own attacks | nearest-first slots for own tears, lasers and knives (16 x 8) |
 | Bombs | all bombs with age (4 x 9) |
+| Minimap | 13 x 13 level cells x 7 channels (known, visited, current, boss, treasure, shop, other special) plus an off-grid flag for the current room; only rooms the in-game minimap shows or the player visited |
+| Stall clock | seconds without progress / stall limit, from the environment (0 without a watchdog) |
 
-The schema 3 vector was 1837 floats; schema 4 appends the last five blocks. Messages
-are bounded at 32 KiB (the larger frames need it). Positions are relative to the player and scaled; values are clipped with a
+Schema 4 had 2038 floats; schema 5 adds obstacle classes, room shape, the minimap and the stall
+clock. Messages are bounded at 48 KiB (the larger frames need it). Positions are relative to the player and scaled; values are clipped with a
 counter. Oracle data (`room_index`, hidden enemy HP) is used only for reward and
 novelty keys and never enters the policy vector, normalizer or recurrent state.
 
@@ -51,7 +54,7 @@ creation and never on resume; learning may move it anywhere). Commands are bound
 session, epoch, room visit and frame; stale or replayed commands are refused and
 input is released on expiry, disconnect, fault and stop.
 
-## Reward v4 (`configs/reward-v4.yaml`)
+## Reward v5 (`configs/reward-v5.yaml`)
 
 | Term | Value | Rule |
 | --- | --- | --- |
@@ -61,7 +64,7 @@ input is released on expiry, disconnect, fault and stop.
 | First floor entry | 10.0 | per stage per run; start floor free |
 | Health lost | -1.0 per half-heart | |
 | Death | -10.0 | terminal |
-| Stall restart | -5.0 | once, on the final step of an episode truncated by the stall watchdog; never with death |
+| Stall restart | -10.0 | once, on the final step of an episode truncated by the stall watchdog; never with death |
 | Time | -0.005 per second | active time only |
 | Coin / bomb / key | 0.05 / 0.1 / 0.1 | only above the run's peak count; shared cap 3.0 per run |
 | New collectible | 2.0 | per item ID per run (reward v3 paid 1.0) |
@@ -69,13 +72,20 @@ input is released on expiry, disconnect, fault and stop.
 | Novelty | 0.02 | first visit only, per (stage, room, 40-unit cell) per run (about 1.8 for a full 1x1 room) |
 
 There is no reward for using items; item value and synergies must show up through
-combat and progress. Ledger columns are logged separately. Reward v4 equals reward v3 except for the collectible term. Reward v2 paid most
+combat and progress. Ledger columns are logged separately. Reward v5 equals reward v4 except that a stall restart costs -10 (equal to death; was -5, which paid better than fighting in `pure-v3`). Reward v4 is archived. Reward v2 paid most
 for idling (novelty grew like 2*sqrt(n) and a stall restart was free), so it
 was replaced and its lineage `pure-v1` retired; its config is in `archive/configs/`.
 
 ## Lineages
 
-`pure-v3` replaces `pure-v2` (OpenSpec change `pure-v3-observation-and-control`). After 23k
+`pure-v4` replaces `pure-v3` (OpenSpec change `pure-v4-map-hazards-and-stall`). After 15 hours
+and 243k steps `pure-v3` explored more but cleared 0.1-0.2 rooms per episode: stalling paid
+better than fighting, the stall clock, obstacle types and the minimap were invisible
+([report](../reports/2026-10-23-pure-v3-overnight.md)). `pure-v3` is preserved under `runs/pure-v3`,
+its config is in `archive/configs/`, and its checkpoints are refused (schema 4, reward 4,
+different contract hash). `gamma` 0.995 and `ent_coef` 0.005 carry over.
+
+`pure-v3` replaced `pure-v2` (OpenSpec change `pure-v3-observation-and-control`). After 23k
 `pure-v2` steps (45 updates) the policy was still about 96% of maximum entropy, the
 agent could not see its own attacks, bombs, stats or weapon, decisions every 3 game
 updates made random movement jitter, and the uniform use head pressed bomb/item/card
@@ -93,7 +103,7 @@ disconnects are infrastructure faults, never stalls, and are not learning outcom
 
 ## Continuous training
 
-`configs/training-pure-v3.yaml` (lineage `pure-v3`): the `contract` section (seed, algorithm, LSTM
+`configs/training-pure-v4.yaml` (lineage `pure-v4`): the `contract` section (seed, algorithm, LSTM
 size, action repeat, observation/action/reward versions, use-head prior) is the lineage hash;
 `hyperparameters` may be tuned between sessions and are recorded per checkpoint.
 Weights, optimizer state, normalizer and RNG always resume from `latest`. A
@@ -102,7 +112,7 @@ every 200th (about one per 3 h; kept for rollback and frozen comparison). Each e
 half-hearts lost, steps to first room exit and first enemy damage). Each optimizer
 update appends a row to `metrics/train.csv`: SB3 train statistics (entropy,
 policy/value loss, approx KL, clip fraction, explained variance, learning rate,
-`n_updates`) and the rollout action share per head.
+`n_updates`), the rollout action share per head and the timing (`rollout_seconds`, and `update_seconds` for the pause since the previous rollout). Episode rows also carry `enemies_killed` and `hits_*` (player hits by source), counted by the observer as metrics only.
 
 ## Measuring progress
 

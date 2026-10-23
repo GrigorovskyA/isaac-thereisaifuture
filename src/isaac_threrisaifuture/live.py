@@ -31,6 +31,7 @@ from .live_wire import (
     LiveOracle,
     LiveSnapshot,
     OracleEnemy,
+    PlayerHits,
 )
 from .observation import (
     BridgeError,
@@ -50,7 +51,7 @@ APPROVAL_NAME = "action_authorization.json"
 TRAINING_MAX_SECONDS = 28800  # mirrors Config.training_max_seconds in main.lua
 MAX_RESTARTS = 5000
 MAX_REWARD_IDENTITIES = 4096
-LIVE_REWARD_CONTRACT: Literal["pure-v4"] = "pure-v4"
+LIVE_REWARD_CONTRACT: Literal["pure-v5"] = "pure-v5"
 _CONSUMABLES: tuple[Literal["coin", "bomb", "key"], ...] = ("coin", "bomb", "key")
 SNAPSHOT_BACKLOG = 512
 ACK_TIMEOUT = 1.0
@@ -390,6 +391,22 @@ def _playable(snap: LiveSnapshot) -> bool:
     )
 
 
+ORACLE_STAT_KEYS = (
+    "kills",
+    *(f"hits_{name}" for name in PlayerHits.model_fields),
+)
+
+
+def _oracle_counters(oracle: LiveOracle | None) -> dict[str, int]:
+    if oracle is None:
+        return dict.fromkeys(ORACLE_STAT_KEYS, 0)
+    hits = oracle.player_hits
+    return {
+        "kills": oracle.kills,
+        **{f"hits_{name}": getattr(hits, name) for name in PlayerHits.model_fields},
+    }
+
+
 @dataclass
 class LiveBackend:
     """GameBackend over a LiveClient. Episodes are segments of one continuing run."""
@@ -412,6 +429,8 @@ class LiveBackend:
     # (session, epoch) of the run a command restart was accepted for; reset waits it out.
     _restarting_from: tuple[str, int] | None = None
     restart_rejections: int = 0
+    # Oracle counters (kills, hits by source) at episode start; metrics only.
+    _oracle_start: dict[str, int] = field(default_factory=dict)
 
     def start_episode(self, scenario: Scenario, seed: int | None) -> StepResult:
         """Continue the run; after a death wait for the autonomous restart to reconnect."""
@@ -452,6 +471,7 @@ class LiveBackend:
         assert snap.oracle is not None
         if self.watchdog is not None:
             self.watchdog.reset()
+        self._oracle_start = _oracle_counters(snap.oracle)
         frame = snap.entity_frame
         self.progress.reset(
             stage=frame.room.stage,
@@ -542,6 +562,30 @@ class LiveBackend:
             raise LiveBudgetExpired("Live wall-time budget exhausted")
         if self.stop_file is not None and self.stop_file.exists():
             raise LiveSessionCancelled("User cancellation requested")
+
+    @property
+    def stall_fraction(self) -> float:
+        """Idle time of the stall watchdog as a fraction of its limit; 0 without one."""
+        if self.watchdog is None:
+            return 0.0
+        return min(max(self.watchdog.idle_seconds / self.watchdog.stall_seconds, 0.0), 1.0)
+
+    def episode_oracle_stats(self) -> dict[str, int]:
+        """Kills and player hits by source since the episode start (metrics only).
+
+        The observer counts per game epoch. A counter that went down means a new epoch, so
+        its new value counts from zero; deltas are never negative.
+        """
+        current = self._current
+        if current is None or current.oracle is None:
+            return dict.fromkeys(ORACLE_STAT_KEYS, 0)
+        now = _oracle_counters(current.oracle)
+        return {
+            key: value - self._oracle_start.get(key, 0)
+            if value >= self._oracle_start.get(key, 0)
+            else value
+            for key, value in now.items()
+        }
 
     @property
     def latest(self) -> LiveSnapshot | None:
@@ -720,12 +764,12 @@ def make_live_env(
     oracle_sink: Callable[[OracleEvent], None] | None = None,
     run_deadline: float | None = None,
     stop_file: Path | None = None,
-    reward_version: Literal[1, 4] = 4,
+    reward_version: int = 5,
     stall_seconds: float | None = None,
     clock: Callable[[], float] = time.monotonic,
     max_consecutive_faults: int | None = None,
 ) -> FaultTolerantEnv:
-    """Live env; the pure profile pays reward v4 (v1 stays selectable for old comparisons).
+    """Live env; the pure profile pays reward v5 (v1 stays selectable for old comparisons).
 
     With `stall_seconds`, a stall truncates the episode with reason `stall` and sends
     one restart command. Leave it unset for attach-only runs such as evaluation.
@@ -733,9 +777,11 @@ def make_live_env(
     from .env import IsaacCombatEnv, RewardAccountant
     from .rewards import CombatCoefficients, RewardLedger, RewardLedgerV4, RewardV4Coefficients
 
+    if reward_version not in (1, 5):
+        raise ValueError(f"Unsupported reward version {reward_version}; use 1 or 5")
     accountant: RewardAccountant = (
         RewardLedgerV4(RewardV4Coefficients.load())
-        if reward_version == 4
+        if reward_version == 5
         else RewardLedger(CombatCoefficients.load())
     )
 
@@ -942,6 +988,9 @@ def _train_run(
             oracle_sink=sink,
             run_deadline=deadline,
             stop_file=options.stop_file,
+            reward_version=config.contract.reward_version
+            if isinstance(config, PureTrainingConfig)
+            else 5,
             stall_seconds=config.watchdog.stall_seconds
             if isinstance(config, PureTrainingConfig)
             else None,

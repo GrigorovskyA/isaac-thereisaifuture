@@ -357,7 +357,114 @@ def test_worst_case_live_snapshot_with_oracle_fits_the_wire_limit():
     snap = live_snapshots(lua)[-1]
     assert snap.oracle is not None and len(snap.oracle.enemies) == 64
     assert len(snap.entity_frame.collectibles) == 256
-    assert len(snap.entity_frame.entities) == 72  # every kind at its cap, incl. 16 own, 4 bombs
+    assert len(snap.entity_frame.entities) == 84  # every kind at its cap, incl. 16 own, 4 bombs
     sizes = [len(line.encode()) for line in records(lua, "snapshot")]
     print("worst-case live snapshot bytes:", max(sizes))
-    assert max(sizes) < 32768 and not lua.globals().CLOSED
+    assert max(sizes) < 49152 and not lua.globals().CLOSED
+
+
+METRIC_STUBS = """
+EntityFlag = { FLAG_FRIENDLY = 1 << 13 }
+DamageFlag = { DAMAGE_EXPLOSION = 1 << 2, DAMAGE_SPIKES = 1 << 7, DAMAGE_FIRE = 1 << 12,
+ DAMAGE_ACID = 1 << 22, DAMAGE_CURSED_DOOR = 1 << 28 }
+EntityType.ENTITY_BOMB, EntityType.ENTITY_PROJECTILE = 4, 9
+function make_npc(enemy, friendly)
+ return { IsEnemy=function() return enemy end,
+  HasEntityFlags=function(self, flag) return friendly and flag == EntityFlag.FLAG_FRIENDLY end }
+end
+function hit(flags, source, victim)
+ return callbacks.damage(mod, victim or TEST_PLAYER, 1, flags, source, 0)
+end
+"""
+
+HIT_CASES = [
+    ("DamageFlag.DAMAGE_EXPLOSION", "{Type=4, Entity={SpawnerType=1}}", "own_bomb"),
+    ("DamageFlag.DAMAGE_EXPLOSION", "{Type=4, Entity={SpawnerType=10}}", "explosion"),
+    ("DamageFlag.DAMAGE_EXPLOSION", "{Type=4, Entity={Spawner=TEST_PLAYER}}", "own_bomb"),
+    ("DamageFlag.DAMAGE_EXPLOSION", "{Type=0}", "explosion"),
+    ("DamageFlag.DAMAGE_SPIKES", "{Type=0}", "spikes"),
+    ("DamageFlag.DAMAGE_CURSED_DOOR", "{Type=0}", "spikes"),
+    ("DamageFlag.DAMAGE_FIRE", "{Type=0}", "fire"),
+    ("DamageFlag.DAMAGE_ACID", "{Type=0}", "creep"),
+    ("0", "{Type=9}", "projectile"),
+    ("0", "{Type=26}", "enemy"),
+    ("0", "{Type=1000}", "other"),
+    ("0", "nil", "other"),
+]
+
+
+def oracle_metrics(lua):
+    tick(lua, 20)
+    oracle = live_snapshots(lua)[-1].oracle
+    return oracle.kills, oracle.player_hits.model_dump()
+
+
+@pytest.fixture
+def metrics():
+    lua = build_live()
+    lua.execute(METRIC_STUBS)
+    hello(lua, LIVE_LOOP_CAPABILITIES)
+    assert not lua.globals().CLOSED
+    return lua
+
+
+@pytest.mark.parametrize(("flags", "source", "klass"), HIT_CASES)
+def test_player_hits_are_classified_and_never_alter_damage(metrics, flags, source, klass):
+    assert metrics.eval(f"hit({flags}, {source})") is None
+    kills, hits = oracle_metrics(metrics)
+    assert hits[klass] == 1 and sum(hits.values()) == 1 and kills == 0
+
+
+def test_other_entities_do_not_count_as_player_hits(metrics):
+    metrics.execute("hit(0, {Type=26}, {})")
+    assert sum(oracle_metrics(metrics)[1].values()) == 0
+
+
+def test_kills_count_only_unfriendly_enemies(metrics):
+    metrics.execute("""
+      callbacks.npc_death(mod, make_npc(true, false))
+      callbacks.npc_death(mod, make_npc(true, false))
+      callbacks.npc_death(mod, make_npc(true, true))
+      callbacks.npc_death(mod, make_npc(false, false))
+    """)
+    assert oracle_metrics(metrics)[0] == 2
+
+
+def test_metrics_reset_on_game_start_and_stay_out_of_the_policy_frame(metrics):
+    metrics.execute("callbacks.npc_death(mod, make_npc(true, false)); hit(0, {Type=9})")
+    kills, hits = oracle_metrics(metrics)
+    assert kills == 1 and hits["projectile"] == 1
+    assert "kills" not in live_snapshots(metrics)[-1].entity_frame.model_dump_json()
+    metrics.execute("callbacks.start(mod, false)")
+    kills, hits = oracle_metrics(metrics)
+    assert kills == 0 and sum(hits.values()) == 0
+
+
+def test_failing_metric_callbacks_never_close_the_observer(metrics):
+    metrics.execute("""
+      callbacks.npc_death(mod, {})                       -- no IsEnemy: raises inside
+      callbacks.npc_death(mod, nil)
+      callbacks.damage(mod, nil, 1, 0, {}, 0)
+      callbacks.damage(mod, TEST_PLAYER, 1, 1.5, {Type=9}, 0)  -- float flags: bitwise error
+      Isaac.GetPlayer = function() error("simulated fault") end
+      callbacks.damage(mod, TEST_PLAYER, 1, 0, {Type=9}, 0)
+    """)
+    assert not metrics.globals().CLOSED
+
+
+def test_worst_case_oracle_metrics_fit_the_wire_limit():
+    lua = build_live()
+    fill_worst_case(lua)
+    lua.execute(METRIC_STUBS)
+    lua.execute("""
+      for i=1,70 do
+        ROOM_ENTITIES[#ROOM_ENTITIES+1]=make_enemy(1000+i,-700.123+i,-600.456,123456.789,999999.999)
+      end
+    """)
+    hello(lua, LIVE_LOOP_CAPABILITIES)
+    tick(lua, 40)
+    snap = live_snapshots(lua)[-1]
+    assert snap.oracle is not None and len(snap.entity_frame.map) == 64
+    sizes = [len(line.encode()) for line in records(lua, "snapshot")]
+    print("worst-case live snapshot bytes (with map, hits):", max(sizes))
+    assert max(sizes) < 49152 and not lua.globals().CLOSED

@@ -17,6 +17,9 @@ TERMINAL_KINDS: tuple[TerminalKind, ...] = ("player_died", "room_cleared")
 ALL_TERMINAL_KINDS: frozenset[TerminalKind] = frozenset(TERMINAL_KINDS)
 DIRECTIONS = ("none", "left", "right", "up", "down")
 USES = ("none", "bomb", "active", "pillcard")
+# Player hits by damage source counted by the observer (metrics only, never policy input).
+HIT_SOURCES = ("enemy", "projectile", "own_bomb", "explosion", "spikes", "fire", "creep", "other")
+HIT_FIELDS = tuple(f"hits_{name}" for name in HIT_SOURCES)
 ACTION_NVEC = (len(DIRECTIONS), len(DIRECTIONS), len(USES))  # MultiDiscrete([5, 5, 4])
 
 
@@ -311,6 +314,9 @@ class EpisodeController:
                 summary.enemies_killed += 1
             elif event.kind == "player_damaged" and event.amount is not None:
                 summary.damage_taken_half_hearts += event.amount
+        oracle_stats = getattr(self.backend, "episode_oracle_stats", None)
+        if oracle_stats is not None:  # the live observer counts kills; no enemy_killed events
+            summary.enemies_killed = int(oracle_stats()["kills"])
         summary.game_updates = self._updates()
         summary.died = self._fact("player_died")
         summary.room_cleared = self._fact("room_cleared")

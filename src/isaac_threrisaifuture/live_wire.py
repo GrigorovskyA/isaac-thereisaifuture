@@ -23,6 +23,19 @@ class OracleEnemy(WireModel):
         return self
 
 
+class PlayerHits(WireModel):
+    """Cumulative player hits by damage source in the current game epoch."""
+
+    enemy: Counter
+    projectile: Counter
+    own_bomb: Counter
+    explosion: Counter
+    spikes: Counter
+    fire: Counter
+    creep: Counter
+    other: Counter
+
+
 class LiveOracle(WireModel):
     """Reward/evaluation labels. Never an input of the encoder, policy or normalizer."""
 
@@ -32,6 +45,9 @@ class LiveOracle(WireModel):
     enemy_overflow: Counter
     # Level room index for reward and novelty keys. Special rooms use negative indexes.
     room_index: Annotated[int, Field(ge=-64, le=255)]
+    # Cumulative per game epoch. Metrics only, never a policy input.
+    kills: Counter
+    player_hits: PlayerHits
 
 
 class LiveSnapshot(EntitySnapshot):

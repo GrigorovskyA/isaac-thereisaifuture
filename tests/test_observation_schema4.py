@@ -62,7 +62,9 @@ def test_layout_size_is_pinned():
     assert STATS_OFFSET == COLLECTIBLE_OFFSET + 1024
     assert (TEAR_FLAG_OFFSET, WEAPON_OFFSET) == (STATS_OFFSET + 6, STATS_OFFSET + 22)
     assert EXTRA_OFFSET == STATS_OFFSET + 37
-    assert OBSERVATION_SIZE == 1837 + 6 + 16 + 15 + 16 * 8 + 4 * 9 == 2038
+    # The base vector (schema 5) plus stats, flags, weapons and the extra blocks; the
+    # minimap and stall clock follow (tests/test_observation_schema5.py).
+    assert EXTRA_OFFSET + 16 * 8 + 4 * 9 == 2113 + 6 + 16 + 15 + 16 * 8 + 4 * 9
 
 
 def test_round_trip_and_vector_shape():
@@ -243,4 +245,4 @@ def test_schema_3_frames_are_refused():
 def test_a_full_message_fits_the_wire_limit():
     from isaac_threrisaifuture.observation import MAX_MESSAGE_BYTES
 
-    assert MAX_MESSAGE_BYTES == 32768
+    assert MAX_MESSAGE_BYTES == 49152

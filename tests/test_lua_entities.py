@@ -11,17 +11,22 @@ from isaac_threrisaifuture.observation import CAPABILITIES, decode
 
 STUBS = """
 EntityType={ ENTITY_PLAYER=1, ENTITY_TEAR=2, ENTITY_FAMILIAR=3, ENTITY_BOMB=4,
- ENTITY_PICKUP=5, ENTITY_LASER=7, ENTITY_KNIFE=8, ENTITY_PROJECTILE=9 }
-GridEntityType={ GRID_ROCK=2, GRID_WALL=15, GRID_DOOR=16 }
+ ENTITY_PICKUP=5, ENTITY_LASER=7, ENTITY_KNIFE=8, ENTITY_PROJECTILE=9, ENTITY_FIREPLACE=33 }
+-- GRID_ROCK_GOLD is deliberately absent: a missing enum name must be skipped.
+GridEntityType={ GRID_ROCK=2, GRID_ROCKB=3, GRID_PIT=7, GRID_SPIKES=8, GRID_SPIKES_ONOFF=9,
+ GRID_TNT=12, GRID_POOP=14, GRID_WALL=15, GRID_DOOR=16, GRID_ROCKT=17, GRID_ROCK_BOMB=18,
+ GRID_ROCK_ALT=19, GRID_ROCK_ALT2=20, GRID_ROCK_SPIKED=21, GRID_ROCK_SS=22 }
 ROOM_ENTITIES, GRID_ENTITIES = {}, {}
-GRID_SIZE, SCANS, GRID_SCANS = 3, 0, 0
+GRID_SIZE, SCANS, GRID_SCANS = 135, 0, 0
+-- Row-major interior cell n (0-based) of the default 15x9 grid; the border ring is skipped.
+function interior(n) return (n // 13 + 1) * 15 + n % 13 + 1 end
 function make_entity(id, x, y, kind, visible)
  return { Index=id, InitSeed=id+5000, Type=kind, Visible=visible~=false,
   Variant=10, SubType=1, Price=0, FrameCount=0,
   ToPickup=function(self) if kind==5 then return self end end,
   Position={X=x,Y=y}, Velocity={X=2,Y=-1},
   Exists=function() return true end, IsDead=function() return false end,
-  IsActiveEnemy=function() return kind==10 end }
+  IsActiveEnemy=function() return kind==10 or kind==33 end }
 end
 function make_grid(kind, x, y, collision)
  return { CollisionClass=collision or 1, Position={X=x,Y=y},
@@ -76,9 +81,9 @@ def test_native_entity_offsets_visibility_unknown_hp_and_grid_filter(room):
     room.execute("""
       ROOM_ENTITIES={ make_entity(1,101,200,10), make_entity(2,40,30,9),
         make_entity(3,0,0,10,false), make_entity(4,105,205,5) }
-      GRID_ENTITIES[0]=make_grid(2,120,200)
-      GRID_ENTITIES[1]=make_grid(16,140,200)
-      GRID_ENTITIES[2]=make_grid(2,160,200,0)
+      GRID_ENTITIES[interior(0)]=make_grid(2,120,200)
+      GRID_ENTITIES[interior(1)]=make_grid(16,140,200)
+      GRID_ENTITIES[interior(2)]=make_grid(2,160,200,0)
     """)
     connect(room)
     sample = frames(room)[-1]
@@ -171,20 +176,19 @@ def test_empty_arrays_use_codec_array_marker(room):
 
 def test_mixed_capacity_frame_fits_existing_wire_limit(room):
     room.execute("""
-      GRID_SIZE=30
       for i=1,30 do
         ROOM_ENTITIES[#ROOM_ENTITIES+1]=make_entity(i,100+i,200,10)
         ROOM_ENTITIES[#ROOM_ENTITIES+1]=make_entity(i+30,100+i,200,9)
         ROOM_ENTITIES[#ROOM_ENTITIES+1]=make_entity(i+60,100+i,200,5)
-        GRID_ENTITIES[i-1]=make_grid(2,100+i,200)
+        GRID_ENTITIES[interior(i-1)]=make_grid(2,100+i,200)
       end
     """)
     connect(room)
     tick(room, 20)
     state = frames(room)[-1].entity_frame
-    assert len(state.entities) == 52
-    assert state.source_overflow == {"enemy": 18, "projectile": 10, "obstacle": 18, "pickup": 22}
-    assert max(len(line.encode()) for line in room.globals().OUTGOING.split("\n")[:-1]) <= 32768
+    assert len(state.entities) == 64
+    assert state.source_overflow == {"enemy": 18, "projectile": 10, "obstacle": 6, "pickup": 22}
+    assert max(len(line.encode()) for line in room.globals().OUTGOING.split("\n")[:-1]) <= 49152
 
 
 @pytest.mark.parametrize("extra", [["death_restart_v1"], ["safe_actions_v1"]])
@@ -276,7 +280,7 @@ def test_empty_collectibles_use_the_array_marker(room):
 def fill_worst_case(lua):
     """Every capacity full, widest numbers, 256 four-digit collectible IDs."""
     lua.execute("""
-      GRID_SIZE=30; ITEM_SIZE=1025
+      ITEM_SIZE=1025
       for i=769,1024 do HELD[i]=true end
       for i=1,30 do
         for n, kind in ipairs({10, 9, 5}) do
@@ -284,7 +288,10 @@ def fill_worst_case(lua):
           e.Velocity, e.Variant, e.SubType, e.Price = {X=-12.345,Y=-12.345}, 1023, 1024, -999
           ROOM_ENTITIES[#ROOM_ENTITIES+1]=e
         end
-        GRID_ENTITIES[i-1]=make_grid(2,-700.123+i,-600.456)
+        GRID_ENTITIES[interior(i-1)]=make_grid(17,-700.123+i,-600.456)
+        local f=make_entity(400+i,-700.123+i,-600.456,33)
+        f.HitPoints, f.MaxHitPoints = 99999.987, 99999.987
+        ROOM_ENTITIES[#ROOM_ENTITIES+1]=f
       end
       COINS, BOMBS, KEYS, ACTIVE, CHARGE, MAX_CHARGES = 999, 999, 999, 1024, 24, 24
       CARD, PILL, TRINKET, ROOM_TYPE, STAGE, STAGE_TYPE = 65535, 65535, 65535, 31, 15, 7
@@ -299,6 +306,8 @@ def fill_worst_case(lua):
         b.FrameCount, b.Velocity = 99999, {X=-12.345,Y=-12.345}
         ROOM_ENTITIES[#ROOM_ENTITIES+1]=b
       end
+      ROOM_SHAPE, ROOM_INDEX = 12, 168
+      for g=0,167 do MAP_ROOMS[#MAP_ROOMS+1]=make_desc(g, 12, 31, 99999, 0x7fffffff) end
       STAT_DAMAGE, STAT_FIRE_DELAY, STAT_RANGE = -999.123, -1, 99999.987
       STAT_SHOT, STAT_MOVE, STAT_LUCK = -9.999, 9.999, -99.999
       PLAYER_TEAR_FLAGS = bit_set(0xFFFF, 1)
@@ -311,13 +320,14 @@ def test_maximal_snapshot_stays_below_the_wire_limit(room):
     connect(room)
     tick(room, 20)
     state = latest(room)
-    assert len(state.collectibles) == 256 and len(state.entities) == 72
+    assert len(state.collectibles) == 256 and len(state.entities) == 84
+    assert len(state.map) == 64 and state.room.shape == 12
     kinds = [e.kind for e in state.entities]
     assert (kinds.count("own_attack"), kinds.count("bomb")) == (16, 4)
     assert state.source_overflow["own_attack"] == 4 and state.source_overflow["bomb"] == 2
     sizes = [len(line.encode()) for line in room.globals().OUTGOING.split("\n")[:-1]]
     print("worst-case lua snapshot bytes:", max(sizes))
-    assert sizes and max(sizes) < 32768
+    assert sizes and max(sizes) < 49152
 
 
 def test_stats_are_read_derived_and_clamped(room):
@@ -431,3 +441,130 @@ def test_lua_frame_encodes_stats_flags_and_weapons_into_the_vector(room):
     assert vector[STATS_OFFSET] == pytest.approx(0.5)
     assert vector[TEAR_FLAG_OFFSET] == 1.0 and vector[TEAR_FLAG_OFFSET + 1] == 0.0
     assert vector[WEAPON_OFFSET] == 1.0
+
+
+def test_obstacle_classes_by_enum_name_border_and_missing_names(room):
+    room.execute("""
+      local names = { {2,"rock"}, {19,"rock"}, {20,"rock"}, {21,"rock"}, {17,"marked_rock"},
+        {22,"marked_rock"}, {18,"bomb_rock"}, {3,"block"}, {7,"pit"}, {8,"spikes"},
+        {9,"spikes"}, {14,"poop"}, {12,"tnt"}, {15,"wall"} }
+      for n, item in ipairs(names) do GRID_ENTITIES[interior(n-1)]=make_grid(item[1],n,0) end
+      GRID_ENTITIES[interior(20)]=make_grid(99,0,0)      -- GRID_ROCK_GOLD is missing: skipped
+      for _, border in ipairs({0, 14, 15, 29, 120, 134, 7}) do   -- corners and edges
+        GRID_ENTITIES[border]=make_grid(15,0,0)
+      end
+    """)
+    connect(room)
+    state = latest(room)
+    classes = [e.obstacle_class for e in state.entities]
+    assert sorted(classes) == sorted(
+        ["rock"] * 4
+        + ["marked_rock"] * 2
+        + ["bomb_rock", "block", "pit", "spikes", "spikes", "poop", "tnt", "wall"]
+    )
+    assert all(e.kind == "obstacle" for e in state.entities)
+    assert len(state.entities) == 14
+
+
+def test_interior_wall_is_kept_and_non_obstacles_have_no_class(room):
+    room.execute("""
+      GRID_ENTITIES[16]=make_grid(15,10,0)   -- row 1, column 1: first interior cell
+      GRID_ENTITIES[118]=make_grid(15,11,0)  -- row 7, column 13: last interior cell
+      GRID_ENTITIES[119]=make_grid(15,12,0)  -- row 7, column 14: right border
+      ROOM_ENTITIES={ make_entity(1,101,200,10) }
+    """)
+    connect(room)
+    state = latest(room)
+    walls = [e for e in state.entities if e.kind == "obstacle"]
+    assert len(walls) == 2 and all(e.obstacle_class == "wall" for e in walls)
+    assert [e.obstacle_class for e in state.entities if e.kind != "obstacle"] == [None]
+    assert '"obstacle_class":null' in room.globals().OUTGOING
+
+
+def test_fireplace_is_a_fire_obstacle_not_an_enemy(room):
+    room.execute("""
+      local f=make_entity(1,110,200,33)
+      f.HitPoints, f.MaxHitPoints = 2, 4
+      local g=make_entity(2,120,200,33)       -- unknown hp stays unknown
+      local dead=make_entity(3,130,200,33)
+      dead.IsDead=function() return true end
+      local hidden=make_entity(4,140,200,33,false)
+      ROOM_ENTITIES={ f, g, dead, hidden, make_entity(5,150,200,10) }
+    """)
+    connect(room)
+    state = latest(room)
+    fires = [e for e in state.entities if e.obstacle_class == "fire"]
+    assert [e.kind for e in state.entities].count("enemy") == 1
+    assert [(e.kind, e.hp, e.max_hp) for e in fires] == [
+        ("obstacle", 2.0, 4.0),
+        ("obstacle", None, None),
+    ]
+
+
+def test_obstacle_cap_is_24_with_overflow(room):
+    room.execute("""
+      for n=0,29 do GRID_ENTITIES[interior(n)]=make_grid(2,n+1,0) end
+    """)
+    connect(room)
+    state = latest(room)
+    assert len(state.entities) == 24
+    assert state.source_overflow == {"obstacle": 6}
+
+
+def test_room_shape_is_exported_and_clamped(room):
+    room.execute("ROOM_SHAPE=9")
+    connect(room)
+    assert latest(room).room.shape == 9
+    room.execute("ROOM_SHAPE=40")
+    tick(room, 20)
+    assert latest(room).room.shape == 12
+
+
+def test_minimap_export_rules(room):
+    room.execute("""
+      ROOM_INDEX=84
+      MAP_ROOMS={
+        make_desc(84, 1, 1, 1, 0),            -- visited and current
+        make_desc(85, 2, 5, 0, 1),            -- displayed, no icon: type hidden
+        make_desc(71, 8, 4, 0, 5),            -- displayed with icon bit: type shown
+        make_desc(70, 1, 2, 0, 0),            -- not displayed, not visited: absent
+        make_desc(85, 1, 1, 1, 0),            -- duplicate grid index: first kept
+        make_desc(-1, 1, 1, 1, 0),            -- off-grid room: absent
+        make_desc(169, 1, 1, 1, 0),           -- beyond the 13x13 grid: absent
+        { GridIndex=86, VisitedCount=1, DisplayFlags=0 },  -- no Data: skipped
+      }
+    """)
+    connect(room)
+    state = latest(room)
+    got = {m.grid_index: m for m in state.map}
+    assert sorted(got) == [71, 84, 85]
+    assert (got[84].visited, got[84].current, got[84].room_type) == (True, True, 1)
+    assert (got[85].visited, got[85].room_type, got[85].shape) == (False, None, 2)
+    assert (got[71].room_type, got[71].shape, got[71].current) == (4, 8, False)
+    assert state.map_current_off_grid is False
+
+
+def test_off_grid_current_room_and_empty_map_marker(room):
+    room.execute("ROOM_INDEX=-3; MAP_ROOMS={ make_desc(84, 1, 1, 1, 0) }")
+    connect(room)
+    state = latest(room)
+    assert state.map_current_off_grid is True
+    assert [m.current for m in state.map] == [False]
+    room.execute("MAP_ROOMS={}")
+    tick(room, 20)
+    assert latest(room).map == []
+    assert '"map":[]' in room.globals().OUTGOING
+
+
+def test_minimap_cap_64_and_scan_bound(room):
+    room.execute("for g=0,100 do MAP_ROOMS[#MAP_ROOMS+1]=make_desc(g,1,1,1,0) end")
+    connect(room)
+    assert [m.grid_index for m in latest(room).map] == list(range(64))
+    room.execute("MAP_ROOMS={}; for g=1,513 do MAP_ROOMS[g]=make_desc(0,1,1,1,0) end")
+    tick(room, 20)
+    assert frames(room)[-1].status == "unavailable"
+
+
+def test_entity_frame_is_schema_5(room):
+    connect(room)
+    assert latest(room).observation_schema_version == 5

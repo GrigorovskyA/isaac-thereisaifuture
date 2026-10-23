@@ -35,6 +35,13 @@ COMMANDS = {}
 COINS, BOMBS, KEYS, ACTIVE, CHARGE, MAX_CHARGES = 0, 0, 0, 0, 0, nil
 CARD, PILL, TRINKET, HELD, HAS_CALLS, ITEM_SIZE = 0, 0, 0, {}, 0, 733
 ROOM_TYPE, STAGE, STAGE_TYPE, ROOM_INDEX, DOORS = 1, 1, 0, 84, {}
+-- Simulated room geometry and level map (not engine evidence). GetRooms is a RoomsList:
+-- 0-based Get(i) and Size; each descriptor has GridIndex, VisitedCount, DisplayFlags, Data.
+ROOM_SHAPE, GRID_W, GRID_H, MAP_ROOMS = 1, 15, 9, {}
+function make_desc(grid, shape, rtype, visited, flags)
+ return { GridIndex=grid, VisitedCount=visited, DisplayFlags=flags,
+  Data=(rtype ~= nil) and { Type=rtype, Shape=shape } or nil }
+end
 ActiveSlot = { SLOT_PRIMARY = 0 }
 -- Simulated stats, 128-bit tear flag sets and weapons (not engine evidence). A set is
 -- {l, h} with & and ==, like Repentance BitSet128; TEAR_BOUNCE sits in the high word.
@@ -60,6 +67,7 @@ DISPATCH_EVENTS = nil
 -- Optional deferred order: {{after=ms, event=name}, ...} queued by a dispatch that returns
 -- first; run_due() runs each later at its fake-clock time (simulated, not engine evidence).
 DEFERRED_EVENTS, SCHEDULE = nil, {}
+EntityType = { ENTITY_PLAYER=1 }
 callbacks = {}
 mod = { AddCallback = function(self, id, fn) callbacks[id] = fn end }
 RegisterMod = function() return mod end
@@ -128,13 +136,18 @@ Game = function() return {
  GetNumPlayers=function() return NO_PLAYER and 0 or PLAYER_COUNT end,
  GetRoom=function() return {
   IsClear=function() return false end, GetType=function() return ROOM_TYPE end,
+  GetRoomShape=function() return ROOM_SHAPE end,
+  GetGridWidth=function() return GRID_W end, GetGridHeight=function() return GRID_H end,
   GetDoor=function(self, slot)
    if DOORS[slot] ~= nil then return { IsOpen=function() return DOORS[slot] end } end
   end
  } end,
  GetLevel=function() return {
   GetStage=function() return STAGE end, GetStageType=function() return STAGE_TYPE end,
-  GetCurrentRoomIndex=function() return ROOM_INDEX end
+  GetCurrentRoomIndex=function() return ROOM_INDEX end,
+  GetCurrentRoomDesc=function() return { GridIndex=ROOM_INDEX } end,
+  GetRooms=function() return {
+   Size=#MAP_ROOMS, Get=function(self, i) return MAP_ROOMS[i+1] end } end
  } end,
  GetFrameCount=function() return FRAME end,
  IsPaused=function() return PAUSED end

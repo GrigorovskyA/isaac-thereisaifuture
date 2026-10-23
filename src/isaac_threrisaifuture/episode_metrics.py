@@ -8,6 +8,7 @@ from typing import Any, SupportsFloat
 
 import gymnasium as gym
 
+from .episodes import HIT_FIELDS
 from .rewards import REWARD_V4_COLUMNS
 
 PICKUPS = ("coin", "bomb", "key", "collectible")
@@ -32,6 +33,8 @@ EXTRA_FIELDS = (
     "half_hearts_lost",
     "steps_to_first_exit",
     "steps_to_first_damage",
+    "enemies_killed",
+    *HIT_FIELDS,
 )
 FIELDS = (
     *BASE_FIELDS,

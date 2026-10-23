@@ -4,6 +4,7 @@ import json
 
 import gymnasium as gym
 import pytest
+from synthetic import oracle_metrics
 from test_entity_transport import entity_snapshot
 
 from isaac_threrisaifuture.episodes import EpisodeFault
@@ -35,6 +36,7 @@ def live(
         "enemies": [{"entity_id": i, "hp": hp, "max_hp": 10.0} for i, hp in enemies],
         "enemy_overflow": overflow,
         "room_index": 84,
+        **oracle_metrics(),
     }
     return LiveSnapshot.model_validate_json(json.dumps(raw))
 

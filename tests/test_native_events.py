@@ -236,7 +236,7 @@ def test_incompatible_manifest_version_and_provenance_are_rejected(tmp_path):
     lines = path.read_bytes().split(b"\n")
     versioned = tmp_path / "v.jsonl"
     versioned.write_bytes(
-        lines[0].replace(b'"observation_schema_version":4', b'"observation_schema_version":2')
+        lines[0].replace(b'"observation_schema_version":5', b'"observation_schema_version":2')
         + b"\n"
         + lines[1]
         + b"\n"

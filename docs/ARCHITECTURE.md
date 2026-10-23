@@ -10,14 +10,14 @@ protocol), `archive/` holds that code.
 
 | Module | Responsibility |
 | --- | --- |
-| `mod/observer/main.lua` | Lua adapter: schema 4 snapshots, oracle block, actions with use head, restart command, death restart, watchdogs |
+| `mod/observer/main.lua` | Lua adapter: schema 5 snapshots, oracle block, actions with use head, restart command, death restart, watchdogs |
 | `observation.py`, `entities.py`, `live_wire.py` | Strict wire models (handshake, snapshot, entity frame, oracle, acks) |
 | `observer_client.py` | Loopback listener, negotiation, ordering |
 | `live.py` | Live client, event deriver, live backend, fault-tolerant env, approvals, train/random runs |
 | `stall_watchdog.py` | Stall detection that truncates and requests a restart |
 | `episodes.py`, `env.py` | Episode controller and Gymnasium env (`MultiDiscrete([5,5,4])`, 2038 floats) |
-| `encoding.py` | Observation schema 4 encoder |
-| `rewards.py` | Reward v1 (offline sim) and reward v4 ledger |
+| `encoding.py` | Observation schema 5 encoder |
+| `rewards.py` | Reward v1 (offline sim) and reward v4/v5 ledger |
 | `episode_metrics.py` | Per-episode CSV rows |
 | `training.py`, `checkpoints.py` | Continuous RecurrentPPO training, lineage, retention, use-head prior at model creation |
 | `session_runner.py` | Windows supervisor, single session or forever |

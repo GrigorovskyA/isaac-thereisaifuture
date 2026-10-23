@@ -5,7 +5,7 @@ from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-MAX_MESSAGE_BYTES = 32768
+MAX_MESSAGE_BYTES = 49152
 CAPABILITIES = ("snapshot_v1", "availability", "raw_health_v1")
 Counter = Annotated[int, Field(ge=0, le=2**53 - 1)]
 SessionId = Annotated[str, Field(pattern=r"^[0-9a-f]{32}$")]

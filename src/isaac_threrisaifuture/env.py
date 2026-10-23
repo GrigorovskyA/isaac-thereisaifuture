@@ -14,7 +14,15 @@ from numpy.typing import NDArray
 
 from .encoding import OBSERVATION_SIZE, encode
 from .entities import EntityFrame, OracleEvent
-from .episodes import ACTION_NVEC, Action, EpisodeController, GameBackend, Scenario, Transition
+from .episodes import (
+    ACTION_NVEC,
+    HIT_FIELDS,
+    Action,
+    EpisodeController,
+    GameBackend,
+    Scenario,
+    Transition,
+)
 
 UPDATES_PER_SECOND = 30  # game logic updates per second; rendering is 60 FPS and not used here
 
@@ -191,9 +199,17 @@ class IsaacCombatEnv(gym.Env[NDArray[np.float32], NDArray[np.int64]]):
             "outcome": "terminated" if transition.terminated else "truncated",
             "end_reason": transition.outcome,
             "truncation_reason": transition.truncation_reason,
+            "enemies_killed": transition.summary.enemies_killed,
+            **self._hits(),
             **stats,
             **self._facts,
         }
+
+    def _hits(self) -> dict[str, int]:
+        """Player hits by source from the observer; zeros for backends without oracle metrics."""
+        stats = getattr(self.controller.backend, "episode_oracle_stats", None)
+        raw = stats() if stats is not None else {}
+        return {name: int(raw.get(name, 0)) for name in HIT_FIELDS}
 
     def _emit(self, transition: Transition) -> None:
         if self.oracle_sink is not None:
@@ -201,7 +217,8 @@ class IsaacCombatEnv(gym.Env[NDArray[np.float32], NDArray[np.int64]]):
                 self.oracle_sink(event)
 
     def _observe(self, frame: EntityFrame, info: dict[str, Any]) -> NDArray[np.float32]:
-        encoded = encode(frame)
+        stall = float(getattr(self.controller.backend, "stall_fraction", 0.0))
+        encoded = encode(frame, stall_fraction=stall)
         info["overflow"] = dict(encoded.overflow)
         info["clipped_values"] = encoded.clipped_values
         return encoded.vector

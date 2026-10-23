@@ -1,7 +1,7 @@
 -- Default read-only observer; opt-in lifecycle and explicitly authorized native actions.
 local mod = RegisterMod("Isaac Future Observer", 1)
 local Config = {
-    host = "127.0.0.1", port = 9528, max_bytes = 32768, hello_bytes = 16384, io_bytes = 4096,
+    host = "127.0.0.1", port = 9528, max_bytes = 49152, hello_bytes = 16384, io_bytes = 4096,
     timeout_ms = 3000, retry_ms = 1000, sample_ms = 200,
     -- Operator-supplied metadata is optional; never pretend it is runtime detection.
     game_version = nil, steam_build = nil,
@@ -33,9 +33,26 @@ local diagnostic = nil
 
 -- Opt-in read-only entity export; these tables never contain oracle/reward data.
 local entities = { requested = false, ids = {}, next_id = 0 }
-local entity_caps = { enemy=12, projectile=20, obstacle=12, pickup=8, own_attack=16, bomb=4 }
+local entity_caps = { enemy=12, projectile=20, obstacle=24, pickup=8, own_attack=16, bomb=4 }
 -- Held collectibles change rarely, so the scan is cached and refreshed on a short cadence.
 local collectible_cap, collectible_max_id, collectible_period = 256, 1024, 30
+-- Oracle metrics: cumulative per game epoch, reset on game start. Never policy input.
+local HIT_CLASSES = { "enemy", "projectile", "own_bomb", "explosion", "spikes", "fire",
+    "creep", "other" }
+local metrics = { kills = 0, hits = {} }
+for _, name in ipairs(HIT_CLASSES) do metrics.hits[name] = 0 end
+local function reset_metrics()
+    metrics.kills = 0
+    for _, name in ipairs(HIT_CLASSES) do metrics.hits[name] = 0 end
+end
+-- Grid types by GridEntityType name (no numeric assumptions); absent names are skipped.
+local OBSTACLE_NAMES = {
+    GRID_ROCK="rock", GRID_ROCK_ALT="rock", GRID_ROCK_ALT2="rock", GRID_ROCK_SPIKED="rock",
+    GRID_ROCK_GOLD="rock", GRID_ROCKT="marked_rock", GRID_ROCK_SS="marked_rock",
+    GRID_ROCK_BOMB="bomb_rock", GRID_ROCKB="block", GRID_PIT="pit", GRID_SPIKES="spikes",
+    GRID_SPIKES_ONOFF="spikes", GRID_POOP="poop", GRID_TNT="tnt", GRID_WALL="wall",
+}
+local MAX_MAP_ROOMS = 64
 local collectible_cache = { dirty = true, frame = nil, ids = {}, overflow = 0 }
 
 local function entity_capable()
@@ -357,7 +374,39 @@ local function room_facts(room)
         type = clamp_int(room:GetType(), 0, 31), stage = clamp_int(level:GetStage(), 0, 15),
         stage_type = clamp_int(level:GetStageType(), 0, 7),
         clear = room:IsClear() == true, doors = doors,
+        shape = clamp_int(room:GetRoomShape(), 1, 12),
     }
+end
+
+-- Only rooms the in-game minimap shows or the player visited are exported (no hidden
+-- map data). A room type is exported only once visited or when its icon is displayed.
+local function minimap()
+    local level = Game():GetLevel()
+    local rooms = level:GetRooms()
+    assert(type(rooms.Size) == "number" and rooms.Size >= 0 and rooms.Size <= 512,
+        "Level room scan exceeds 512")
+    local current_desc = level:GetCurrentRoomDesc()
+    local current_grid = current_desc and tonumber(current_desc.GridIndex)
+        or tonumber(level:GetCurrentRoomIndex()) or -1
+    local result, seen = {}, {}
+    for i = 0, rooms.Size - 1 do
+        if #result >= MAX_MAP_ROOMS then break end
+        local desc = rooms:Get(i)
+        local data = desc and desc.Data
+        local grid = desc and tonumber(desc.GridIndex)
+        if data and grid and grid >= 0 and grid <= 168 and grid % 1 == 0 and not seen[grid] then
+            local visited = (tonumber(desc.VisitedCount) or 0) > 0
+            local flags = clamp_int(desc.DisplayFlags or 0, 0, 0x7fffffff)
+            if visited or flags ~= 0 then
+                seen[grid] = true
+                result[#result+1] = { grid_index = grid, shape = clamp_int(data.Shape, 1, 12),
+                    visited = visited, current = grid == current_grid,
+                    room_type = (visited or (flags & 4) ~= 0)
+                        and clamp_int(data.Type, 0, 31) or json.null }
+            end
+        end
+    end
+    return result, current_grid < 0
 end
 
 local function capture_entities(room, player, data)
@@ -389,11 +438,18 @@ local function capture_entities(room, player, data)
         local parent = entity.Parent
         return parent ~= nil and GetPtrHash(parent) == player_hash
     end
-    local function add(kind, key, position, velocity, pickup, age)
+    local function add(kind, key, position, velocity, pickup, age, class, hp, max_hp)
         local relative = vector({ X=position.X-player.Position.X, Y=position.Y-player.Position.Y })
         local item = { kind=kind, entity_id=identity(key), spawn_generation=0,
             position=relative, velocity=vector(velocity), hp=json.null, max_hp=json.null,
-            variant=json.null, subtype=json.null, price=json.null, age_frames=json.null }
+            variant=json.null, subtype=json.null, price=json.null, age_frames=json.null,
+            obstacle_class=class or json.null }
+        if class and type(max_hp) == "number" and type(hp) == "number" and max_hp > 0
+            and max_hp <= 1000000 and hp == hp then
+            hp = math.max(0, math.min(hp, max_hp))
+            item.hp = math.floor(hp * 1000 + 0.5) / 1000
+            item.max_hp = math.max(0.001, math.floor(max_hp * 1000 + 0.5) / 1000)
+        end
         if age then item.age_frames = clamp_int(age, 0, 10000) end
         if pickup then
             -- Price: 0 free; non-zero shop or devil deal. Modded values are clamped.
@@ -409,8 +465,11 @@ local function capture_entities(room, player, data)
         local key = "e:" .. tostring(GetPtrHash(entity)) .. ":" .. tostring(entity.InitSeed)
         if entities.ids[key] then retained[key] = entities.ids[key] end
         if entity:Exists() and entity.Visible and not entity:IsDead() then
-            local kind
-            if entity:IsActiveEnemy(false) then kind = "enemy"
+            local kind, class
+            -- Fireplaces first: they must never be classified as enemies.
+            if entity.Type == EntityType.ENTITY_FIREPLACE then
+                kind, class = "obstacle", "fire"
+            elseif entity:IsActiveEnemy(false) then kind = "enemy"
             elseif entity.Type == EntityType.ENTITY_PROJECTILE then kind = "projectile"
             elseif entity.Type == EntityType.ENTITY_PICKUP then kind = "pickup"
             elseif entity.Type == EntityType.ENTITY_BOMB then kind = "bomb"
@@ -421,13 +480,14 @@ local function capture_entities(room, player, data)
             if kind then
                 add(kind, key, entity.Position, entity.Velocity,
                     kind == "pickup" and entity or nil,
-                    kind == "bomb" and entity.FrameCount or nil)
+                    kind == "bomb" and entity.FrameCount or nil,
+                    class, entity.HitPoints, entity.MaxHitPoints)
             end
         end
         -- Live-loop reward labels only; leaves through the separate oracle block.
         -- Invisible (e.g. burrowed) enemies stay listed so hiding is not a kill.
         if live.on and entity:Exists() and not entity:IsDead()
-            and entity:IsActiveEnemy(false) then
+            and entity.Type ~= EntityType.ENTITY_FIREPLACE and entity:IsActiveEnemy(false) then
             local max_hp, hp = entity.MaxHitPoints, entity.HitPoints
             if type(max_hp) == "number" and type(hp) == "number" and max_hp > 0
                 and max_hp <= 1000000 and hp == hp then
@@ -443,17 +503,26 @@ local function capture_entities(room, player, data)
         end
     end
     -- Only ordinary visible geometry; no doors, hidden rooms, rock subtype or contents.
-    local allowed_grid = {}
-    for _, name in ipairs({ "GRID_ROCK", "GRID_ROCKB", "GRID_ROCKT", "GRID_ROCK_BOMB",
-        "GRID_ROCK_ALT", "GRID_ROCK_SS", "GRID_PIT", "GRID_SPIKES", "GRID_SPIKES_ONOFF",
-        "GRID_POOP", "GRID_TNT", "GRID_WALL" }) do
+    local class_by_type = {}
+    for name, class in pairs(OBSTACLE_NAMES) do
         local kind = GridEntityType[name]
-        if kind then allowed_grid[kind] = true end
+        if kind then class_by_type[kind] = class end
     end
+    local width, height = room:GetGridWidth(), room:GetGridHeight()
+    assert(type(width) == "number" and type(height) == "number" and width % 1 == 0
+        and height % 1 == 0 and width >= 1 and height >= 1, "Invalid room grid size")
     for index=0,grid_size-1 do
         local grid = room:GetGridEntity(index)
-        if grid and grid.CollisionClass ~= 0 and allowed_grid[grid:GetType()] then
-            add("obstacle", "g:" .. index .. ":" .. grid:GetType(), grid.Position, nil)
+        local column = index % width
+        -- The outer border ring is walls and door frames, never useful geometry.
+        local border = column == 0 or column == width - 1 or index < width
+            or index >= (height - 1) * width
+        if grid and not border and grid.CollisionClass ~= 0 then
+            local class = class_by_type[grid:GetType()]
+            if class then
+                add("obstacle", "g:" .. index .. ":" .. grid:GetType(), grid.Position, nil,
+                    nil, nil, class)
+            end
         end
     end
     entities.ids = retained
@@ -473,11 +542,14 @@ local function capture_entities(room, player, data)
         oracle = { room_clear = room:IsClear() == true, player_dead = player:IsDead() == true,
             enemies = #oracle_enemies > 0 and oracle_enemies or json.EMPTY_ARRAY,
             enemy_overflow = oracle_overflow,
-            room_index = clamp_int(Game():GetLevel():GetCurrentRoomIndex(), -64, 255) }
+            room_index = clamp_int(Game():GetLevel():GetCurrentRoomIndex(), -64, 255),
+            kills = metrics.kills, player_hits = {} }
+        for _, name in ipairs(HIT_CLASSES) do oracle.player_hits[name] = metrics.hits[name] end
     end
+    local map, off_grid = minimap()
     local held, held_overflow = collectible_list(player, data.frame)
     return {
-        type="entity_frame", observation_schema_version=4, provenance="game_api",
+        type="entity_frame", observation_schema_version=5, provenance="game_api",
         session_id=state.session, game_epoch=state.epoch, room_visit=state.visit,
         frame_id=data.frame, player_position=data.player.position,
         player_velocity=vector(player.Velocity), health=data.player.health,
@@ -488,6 +560,7 @@ local function capture_entities(room, player, data)
         weapons=flag_list(weapon_names, has_weapon, player),
         collectibles=#held > 0 and held or json.EMPTY_ARRAY,
         collectible_overflow=held_overflow, room=room_facts(room),
+        map=#map > 0 and map or json.EMPTY_ARRAY, map_current_off_grid=off_grid,
     }, oracle
 end
 
@@ -799,6 +872,7 @@ mod:AddCallback(ModCallbacks.MC_POST_UPDATE, function()
 end)
 mod:AddCallback(ModCallbacks.MC_POST_GAME_STARTED, function(_, continued)
     release()
+    reset_metrics()
     collectible_cache.dirty = true
     entities.ids, entities.next_id = {}, 0
     state.snapshot_frame, state.pending_frame = nil, nil
@@ -833,6 +907,46 @@ end
 mod:AddCallback(ModCallbacks.MC_POST_GAME_END, function(_, game_over)
     game_end(game_over)
 end)
+-- Oracle metrics only. Both callbacks are bounded, read-only and never alter the game.
+mod:AddCallback(ModCallbacks.MC_POST_NPC_DEATH, function(_, npc)
+    pcall(function()
+        if npc:IsEnemy() == true and not npc:HasEntityFlags(EntityFlag.FLAG_FRIENDLY) then
+            metrics.kills = math.min(metrics.kills + 1, 9007199254740991)
+        end
+    end)
+end)
+local function damage_class(player_hash, flags, source)
+    local function has(name)
+        local flag = DamageFlag and DamageFlag[name]
+        return flag ~= nil and flags & flag ~= 0
+    end
+    local ref = source and source.Entity
+    if has("DAMAGE_EXPLOSION") then
+        if source and source.Type == EntityType.ENTITY_BOMB and ref ~= nil
+            and (ref.SpawnerType == EntityType.ENTITY_PLAYER
+                or (ref.Spawner ~= nil and GetPtrHash(ref.Spawner) == player_hash)) then
+            return "own_bomb"
+        end
+        return "explosion"
+    elseif has("DAMAGE_SPIKES") or has("DAMAGE_CURSED_DOOR") then return "spikes"
+    elseif has("DAMAGE_FIRE") then return "fire"
+    elseif has("DAMAGE_ACID") then return "creep"
+    end
+    local kind = source and source.Type
+    if kind == EntityType.ENTITY_PROJECTILE then return "projectile" end
+    if type(kind) == "number" and kind >= 10 and kind < 1000 then return "enemy" end
+    return "other"
+end
+-- Counts hits on player 0 only; the observer supports a single player. Returns nil always.
+mod:AddCallback(ModCallbacks.MC_ENTITY_TAKE_DMG, function(_, entity, amount, flags, source)
+    pcall(function()
+        local hash = GetPtrHash(Isaac.GetPlayer(0))
+        if GetPtrHash(entity) ~= hash then return end
+        local class = damage_class(hash, flags or 0, source)
+        metrics.hits[class] = math.min(metrics.hits[class] + 1, 9007199254740991)
+    end)
+    return nil
+end, EntityType.ENTITY_PLAYER)
 mod:AddCallback(ModCallbacks.MC_POST_NEW_ROOM, function()
     release()
     collectible_cache.dirty = true

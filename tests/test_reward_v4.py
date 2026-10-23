@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import yaml
-from synthetic import event, frame, inventory, room_facts
+from synthetic import event, frame, inventory, oracle_metrics, room_facts
 from test_entity_transport import entity_snapshot
 
 from isaac_threrisaifuture.encoding import encode
@@ -19,7 +19,7 @@ from isaac_threrisaifuture.episodes import Scenario, StepResult
 from isaac_threrisaifuture.live import LIVE_SCENARIO, EventDeriver, LiveSnapshot
 from isaac_threrisaifuture.recording import JsonlRecorder, open_replay
 from isaac_threrisaifuture.rewards import (
-    DEFAULT_CONFIG_V4,
+    DEFAULT_CONFIG_V5,
     REWARD_V4_COLUMNS,
     RewardLedgerV4,
     RewardV4Coefficients,
@@ -45,6 +45,7 @@ def live(seq, *, epoch=1, room=84, stage=1, coins=0, bombs=0, keys=0, items=(), 
         "enemies": [],
         "enemy_overflow": 0,
         "room_index": room,
+        **oracle_metrics(),
     }
     return LiveSnapshot.model_validate_json(json.dumps(raw))
 
@@ -61,11 +62,11 @@ def test_coefficients_load_the_shipped_file():
     assert COEF.room_clear_first == 10.0 and COEF.consumable_run_cap == 3.0
     assert COEF.novelty_cell_size == 40 and COEF.novelty_coefficient == 0.02
     assert COEF.enemy_hp_fraction_total == 5.0 and COEF.player_damage_half_heart == -1.0
-    assert COEF.stall_restart == -5.0 and COEF.death == -10.0
+    assert COEF.stall_restart == -10.0 and COEF.death == -10.0
 
 
 def test_coefficient_keys_are_strict(tmp_path: Path):
-    raw = yaml.safe_load(DEFAULT_CONFIG_V4.read_text(encoding="utf-8"))
+    raw = yaml.safe_load(DEFAULT_CONFIG_V5.read_text(encoding="utf-8"))
     for mutate in (
         lambda r: r["outcome"].pop("death"),
         lambda r: r["pickups"].update(extra=1.0),

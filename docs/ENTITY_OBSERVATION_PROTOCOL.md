@@ -11,7 +11,7 @@ Append `entity_observation_v1` to the existing required capabilities. A missing
 capability fails before any snapshot; there is no silent fallback. Only a peer
 that requests this capability receives the extra `entity_frame` key in each
 snapshot. Default clients receive no extra fields and trigger no entity scans.
-Both modes retain UTF-8 newline JSON, loopback TCP, 32768-byte wire records,
+Both modes retain UTF-8 newline JSON, loopback TCP, 32768-byte wire records (49152 bytes since schema 5),
 nonblocking bounded Lua I/O and the existing 200 ms sampling cadence.
 
 Available snapshots carry an EntityFrame; unavailable snapshots carry null.
@@ -56,7 +56,15 @@ an API read failure produces unavailable state with null entity_frame, never a
 successful partial scan. Native per-kind capacities are 12 enemies, 20
 projectiles, 12 obstacles and 4 pickups (48 total); select nearest first with
 opaque ID ties. Offsets/velocity round to 0.001 game units. Oversized encoded
-messages close the peer under the existing 32768-byte limit.
+messages close the peer under the 32768-byte limit (49152 since schema 5).
+
+Schema 5 (current) adds to the frame: `obstacle_class` on every obstacle (rock, marked
+rock, bomb rock, block, pit, spikes, poop, TNT, fire, wall, other; fireplaces are `fire`
+obstacles, perimeter wall cells are not exported, observer cap 24), `room.shape` (1..12),
+`map` (up to 64 minimap rooms: grid index, shape, visited, current, room type only when
+visited or its icon is shown) and `map_current_off_grid`. The oracle block gains
+cumulative `kills` and `player_hits` by source; they are metrics only. Messages may reach
+49152 bytes. See `docs/RL_DESIGN.md` for the encoded vector (3499 floats).
 
 The Python encoder retains schema-1 capacities 16/32/24/8 and outputs 649 float32
 values. Presence and optional-field masks distinguish missing objects from

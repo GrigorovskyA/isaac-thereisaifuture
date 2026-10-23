@@ -14,6 +14,7 @@ from .entities import (
     Entity,
     EntityFrame,
     Inventory,
+    MapRoom,
     OracleEvent,
     RoomFacts,
     Stats,
@@ -276,5 +277,8 @@ class SyntheticRoomBackend:
                 stage_type=0,
                 clear=not self._enemies,
                 doors=[False] * 8,
+                shape=1,
             ),
+            map=[MapRoom(grid_index=84, shape=1, visited=True, current=True, room_type=1)],
+            map_current_off_grid=False,
         )

@@ -6,10 +6,13 @@ from pydantic import Field, model_validator
 
 from .observation import Counter, Health, SessionId, Snapshot, WireModel
 
-OBSERVATION_SCHEMA_VERSION = 4
-ORACLE_SCHEMA_VERSION = 1  # oracle events are unchanged by observation schema 4
+OBSERVATION_SCHEMA_VERSION = 5
+ORACLE_SCHEMA_VERSION = 1  # oracle events are unchanged by observation schema 5
 MAX_FRAME_BYTES = 65536
-MAX_ENTITIES = 72  # observer caps: 12 + 20 + 12 + 8 enemy..pickup, 16 own attacks, 4 bombs
+# Observer caps: 12 enemies, 20 projectiles, 24 obstacles, 8 pickups, 16 own attacks, 4 bombs.
+MAX_ENTITIES = 84
+MAX_MAP_ROOMS = 64
+LEVEL_GRID_CELLS = 169  # 13 x 13 level grid
 MAX_PICKUPS = 8
 MAX_COLLECTIBLES = 256
 COLLECTIBLE_ID_MAX = 1024
@@ -25,6 +28,33 @@ ENTITY_KINDS: tuple[EntityKind, ...] = (
     "own_attack",
     "bomb",
 )
+# Obstacle classes in wire and encoding order; the observer maps grid types by name.
+OBSTACLE_CLASSES = (
+    "rock",
+    "marked_rock",
+    "bomb_rock",
+    "block",
+    "pit",
+    "spikes",
+    "poop",
+    "tnt",
+    "fire",
+    "wall",
+    "other",
+)
+ObstacleClass = Literal[
+    "rock",
+    "marked_rock",
+    "bomb_rock",
+    "block",
+    "pit",
+    "spikes",
+    "poop",
+    "tnt",
+    "fire",
+    "wall",
+    "other",
+]
 # Fixed wire order of the boolean lists; the Lua observer uses the same order.
 TEAR_FLAG_NAMES = (
     "spectral",
@@ -93,6 +123,14 @@ class Entity(WireModel):
     price: Annotated[int, Field(ge=-1000, le=999)] | None = None
     # Bombs only: frames since the bomb appeared.
     age_frames: Annotated[int, Field(ge=0, le=BOMB_AGE_MAX)] | None = None
+    # Obstacles only: what the obstacle is.
+    obstacle_class: ObstacleClass | None = None
+
+    @model_validator(mode="after")
+    def obstacle_typed(self) -> Self:
+        if (self.kind == "obstacle") != (self.obstacle_class is not None):
+            raise ValueError("Exactly obstacles carry obstacle_class")
+        return self
 
     @model_validator(mode="after")
     def bomb_age(self) -> Self:
@@ -152,13 +190,25 @@ class RoomFacts(WireModel):
     stage_type: Annotated[int, Field(ge=0, le=7)]
     clear: bool
     doors: Annotated[list[bool], Field(min_length=DOOR_SLOTS, max_length=DOOR_SLOTS)]
+    shape: Annotated[int, Field(ge=1, le=12)]  # room:GetRoomShape()
+
+
+class MapRoom(WireModel):
+    """One minimap room: only what the in-game minimap shows or the player visited."""
+
+    grid_index: Annotated[int, Field(ge=0, le=LEVEL_GRID_CELLS - 1)]
+    shape: Annotated[int, Field(ge=1, le=12)]
+    visited: bool
+    current: bool
+    # None while the room's icon is hidden and the room is unvisited.
+    room_type: Annotated[int, Field(ge=0, le=31)] | None
 
 
 class EntityFrame(WireModel):
     """Policy-visible state only. Hidden map data and reward labels do not belong here."""
 
     type: Literal["entity_frame"] = "entity_frame"
-    observation_schema_version: Literal[4] = 4
+    observation_schema_version: Literal[5] = 5
     provenance: Literal["synthetic", "game_api"]
     session_id: SessionId
     game_epoch: Counter
@@ -185,6 +235,21 @@ class EntityFrame(WireModel):
     ]
     collectible_overflow: Annotated[int, Field(ge=0, le=COLLECTIBLE_ID_MAX - MAX_COLLECTIBLES)]
     room: RoomFacts
+    map: Annotated[list[MapRoom], Field(max_length=MAX_MAP_ROOMS)]
+    # True when the current room has no grid position (devil, angel, error rooms...).
+    map_current_off_grid: bool
+
+    @model_validator(mode="after")
+    def map_consistent(self) -> Self:
+        indexes = [m.grid_index for m in self.map]
+        if len(set(indexes)) != len(indexes):
+            raise ValueError("Duplicate map grid index")
+        current = sum(m.current for m in self.map)
+        if current > 1:
+            raise ValueError("At most one map room is current")
+        if self.map_current_off_grid and current:
+            raise ValueError("An off-grid current room has no current map entry")
+        return self
 
     @model_validator(mode="after")
     def unique_identity(self) -> Self:

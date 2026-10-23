@@ -1,4 +1,4 @@
-"""Event-driven reward ledgers: combat reward-v1 and outcome-only reward-v4.
+"""Event-driven reward ledgers: combat reward-v1 and outcome-only reward-v4/v5.
 
 Coefficients are hypotheses, not tuned values.
 """
@@ -127,7 +127,8 @@ class RewardLedger:
             parts["death"] += c.death
 
 
-DEFAULT_CONFIG_V4 = Path(__file__).resolve().parents[2] / "configs" / "reward-v4.yaml"
+DEFAULT_CONFIG_V5 = Path(__file__).resolve().parents[2] / "configs" / "reward-v5.yaml"
+REWARD_V4_VERSIONS = (4, 5)  # the same ledger pays both; v5 only changes stall_restart
 REWARD_V4_COLUMNS = (
     "enemy_damage",
     "room_clear",
@@ -191,11 +192,15 @@ class RewardV4Coefficients:
             raise ValueError("The consumable cap must be >= 0 and the novelty cell size positive")
 
     @classmethod
-    def load(cls, path: Path = DEFAULT_CONFIG_V4) -> Self:
+    def load(cls, path: Path = DEFAULT_CONFIG_V5) -> Self:
         raw: Any = yaml.safe_load(path.read_text(encoding="utf-8"))
         top = {"reward_version", "status", *_V4_SECTIONS}
-        if not isinstance(raw, dict) or set(raw) != top or raw["reward_version"] != 4:
-            raise ValueError(f"Reward v4 configuration must define exactly {sorted(top)}")
+        if (
+            not isinstance(raw, dict)
+            or set(raw) != top
+            or raw["reward_version"] not in REWARD_V4_VERSIONS
+        ):
+            raise ValueError(f"Reward v4/v5 configuration must define exactly {sorted(top)}")
         values: dict[str, float] = {}
         for name, keys in _V4_SECTIONS.items():
             section = raw[name]

@@ -43,8 +43,19 @@ def weapons(*names: str) -> list[bool]:
     return [name in names for name in WEAPON_NAMES]
 
 
+def oracle_metrics(**hits: int) -> dict[str, object]:
+    """Wire fields of LiveOracle that are metrics only: kills and player hits by source."""
+    sources = dict.fromkeys(
+        ("enemy", "projectile", "own_bomb", "explosion", "spikes", "fire", "creep", "other"), 0
+    )
+    sources.update(hits)
+    return {"kills": 0, "player_hits": sources}
+
+
 def room_facts(**changes: object) -> RoomFacts:
-    values: dict[str, object] = dict(type=1, stage=1, stage_type=0, clear=False, doors=[False] * 8)
+    values: dict[str, object] = dict(
+        type=1, stage=1, stage_type=0, clear=False, doors=[False] * 8, shape=1
+    )
     values.update(changes)
     return RoomFacts(**values)
 
@@ -89,6 +100,8 @@ def frame(entities: list[Entity] | None = None, frame_id: int = 1, **changes: ob
         collectibles=[],
         collectible_overflow=0,
         room=room_facts(),
+        map=[],
+        map_current_off_grid=False,
     )
     values.update(changes)
     return EntityFrame(**values)

@@ -1,0 +1,26 @@
+# Outcome-only reward for the pure profile (openspec change pure-v4-map-hazards-and-stall).
+# Terms describe what happened, never how to play. "First" terms and caps are per run.
+# Novelty pays once per (stage, room, cell) per run; stall_restart is paid once on a stall truncation.
+# Reward v5 = reward v4 with stall_restart -10 (equal to death): in pure-v3 a stall (-5) paid
+# better than fighting. Archived v4: archive/configs/reward-v4.yaml.
+reward_version: 5
+status: pure_v4
+outcome:
+  enemy_hp_fraction_total: 5.0
+  room_clear_first: 10.0
+  room_first_visit: 3.0
+  floor_first_entered: 10.0
+  player_damage_half_heart: -1.0
+  death: -10.0
+  stall_restart: -10.0
+  time_second: -0.005
+pickups:
+  coin: 0.05
+  bomb: 0.1
+  key: 0.1
+  consumable_run_cap: 3.0
+  collectible_new: 2.0
+  heal_half_heart: 0.5
+novelty:
+  coefficient: 0.02
+  cell_size: 40

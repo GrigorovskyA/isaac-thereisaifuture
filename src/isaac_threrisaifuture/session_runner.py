@@ -823,7 +823,7 @@ def main() -> None:
         derived = ("parent_id", "seed", "seconds", "steps", "max_restarts", "output")
         if any(getattr(args, name) is not None for name in derived) or args.time_budget_only:
             parser.error("--forever derives its limits from the config; pass only the paths")
-        run_root = (args.run_root or Path("runs/pure-v3")).resolve()
+        run_root = (args.run_root or Path("runs/pure-v4")).resolve()
         outcome = run_forever(
             ForeverOptions(
                 args.game.resolve(),
