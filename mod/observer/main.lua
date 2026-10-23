@@ -50,8 +50,10 @@ local OBSTACLE_NAMES = {
     GRID_ROCK="rock", GRID_ROCK_ALT="rock", GRID_ROCK_ALT2="rock", GRID_ROCK_SPIKED="rock",
     GRID_ROCK_GOLD="rock", GRID_ROCKT="marked_rock", GRID_ROCK_SS="marked_rock",
     GRID_ROCK_BOMB="bomb_rock", GRID_ROCKB="block", GRID_PIT="pit", GRID_SPIKES="spikes",
-    GRID_SPIKES_ONOFF="spikes", GRID_POOP="poop", GRID_TNT="tnt", GRID_WALL="wall",
+    GRID_SPIKES_ONOFF="spikes", GRID_POOP="poop", GRID_TNT="tnt",
 }
+-- GRID_WALL is never exported: wall cells are room boundaries, and narrow or L-shaped
+-- rooms put them inside the rectangular grid. The room shape already describes them.
 local MAX_MAP_ROOMS = 64
 local collectible_cache = { dirty = true, frame = nil, ids = {}, overflow = 0 }
 

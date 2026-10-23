@@ -34,7 +34,7 @@ A failure closes the Python peer; no stale state is returned as success.
   the native export capacity. Absence means zero, not a missing scan.
 
 The native subset includes active visible enemies, projectile entities,
-pickups and selected colliding grid obstacles (ordinary rock shapes, walls,
+pickups and selected colliding grid obstacles (ordinary rock shapes,
 pits, spikes, poop and TNT). It omits player tears, beams, familiars, effects,
 doors, grid subtypes, item contents and hidden entities. Enemy HP stays unknown;
 being readable through an API does not make it permitted policy input. No hidden
@@ -60,7 +60,7 @@ messages close the peer under the 32768-byte limit (49152 since schema 5).
 
 Schema 5 (current) adds to the frame: `obstacle_class` on every obstacle (rock, marked
 rock, bomb rock, block, pit, spikes, poop, TNT, fire, wall, other; fireplaces are `fire`
-obstacles, perimeter wall cells are not exported, observer cap 24), `room.shape` (1..12),
+obstacles, wall cells are never exported (the `wall` class is unused), observer cap 24), `room.shape` (1..12),
 `map` (up to 64 minimap rooms: grid index, shape, visited, current, room type only when
 visited or its icon is shown) and `map_current_off_grid`. The oracle block gains
 cumulative `kills` and `player_hits` by source; they are metrics only. Messages may reach

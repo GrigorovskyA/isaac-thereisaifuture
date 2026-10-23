@@ -11,9 +11,11 @@
   other kinds. Lua maps by enum name (no numeric assumptions):
   ROCK, ROCK_ALT, ROCK_ALT2, ROCK_SPIKED, ROCK_GOLD -> rock; ROCKT, ROCK_SS ->
   marked_rock; ROCK_BOMB -> bomb_rock; ROCKB -> block; PIT -> pit; SPIKES,
-  SPIKES_ONOFF -> spikes; POOP -> poop; TNT -> tnt; WALL -> wall. Names missing from
+  SPIKES_ONOFF -> spikes; POOP -> poop; TNT -> tnt. Names missing from
   `GridEntityType` are skipped. Grid cells on the room's outer border
-  (`room:GetGridWidth()`/`GetGridHeight()`) are not exported.
+  (`room:GetGridWidth()`/`GetGridHeight()`) are not exported, and neither is any
+  WALL cell: narrow and L-shaped rooms have side walls inside that ring (found natively
+  in shape 3). The `wall` class stays in the one-hot, unused, so the layout is unchanged.
 - Fireplaces (`EntityType.ENTITY_FIREPLACE`, alive and visible) become `obstacle`
   entities with class `fire` and their HP fraction.
 - Lua obstacle cap 12 -> 24; `MAX_ENTITIES` 72 -> 84.

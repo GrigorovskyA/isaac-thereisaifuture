@@ -447,7 +447,7 @@ def test_obstacle_classes_by_enum_name_border_and_missing_names(room):
     room.execute("""
       local names = { {2,"rock"}, {19,"rock"}, {20,"rock"}, {21,"rock"}, {17,"marked_rock"},
         {22,"marked_rock"}, {18,"bomb_rock"}, {3,"block"}, {7,"pit"}, {8,"spikes"},
-        {9,"spikes"}, {14,"poop"}, {12,"tnt"}, {15,"wall"} }
+        {9,"spikes"}, {14,"poop"}, {12,"tnt"} }
       for n, item in ipairs(names) do GRID_ENTITIES[interior(n-1)]=make_grid(item[1],n,0) end
       GRID_ENTITIES[interior(20)]=make_grid(99,0,0)      -- GRID_ROCK_GOLD is missing: skipped
       for _, border in ipairs({0, 14, 15, 29, 120, 134, 7}) do   -- corners and edges
@@ -460,23 +460,27 @@ def test_obstacle_classes_by_enum_name_border_and_missing_names(room):
     assert sorted(classes) == sorted(
         ["rock"] * 4
         + ["marked_rock"] * 2
-        + ["bomb_rock", "block", "pit", "spikes", "spikes", "poop", "tnt", "wall"]
+        + ["bomb_rock", "block", "pit", "spikes", "spikes", "poop", "tnt"]
     )
     assert all(e.kind == "obstacle" for e in state.entities)
-    assert len(state.entities) == 14
+    assert len(state.entities) == 13
 
 
-def test_interior_wall_is_kept_and_non_obstacles_have_no_class(room):
+def test_narrow_room_side_walls_are_dropped_and_non_obstacles_have_no_class(room):
+    # Native shape 3 (narrow vertical) room 97: side walls at columns 4 and 10 of the
+    # 15x9 grid, rows 1-7, inside the outer ring. Only the rock between them is exported.
     room.execute("""
-      GRID_ENTITIES[16]=make_grid(15,10,0)   -- row 1, column 1: first interior cell
-      GRID_ENTITIES[118]=make_grid(15,11,0)  -- row 7, column 13: last interior cell
-      GRID_ENTITIES[119]=make_grid(15,12,0)  -- row 7, column 14: right border
+      for row=1,7 do
+        GRID_ENTITIES[row*15+4]=make_grid(15,200,row*40+120)
+        GRID_ENTITIES[row*15+10]=make_grid(15,440,row*40+120)
+      end
+      GRID_ENTITIES[4*15+7]=make_grid(2,320,280)
       ROOM_ENTITIES={ make_entity(1,101,200,10) }
     """)
     connect(room)
     state = latest(room)
-    walls = [e for e in state.entities if e.kind == "obstacle"]
-    assert len(walls) == 2 and all(e.obstacle_class == "wall" for e in walls)
+    obstacles = [e for e in state.entities if e.kind == "obstacle"]
+    assert [e.obstacle_class for e in obstacles] == ["rock"]
     assert [e.obstacle_class for e in state.entities if e.kind != "obstacle"] == [None]
     assert '"obstacle_class":null' in room.globals().OUTGOING
 

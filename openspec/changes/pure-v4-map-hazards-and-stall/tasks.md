@@ -22,3 +22,6 @@
   Native qualification stopped cleanly at 3584: perimeter exclusion fails in shape 3
   (14 side-wall cells exported); fire and nonlethal enemy-damage reset not exercised.
   Other observed scenarios passed; see reports/2026-10-23-pure-v4-native-acceptance.md.
+  Fix (macOS, unverified natively): the observer drops every GRID_WALL cell; Lua
+  regression test for the native shape 3 geometry. Needs a new Windows gate, a closed-game
+  redeploy and a repeat of this check in a narrow room.

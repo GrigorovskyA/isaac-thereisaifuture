@@ -3,7 +3,14 @@
 ### Requirement: Typed obstacles
 Observation schema 5 SHALL give every obstacle a class (rock, marked rock, bomb rock,
 block, pit, spikes, poop, TNT, fire, wall, other) read from the game, SHALL include
-fireplaces as `fire` obstacles and SHALL NOT export perimeter wall cells.
+fireplaces as `fire` obstacles and SHALL NOT export wall cells, including the side walls
+of narrow and L-shaped rooms that lie inside the rectangular grid. The `wall` class stays
+in the one-hot and is unused by the observer.
+
+#### Scenario: Narrow room side walls
+- **WHEN** the player is in a narrow room whose side walls are grid cells inside the
+  outer ring of the rectangular grid
+- **THEN** no obstacle with class `wall` is exported and the room shape is reported
 
 #### Scenario: Pickup behind rocks
 - **WHEN** a pickup is surrounded by rocks
