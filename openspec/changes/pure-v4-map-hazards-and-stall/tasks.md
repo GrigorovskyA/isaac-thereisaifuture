@@ -19,3 +19,6 @@
   fire), no perimeter walls, minimap entries plausible (start room current, neighbours
   known), stall clock rises and resets, a kill and a self-bomb hit counted, death and
   stall restart, reloadable checkpoint.
+  Native qualification stopped cleanly at 3584: perimeter exclusion fails in shape 3
+  (14 side-wall cells exported); fire and nonlethal enemy-damage reset not exercised.
+  Other observed scenarios passed; see reports/2026-10-23-pure-v4-native-acceptance.md.

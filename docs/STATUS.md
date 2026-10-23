@@ -14,7 +14,9 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
     classes, room shape, minimap, stall clock; 48 KiB messages), reward v5 (stall -10),
     kill and damage-source metrics, `train.csv` timing, lineage `pure-v4`. Tasks 1.1-1.3
     done offline on macOS; Windows gate 2.2 and mod redeploy passed.
-    Native check 2.3 pending ([plan/evidence](../reports/2026-10-23-pure-v4-native-acceptance.md)).
+    Native check 2.3 remains open: shape-3 perimeter walls are still exported;
+    fire and nonlethal enemy-damage clock reset were not exercised
+    ([evidence](../reports/2026-10-23-pure-v4-native-acceptance.md)).
   - `openspec/changes/stall-watchdog-novel-progress`: only facts new for the run reset
     the stall watchdog (revisited rooms and regained counters no longer do). 1.1 and
     2.1 done on macOS; Windows gate 2.2 passed (1123 tests with Lua, smoke passed).
@@ -85,7 +87,11 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
   start-room exits 86-91%, explained variance 0.42, entropy 3.59, but clears flat
   (0.1-0.2 per episode), stage 2 never reached; stalls (-5) returned more than deaths,
   `enemies_killed` was always 0. Causes drove `pure-v4`.
-- `pure-v4` (schema 5, reward v5): defined, no run yet. Start with `--initialize`.
+- `pure-v4` (schema 5, reward v5): initialized once; checkpoint `9aab0d2d-s1-t3584`,
+  contract `9aab0d2d22a7f11225ea2392beaddf1b0f71add1167e1fdb83db30128db9592b`.
+  Stopped after qualification (six complete episodes, seven saved rollouts, no faults).
+  Checkpoint reloaded; cleanup passed. Do not initialize again. Hourly continuation
+  was not launched because native geometry acceptance failed.
 
 ## Verification
 
@@ -107,10 +113,12 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 1. `pure-v1`, `pure-v2` and `pure-v3` are stopped; do not resume them.
 2. Windows gate and mod deployment passed; source commit `c494aff`.
-3. Run the bounded 15-minute native check 2.3 with `--initialize`: obstacle classes,
-   no perimeter walls, minimap, stall clock, kills/self-bomb hits, restarts and reload.
-4. Continue for one timed hour without `--initialize` only after native acceptance;
-   otherwise leave missing coverage open. Do not resume older lineages.
+3. Fix narrow/irregular-room perimeter filtering in the Lua observer; add regression
+   coverage, rerun checks and redeploy while closed. Repeat native check 2.3, including
+   fire classification and the still-missing enemy-damage stall-clock reset case.
+4. Resume the existing pure-v4 lineage without `--initialize` only with an agreed
+   bounded native recheck; the conditional hourly run was not started. Older lineages
+   remain stopped. [Qualification report](../reports/2026-10-23-pure-v4-native-acceptance.md).
 5. Do not edit the working copy during a session.
 
 ## Navigation
