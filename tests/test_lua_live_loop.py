@@ -430,6 +430,63 @@ def test_kills_count_only_unfriendly_enemies(metrics):
     assert oracle_metrics(metrics)[0] == 2
 
 
+KILL_STUBS = """
+function killable(id, friendly)
+ local e = make_enemy(id, 140, 200, 10, 10)
+ e.IsEnemy = function() return true end
+ e.HasEntityFlags = function(self, flag) return friendly and flag == EntityFlag.FLAG_FRIENDLY end
+ return e
+end
+"""
+
+
+def killed_ids(lua):
+    tick(lua, 20)
+    oracle = live_snapshots(lua)[-1].oracle
+    return oracle.killed, {e.entity_id for e in oracle.enemies}
+
+
+def test_killed_lists_only_listed_unfriendly_enemies(metrics):
+    metrics.execute(KILL_STUBS)
+    metrics.execute("""
+      ROOM_ENTITIES = { killable(1), killable(2), killable(3, true) }
+    """)
+    tick(metrics, 20)
+    _, listed = killed_ids(metrics)
+    assert len(listed) == 3
+    metrics.execute("""
+      callbacks.npc_death(mod, ROOM_ENTITIES[1])
+      callbacks.npc_death(mod, ROOM_ENTITIES[3])
+      callbacks.npc_death(mod, killable(9))   -- never listed
+    """)
+    killed, listed = killed_ids(metrics)
+    assert len(killed) == 1 and killed[0] in listed
+    assert oracle_metrics(metrics)[0] == 2  # the friendly one is not counted
+
+
+def test_killed_keeps_the_last_sixteen_oldest_first(metrics):
+    metrics.execute(KILL_STUBS)
+    metrics.execute("ROOM_ENTITIES = {} for i=1,10 do ROOM_ENTITIES[i] = killable(i) end")
+    tick(metrics, 20)
+    first = live_snapshots(metrics)[-1].oracle
+    ids = [e.entity_id for e in sorted(first.enemies, key=lambda e: e.entity_id)]
+    metrics.execute("""
+      for round=1,2 do for i=1,10 do callbacks.npc_death(mod, ROOM_ENTITIES[i]) end end
+    """)
+    killed, _ = killed_ids(metrics)
+    assert len(killed) == 16 and killed == (ids + ids)[-16:]
+
+
+def test_killed_is_empty_after_a_new_game(metrics):
+    metrics.execute(KILL_STUBS)
+    metrics.execute("ROOM_ENTITIES = { killable(1) }")
+    tick(metrics, 20)
+    metrics.execute("callbacks.npc_death(mod, ROOM_ENTITIES[1])")
+    assert len(killed_ids(metrics)[0]) == 1
+    metrics.execute("callbacks.start(mod, false)")
+    assert killed_ids(metrics)[0] == []
+
+
 def test_metrics_reset_on_game_start_and_stay_out_of_the_policy_frame(metrics):
     metrics.execute("callbacks.npc_death(mod, make_npc(true, false)); hit(0, {Type=9})")
     kills, hits = oracle_metrics(metrics)

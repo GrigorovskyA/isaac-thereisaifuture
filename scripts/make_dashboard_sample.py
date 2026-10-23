@@ -155,7 +155,7 @@ def build(root: Path, episodes: int, seed: int, updates: int = 1000) -> None:
         timesteps=total_steps,
         parent_checkpoint_id=None,
         rng_state={},
-        reward_contract="pure-v5",
+        reward_contract="pure-v6",
         hyperparameters={"learning_rate": 3e-4, "n_steps": 2048, "synthetic": True},
     )
     session = root / "supervisor" / "session-synthetic-0001"

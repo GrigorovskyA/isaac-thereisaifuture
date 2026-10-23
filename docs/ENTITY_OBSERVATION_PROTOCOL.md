@@ -63,7 +63,7 @@ rock, bomb rock, block, pit, spikes, poop, TNT, fire, wall, other; fireplaces ar
 obstacles, wall cells are never exported (the `wall` class is unused), observer cap 24), `room.shape` (1..12),
 `map` (up to 64 minimap rooms: grid index, shape, visited, current, room type only when
 visited or its icon is shown) and `map_current_off_grid`. The oracle block gains
-cumulative `kills` and `player_hits` by source; they are metrics only. Messages may reach
+cumulative `kills`, `killed` (identities of the last 16 listed enemies killed this game epoch, oldest first, used for reward v6 kill credit) and `player_hits` by source; they are labels only. Messages may reach
 49152 bytes. See `docs/RL_DESIGN.md` for the encoded vector (3499 floats).
 
 The Python encoder retains schema-1 capacities 16/32/24/8 and outputs 649 float32

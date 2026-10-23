@@ -49,7 +49,7 @@ def oracle_metrics(**hits: int) -> dict[str, object]:
         ("enemy", "projectile", "own_bomb", "explosion", "spikes", "fire", "creep", "other"), 0
     )
     sources.update(hits)
-    return {"kills": 0, "player_hits": sources}
+    return {"kills": 0, "killed": [], "player_hits": sources}
 
 
 def room_facts(**changes: object) -> RoomFacts:

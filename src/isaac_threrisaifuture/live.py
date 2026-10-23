@@ -51,7 +51,7 @@ APPROVAL_NAME = "action_authorization.json"
 TRAINING_MAX_SECONDS = 28800  # mirrors Config.training_max_seconds in main.lua
 MAX_RESTARTS = 5000
 MAX_REWARD_IDENTITIES = 4096
-LIVE_REWARD_CONTRACT: Literal["pure-v5"] = "pure-v5"
+LIVE_REWARD_CONTRACT: Literal["pure-v6"] = "pure-v6"
 _CONSUMABLES: tuple[Literal["coin", "bomb", "key"], ...] = ("coin", "bomb", "key")
 SNAPSHOT_BACKLOG = 512
 ACK_TIMEOUT = 1.0
@@ -341,6 +341,13 @@ class EventDeriver:
             self._hp_floor[entity_id] = (maximum, min(floor, enemy.hp))
             if entity_id not in self._enemies:
                 emit("enemy_spawned", entity_id=entity_id, spawn_generation=0, amount=enemy.max_hp)
+        # One-shot kills leave the list between snapshots, so the game's kill report pays
+        # the remaining credit once; a zero floor makes the re-sent ring pay nothing more.
+        for entity_id in oracle.killed:
+            stored = self._hp_floor.get(entity_id)
+            if entity_id not in current and stored is not None and stored[1] > 0:
+                emit("enemy_damaged", entity_id=entity_id, spawn_generation=0, amount=stored[1])
+                self._hp_floor[entity_id] = (stored[0], 0.0)
         # Missing membership is unknown, not death. A later appearance must
         # establish a baseline without claiming damage across the gap.
         self._enemies = {entity_id: enemy.hp for entity_id, enemy in current.items()}
@@ -764,12 +771,12 @@ def make_live_env(
     oracle_sink: Callable[[OracleEvent], None] | None = None,
     run_deadline: float | None = None,
     stop_file: Path | None = None,
-    reward_version: int = 5,
+    reward_version: int = 6,
     stall_seconds: float | None = None,
     clock: Callable[[], float] = time.monotonic,
     max_consecutive_faults: int | None = None,
 ) -> FaultTolerantEnv:
-    """Live env; the pure profile pays reward v5 (v1 stays selectable for old comparisons).
+    """Live env; the pure profile pays reward v6 (v1 stays selectable for old comparisons).
 
     With `stall_seconds`, a stall truncates the episode with reason `stall` and sends
     one restart command. Leave it unset for attach-only runs such as evaluation.
@@ -777,11 +784,11 @@ def make_live_env(
     from .env import IsaacCombatEnv, RewardAccountant
     from .rewards import CombatCoefficients, RewardLedger, RewardLedgerV4, RewardV4Coefficients
 
-    if reward_version not in (1, 5):
-        raise ValueError(f"Unsupported reward version {reward_version}; use 1 or 5")
+    if reward_version not in (1, 6):
+        raise ValueError(f"Unsupported reward version {reward_version}; use 1 or 6")
     accountant: RewardAccountant = (
         RewardLedgerV4(RewardV4Coefficients.load())
-        if reward_version == 5
+        if reward_version == 6
         else RewardLedger(CombatCoefficients.load())
     )
 
@@ -990,7 +997,7 @@ def _train_run(
             stop_file=options.stop_file,
             reward_version=config.contract.reward_version
             if isinstance(config, PureTrainingConfig)
-            else 5,
+            else 6,
             stall_seconds=config.watchdog.stall_seconds
             if isinstance(config, PureTrainingConfig)
             else None,

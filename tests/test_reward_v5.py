@@ -6,14 +6,15 @@ import pytest
 import yaml
 from test_reward_v4 import COEF, REWARD_V4_COLUMNS, run_env
 
-from isaac_threrisaifuture.live import make_live_env
-from isaac_threrisaifuture.rewards import DEFAULT_CONFIG_V5, RewardV4Coefficients
+from isaac_threrisaifuture.rewards import DEFAULT_CONFIG_V6, RewardV4Coefficients
 
-ARCHIVED_V4 = Path(__file__).parents[1] / "archive" / "configs" / "reward-v4.yaml"
+ARCHIVE = Path(__file__).parents[1] / "archive" / "configs"
+ARCHIVED_V4 = ARCHIVE / "reward-v4.yaml"
+ARCHIVED_V5 = ARCHIVE / "reward-v5.yaml"
 
 
 def test_v5_differs_from_v4_only_in_the_stall_restart():
-    v5 = yaml.safe_load(DEFAULT_CONFIG_V5.read_text("utf-8"))
+    v5 = yaml.safe_load(ARCHIVED_V5.read_text("utf-8"))
     v4 = yaml.safe_load(ARCHIVED_V4.read_text("utf-8"))
     assert v5["reward_version"] == 5 and v4["reward_version"] == 4
     assert v5["outcome"].pop("stall_restart") == -10.0
@@ -23,11 +24,19 @@ def test_v5_differs_from_v4_only_in_the_stall_restart():
     assert COEF.stall_restart == COEF.death == -10.0
 
 
-def test_the_ledger_loads_versions_4_and_5_only(tmp_path):
+def test_v6_keeps_the_v5_coefficients():
+    v6 = yaml.safe_load(DEFAULT_CONFIG_V6.read_text("utf-8"))
+    v5 = yaml.safe_load(ARCHIVED_V5.read_text("utf-8"))
+    assert v6.pop("reward_version") == 6 and v5.pop("reward_version") == 5
+    assert v6 == v5
+
+
+def test_the_ledger_loads_versions_4_to_6_only(tmp_path):
     assert RewardV4Coefficients.load(ARCHIVED_V4).stall_restart == -5.0
-    raw = yaml.safe_load(DEFAULT_CONFIG_V5.read_text("utf-8"))
-    raw["reward_version"] = 6
-    path = tmp_path / "v6.yaml"
+    assert RewardV4Coefficients.load(ARCHIVED_V5) == RewardV4Coefficients.load()
+    raw = yaml.safe_load(DEFAULT_CONFIG_V6.read_text("utf-8"))
+    raw["reward_version"] = 7
+    path = tmp_path / "v7.yaml"
     path.write_text(yaml.safe_dump(raw), "utf-8")
     with pytest.raises(ValueError):
         RewardV4Coefficients.load(path)
@@ -44,10 +53,3 @@ def test_stall_truncation_pays_minus_ten_once_and_never_with_death():
 
 def test_v5_has_the_same_reward_columns_as_v4():
     assert "stall" in REWARD_V4_COLUMNS and len(REWARD_V4_COLUMNS) == 14
-
-
-def test_live_env_accepts_reward_5_and_rejects_other_versions():
-    client = object()
-    with pytest.raises(ValueError, match="Unsupported reward version"):
-        make_live_env(client, reward_version=4)  # type: ignore[arg-type]
-    assert make_live_env(client, reward_version=5)  # type: ignore[arg-type]

@@ -47,6 +47,8 @@ class LiveOracle(WireModel):
     room_index: Annotated[int, Field(ge=-64, le=255)]
     # Cumulative per game epoch. Metrics only, never a policy input.
     kills: Counter
+    # Identities of the last killed listed enemies, oldest first. Reward label only.
+    killed: Annotated[list[Counter], Field(max_length=16)]
     player_hits: PlayerHits
 
 

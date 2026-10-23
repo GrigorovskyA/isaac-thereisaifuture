@@ -127,8 +127,9 @@ class RewardLedger:
             parts["death"] += c.death
 
 
-DEFAULT_CONFIG_V5 = Path(__file__).resolve().parents[2] / "configs" / "reward-v5.yaml"
-REWARD_V4_VERSIONS = (4, 5)  # the same ledger pays both; v5 only changes stall_restart
+DEFAULT_CONFIG_V6 = Path(__file__).resolve().parents[2] / "configs" / "reward-v6.yaml"
+# The same ledger pays all three: v5 changed stall_restart, v6 adds kill credit in the deriver.
+REWARD_V4_VERSIONS = (4, 5, 6)
 REWARD_V4_COLUMNS = (
     "enemy_damage",
     "room_clear",
@@ -192,7 +193,7 @@ class RewardV4Coefficients:
             raise ValueError("The consumable cap must be >= 0 and the novelty cell size positive")
 
     @classmethod
-    def load(cls, path: Path = DEFAULT_CONFIG_V5) -> Self:
+    def load(cls, path: Path = DEFAULT_CONFIG_V6) -> Self:
         raw: Any = yaml.safe_load(path.read_text(encoding="utf-8"))
         top = {"reward_version", "status", *_V4_SECTIONS}
         if (
@@ -200,7 +201,7 @@ class RewardV4Coefficients:
             or set(raw) != top
             or raw["reward_version"] not in REWARD_V4_VERSIONS
         ):
-            raise ValueError(f"Reward v4/v5 configuration must define exactly {sorted(top)}")
+            raise ValueError(f"Reward v4/v5/v6 configuration must define exactly {sorted(top)}")
         values: dict[str, float] = {}
         for name, keys in _V4_SECTIONS.items():
             section = raw[name]

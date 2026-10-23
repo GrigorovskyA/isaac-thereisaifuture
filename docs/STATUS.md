@@ -11,7 +11,7 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
   Hinted code, tests, docs and all previously open changes are in `archive/`.
 - Active changes:
   - `openspec/changes/pure-v4-map-hazards-and-stall`: observation schema 5 (obstacle
-    classes, room shape, minimap, stall clock; 48 KiB messages), reward v5 (stall -10),
+    classes, room shape, minimap, stall clock; 48 KiB messages), reward v5 (stall -10), v6 (kill credit),
     kill and damage-source metrics, `train.csv` timing, lineage `pure-v4`. Tasks 1.1-1.3
     done offline on macOS; Windows gate 2.2 and mod redeploy passed.
     Native check 2.3 remains open: shape-3 perimeter walls are still exported;
@@ -44,11 +44,11 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 - Action v2: `MultiDiscrete([5, 5, 4])` (move, shoot, use none/bomb/active/pill-card),
   held for 6 game updates (0.2 s). The use head starts at P(none)=0.85, 0.05 per press
   (fresh model only, never on resume).
-- Reward v5: `configs/reward-v5.yaml` = reward v4 with stall restart -10 (was -5; once,
+- Reward v6: `configs/reward-v6.yaml` = v5 coefficients + kill credit (v5: stall restart -10, once,
   never with death). Other terms: enemy damage 5.0, first clear 10, health -1 per
   half-heart, first room visit 3, new collectible 2.0, novelty 0.02 on first cell visits.
-  Exploit tests in `tests/test_reward_v4.py`, v5 term in `tests/test_reward_v5.py`;
-  reward v4 is in `archive/configs/`.
+  Exploit tests in `tests/test_reward_v4.py`, v5 term in `tests/test_reward_v5.py`,
+  kill credit in `tests/test_kill_credit.py`; v4 and v5 are in `archive/configs/`.
 - Episode = run. Death terminates; the stall watchdog (90 active s without
   progress new for the run) truncates and sends a `restart` command.
 - Training: `configs/training-pure-v4.yaml` (contract: observation 5, action 2, reward 5,
@@ -87,7 +87,7 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
   start-room exits 86-91%, explained variance 0.42, entropy 3.59, but clears flat
   (0.1-0.2 per episode), stage 2 never reached; stalls (-5) returned more than deaths,
   `enemies_killed` was always 0. Causes drove `pure-v4`.
-- `pure-v4` (schema 5, reward v5): initialized once; checkpoint `9aab0d2d-s1-t3584`,
+- `pure-v4` (schema 5, reward v5; restarts on v6): initialized once; checkpoint `9aab0d2d-s1-t3584`,
   contract `9aab0d2d22a7f11225ea2392beaddf1b0f71add1167e1fdb83db30128db9592b`.
   Stopped after qualification (six complete episodes, seven saved rollouts, no faults).
   Checkpoint reloaded; cleanup passed. Do not initialize again. Hourly continuation

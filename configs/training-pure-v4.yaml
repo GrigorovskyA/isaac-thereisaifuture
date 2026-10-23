@@ -5,7 +5,8 @@
 # (archive/configs/training-pure-v3.yaml) and not resumed: its checkpoints are refused
 # (different contract hash and reward contract).
 # Changes against pure-v3: observation schema 5 (obstacle classes, room shape, minimap,
-# stall clock) and reward v5 (stall restart -10). One lineage trained continuously from
+# stall clock) and reward v5 (stall restart -10), then v6 (kill credit: a kill pays the remaining
+# enemy HP credit; a one-shot kill paid nothing). One lineage trained continuously from
 # scratch. Only `contract` binds the lineage; `hyperparameters` may be tuned between sessions
 # and are recorded per checkpoint.
 config_version: 2
@@ -18,7 +19,7 @@ contract:
   action_repeat_game_updates: 6
   observation_schema_version: 5
   action_schema_version: 2
-  reward_version: 5
+  reward_version: 6
   # Initial P(no use press) of the use head, set at fresh model creation only.
   use_head_initial_none_probability: 0.85
 hyperparameters:

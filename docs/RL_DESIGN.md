@@ -27,7 +27,7 @@ Principles:
 | Inventory | coins, bombs, keys, active item present/ID/charge fraction, card, pill, trinket held (9) |
 | Room | room type one-hot (32), stage, stage type, clear flag, 8 open doors, room shape one-hot (12) (55) |
 | Enemies, projectiles | nearest-first slots: present, position, velocity, HP fraction (16/32 x 8) |
-| Obstacles | nearest-first slots (24 x 19): the 8 slot features plus a class one-hot (rock, marked rock, bomb rock, block, pit, spikes, poop, TNT, fire, wall, other); fireplaces included, perimeter walls dropped |
+| Obstacles | nearest-first slots (24 x 19): the 8 slot features plus a class one-hot (rock, marked rock, bomb rock, block, pit, spikes, poop, TNT, fire, wall, other); fireplaces included, wall cells never exported (`wall` unused) |
 | Pickups | base slot plus variant class one-hot (12), subtype, shop flag (8 x 22) |
 | Collectibles | multi-hot of held collectible IDs 1..1024 |
 | Stats | damage, tears per second, range, shot speed, move speed, luck (6, scaled) |
@@ -54,11 +54,11 @@ creation and never on resume; learning may move it anywhere). Commands are bound
 session, epoch, room visit and frame; stale or replayed commands are refused and
 input is released on expiry, disconnect, fault and stop.
 
-## Reward v5 (`configs/reward-v5.yaml`)
+## Reward v6 (`configs/reward-v6.yaml`)
 
 | Term | Value | Rule |
 | --- | --- | --- |
-| Enemy damage | 5.0 per full enemy HP | monotonic per enemy |
+| Enemy damage | 5.0 per full enemy HP | monotonic per enemy; a reported kill of a listed enemy pays its remaining HP once |
 | First room clear | 10.0 | per (stage, room) per run |
 | First room visit | 3.0 | per (stage, room) per run; start room free |
 | First floor entry | 10.0 | per stage per run; start floor free |
@@ -72,7 +72,7 @@ input is released on expiry, disconnect, fault and stop.
 | Novelty | 0.02 | first visit only, per (stage, room, 40-unit cell) per run (about 1.8 for a full 1x1 room) |
 
 There is no reward for using items; item value and synergies must show up through
-combat and progress. Ledger columns are logged separately. Reward v5 equals reward v4 except that a stall restart costs -10 (equal to death; was -5, which paid better than fighting in `pure-v3`). Reward v4 is archived. Reward v2 paid most
+combat and progress. Ledger columns are logged separately. Reward v6 keeps the reward v5 coefficients and adds kill credit: a one-shot kill used to pay nothing, because an enemy that dies between snapshots only leaves the oracle list. The observer reports `killed` identities and the event deriver pays the remaining HP once (never more than max HP per enemy). Reward v5 equalled reward v4 except that a stall restart costs -10 (equal to death; was -5, which paid better than fighting in `pure-v3`). Reward v4 and v5 are archived. Reward v2 paid most
 for idling (novelty grew like 2*sqrt(n) and a stall restart was free), so it
 was replaced and its lineage `pure-v1` retired; its config is in `archive/configs/`.
 

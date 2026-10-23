@@ -19,7 +19,7 @@ from isaac_threrisaifuture.episodes import Scenario, StepResult
 from isaac_threrisaifuture.live import LIVE_SCENARIO, EventDeriver, LiveSnapshot
 from isaac_threrisaifuture.recording import JsonlRecorder, open_replay
 from isaac_threrisaifuture.rewards import (
-    DEFAULT_CONFIG_V5,
+    DEFAULT_CONFIG_V6,
     REWARD_V4_COLUMNS,
     RewardLedgerV4,
     RewardV4Coefficients,
@@ -66,7 +66,7 @@ def test_coefficients_load_the_shipped_file():
 
 
 def test_coefficient_keys_are_strict(tmp_path: Path):
-    raw = yaml.safe_load(DEFAULT_CONFIG_V5.read_text(encoding="utf-8"))
+    raw = yaml.safe_load(DEFAULT_CONFIG_V6.read_text(encoding="utf-8"))
     for mutate in (
         lambda r: r["outcome"].pop("death"),
         lambda r: r["pickups"].update(extra=1.0),

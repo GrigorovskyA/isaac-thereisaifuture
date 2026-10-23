@@ -39,10 +39,11 @@ local collectible_cap, collectible_max_id, collectible_period = 256, 1024, 30
 -- Oracle metrics: cumulative per game epoch, reset on game start. Never policy input.
 local HIT_CLASSES = { "enemy", "projectile", "own_bomb", "explosion", "spikes", "fire",
     "creep", "other" }
-local metrics = { kills = 0, hits = {} }
+local KILLED_CAP = 16
+local metrics = { kills = 0, killed = {}, hits = {} }
 for _, name in ipairs(HIT_CLASSES) do metrics.hits[name] = 0 end
 local function reset_metrics()
-    metrics.kills = 0
+    metrics.kills, metrics.killed = 0, {}
     for _, name in ipairs(HIT_CLASSES) do metrics.hits[name] = 0 end
 end
 -- Grid types by GridEntityType name (no numeric assumptions); absent names are skipped.
@@ -545,7 +546,9 @@ local function capture_entities(room, player, data)
             enemies = #oracle_enemies > 0 and oracle_enemies or json.EMPTY_ARRAY,
             enemy_overflow = oracle_overflow,
             room_index = clamp_int(Game():GetLevel():GetCurrentRoomIndex(), -64, 255),
-            kills = metrics.kills, player_hits = {} }
+            kills = metrics.kills, killed = #metrics.killed > 0 and {} or json.EMPTY_ARRAY,
+            player_hits = {} }
+        for i, id in ipairs(metrics.killed) do oracle.killed[i] = id end
         for _, name in ipairs(HIT_CLASSES) do oracle.player_hits[name] = metrics.hits[name] end
     end
     local map, off_grid = minimap()
@@ -914,6 +917,13 @@ mod:AddCallback(ModCallbacks.MC_POST_NPC_DEATH, function(_, npc)
     pcall(function()
         if npc:IsEnemy() == true and not npc:HasEntityFlags(EntityFlag.FLAG_FRIENDLY) then
             metrics.kills = math.min(metrics.kills + 1, 9007199254740991)
+            -- Only enemies listed this room visit have an identity; the last 16 are kept.
+            local key = "e:" .. tostring(GetPtrHash(npc)) .. ":" .. tostring(npc.InitSeed)
+            local id = entities.ids[key]
+            if id then
+                metrics.killed[#metrics.killed + 1] = id
+                if #metrics.killed > KILLED_CAP then table.remove(metrics.killed, 1) end
+            end
         end
     end)
 end)
