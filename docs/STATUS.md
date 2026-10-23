@@ -40,7 +40,8 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
   The generic manifest reward_schema_version=1 is separate from reward_contract.
 - Episode = run. Death terminates; 90 active seconds without run-new progress
   truncates and restarts. Revisited rooms/regained counters do not reset progress.
-- `configs/training-pure-v4.yaml`: gamma 0.995, ent_coef 0.005, seed 1; contract hash
+- `configs/training-pure-v4.yaml`: gamma 0.998, gae_lambda 0.98, ent_coef 0.005, seed 1;
+  contract hash
   `ed954e0a5f2b064fc11634396f612bae4497fa4d2bddda5d6e16914ca67fe792`.
   Observation 5/action 2/reward contract pure-v6 must match. Earlier contracts refused.
 - Supervisor: `Start-Pure.cmd`, `runs/pure-v4`, unlimited death/stall New Runs,
@@ -65,6 +66,14 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 - Qualification ended cleanly at 16:38:10 CEST: learner_exit=0, fault=null,
   cleanup_errors=[], no owned game/learner/supervisor/listener/approval remained.
   All 815 tracked files stayed unchanged throughout the native session.
+- The planned four-hour continuation was stopped early by the user after 3 h 28 m
+  44 s, at ed954e0a-s1-t55808 (20:11:46 CEST). Result: user_cancelled,
+  learner_exit=0, fault=null, cleanup_errors=[]; Isaac/supervisor/learner stopped.
+  Completed episode rows in UTC hours 14-17 confirm: stall share 0.39/0.58/0.70/0.81,
+  death share 0.61 -> 0.19, damage fraction about 1.0-1.3 -> 0.57. One-shot kills
+  are credited; no completed episodes with kills > 0 and zero damage.
+  The rising stall share motivates the night-run hyperparameter change, not a
+  contract/reward/model reset: gamma 0.995 -> 0.998, gae_lambda 0.95 -> 0.98.
 
 ## Verification
 
@@ -84,13 +93,16 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Next
 
-1. User authorized four hours (14400 seconds), followed by their own analysis.
-   Resume ed954e0a-s1-t3072 without --initialize after this evidence is committed.
-2. Prepared wrapper: reports/local/pure-v6-acceptance-20261023/Run-FourHour.ps1.
-   Actual timer: runs/pure-v4/supervisor/four-hour-timer.json; actual parent/config
-   identity and startup state are in the new supervisor session plan/status.
-3. Keep the timer parent PowerShell open. Do not change the working copy during
-   training. No ongoing agent monitoring; user will analyze after the timer stops.
+1. User authorized a 12-hour night continuation (43200 seconds) from the latest
+   ed954e0a-s1-t55808 without --initialize, with gamma 0.998 and gae_lambda 0.98.
+   ent_coef 0.005, reward, contract and other settings stay unchanged.
+2. Prepared wrapper: reports/local/pure-v4-night-20261023/Run-TwelveHour.ps1.
+   Actual timer: runs/pure-v4/supervisor/twelve-hour-timer.json. The new session
+   plan records the resume parent; the first saved manifest must confirm both
+   new hyperparameters. Session lease 28740 s permits the supervisor's 8-hour rollover.
+3. Keep the timer parent PowerShell open; disk cap 20,480,000,000 bytes, fault cap 5.
+   Observe the first 15 minutes, then do not intervene or edit the working copy
+   until shutdown. Native startup evidence stays in reports/local/pure-v4-night-20261023.
 4. Never initialize again for continuation or resume pure-v4-pre/older lineages.
 
 ## Navigation

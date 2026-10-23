@@ -24,9 +24,12 @@ contract:
   use_head_initial_none_probability: 0.85
 hyperparameters:
   learning_rate: 0.0003
-  # 0.995 (was 0.99): a ~40 s horizon makes a penalty 90 s ahead count.
-  gamma: 0.995
-  gae_lambda: 0.95
+  # 0.998 (was 0.995): the -10 stall penalty 425 steps ahead weighed
+  # 0.12 and the agent learned to avoid damage instead of fighting (stall share
+  # 0.39 -> 0.81 over four hours); 0.998 gives 0.43.
+  gamma: 0.998
+  # 0.98 (was 0.95): advantages look about 45 steps ahead, not 20.
+  gae_lambda: 0.98
   clip_range: 0.2
   # 0.005 (was 0.01): the use head drifted from its prior back toward uniform.
   ent_coef: 0.005
