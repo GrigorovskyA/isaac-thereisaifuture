@@ -13,15 +13,15 @@
 ## 2. Verification
 
 - [x] 2.1 Full offline gate and strict OpenSpec validation.
-- [x] 2.2 Windows `scripts/Check.ps1` (1175 passed with Lua, no skips;
-  OpenSpec 15/15), RL smoke (3499 inputs), and hash-verified mod redeploy while closed.
-- [ ] 2.3 Short native check: obstacle classes match the room (rocks, pits, spikes,
+- [x] 2.2 Windows `scripts/Check.ps1` (1185 passed with Lua, no skips;
+  OpenSpec 16/16), RL smoke (3499 inputs), and hash-verified mod redeploy while closed.
+- [x] 2.3 Short native check: obstacle classes match the room (rocks, pits, spikes,
   fire), no perimeter walls, minimap entries plausible (start room current, neighbours
   known), stall clock rises and resets, a kill and a self-bomb hit counted, death and
   stall restart, reloadable checkpoint.
-  Native qualification stopped cleanly at 3584: perimeter exclusion fails in shape 3
-  (14 side-wall cells exported); fire and nonlethal enemy-damage reset not exercised.
-  Other observed scenarios passed; see reports/2026-10-23-pure-v4-native-acceptance.md.
-  Fix (macOS, unverified natively): the observer drops every GRID_WALL cell; Lua
-  regression test for the native shape 3 geometry. Needs a new Windows gate, a closed-game
-  redeploy and a repeat of this check in a narrow room.
+  Repeat qualification passed: shape 3 (177 sampled policy observations) and L shape 12
+  (21) export no walls; rocks/bomb rocks remain. Fire and nonlethal damage clock reset
+  exercised, along with kills, own-bomb hits, death/stall restarts and checkpoint reload.
+  Minimap cases combine the earlier qualification with the new raw start-room frames.
+  Unencountered hazard variants remain outside this bounded native sample.
+  See reports/2026-10-23-pure-v6-native-acceptance.md.

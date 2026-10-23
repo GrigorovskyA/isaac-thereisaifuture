@@ -12,6 +12,12 @@
 ## 2. Verification
 
 - [x] 2.1 Full offline gate and strict OpenSpec validation.
-- [ ] 2.2 Windows `scripts/Check.ps1` with Lua, RL smoke, closed-game redeploy.
-- [ ] 2.3 Native check: a one-shot kill gives `col_enemy_damage` > 0 in the episode row
+- [x] 2.2 Windows `scripts/Check.ps1` with Lua (1185 passed, no skips; strict OpenSpec
+  16/16), RL smoke (3499 inputs), closed-game hash-verified redeploy.
+- [x] 2.3 Native check: a one-shot kill gives `col_enemy_damage` > 0 in the episode row
   and `enemies_killed` > 0 with damage dealt > 0; no episode with kills and zero damage.
+
+  Native qualification: epoch 6/frame 1897 credits an enemy at full 10 HP once;
+  episode 6 has one kill, damage_dealt_fraction 1.35 and col_enemy_damage 6.75.
+  All five completed episodes with kills have positive damage; no overpayment found.
+  See reports/2026-10-23-pure-v6-native-acceptance.md.
