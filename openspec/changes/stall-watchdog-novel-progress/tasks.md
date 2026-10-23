@@ -9,5 +9,7 @@
 - [x] 2.1 Full offline gate and strict OpenSpec validation (macOS).
 - [x] 2.2 Windows `scripts/Check.ps1` (1123 passed with Lua, no skips;
   strict OpenSpec 14/14; `scripts/Smoke-RL.ps1` passed).
-- [ ] 2.3 Native: in the next `pure-v3` session no stall-truncated episode runs far
-  beyond 90 s without new rooms, damage or pickups.
+- [x] 2.3 Native: in the next `pure-v3` session no stall-truncated episode runs far
+  beyond 90 s without new rooms, damage or pickups. 580 episodes after the fix
+  (overnight report): stall episodes median 438 steps, the longest (1437) had 4 rooms,
+  a clear and enemy damage.

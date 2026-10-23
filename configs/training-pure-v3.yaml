@@ -21,10 +21,14 @@ contract:
   use_head_initial_none_probability: 0.85
 hyperparameters:
   learning_rate: 0.0003
-  gamma: 0.99
+  # 0.99 until t243200: a ~20 s horizon at 0.2 s per decision weighted the stall
+  # penalty 90 s ahead at about 1%. 0.995 gives ~40 s (15-hour report).
+  gamma: 0.995
   gae_lambda: 0.95
   clip_range: 0.2
-  ent_coef: 0.01
+  # 0.01 until t243200; lowered because the use head drifted from the P(none)=0.85
+  # prior back toward uniform and entropy stayed at 3.6-3.9 of 4.6 (overnight report).
+  ent_coef: 0.005
   n_steps: 512
   batch_size: 128
   n_epochs: 4

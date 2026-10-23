@@ -1,6 +1,6 @@
 # Project status
 
-Updated 2026-10-22 (Europe/Amsterdam). Current state only; dated evidence is history.
+Updated 2026-10-23 (Europe/Amsterdam). Current state only; dated evidence is history.
 The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Direction
@@ -13,7 +13,8 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
   - `openspec/changes/stall-watchdog-novel-progress`: only facts new for the run reset
     the stall watchdog (revisited rooms and regained counters no longer do). 1.1 and
     2.1 done on macOS; Windows gate 2.2 passed (1123 tests with Lua, smoke passed).
-    Native check 2.3 remains open for the 12-hour analysis. No contract change.
+    Native check 2.3 passed in the 15-hour run (no long stalls). All tasks done;
+    unarchived. No contract change.
   - `openspec/changes/pure-v3-observation-and-control`: observation schema 4, 32 KiB
     messages, action repeat 6, use-head prior, reward v4 and lineage `pure-v3`.
     Tasks 1.1-2.3 passed, including the bounded native check; unarchived.
@@ -71,8 +72,13 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
   Resume without --initialize. Older checkpoints are refused. First hour
   ([report](../reports/2026-10-22-pure-v3-first-hour.md)): bomb requests 0.05-0.07 per
   step (pure-v2 0.24), start-room exits 69-77%, explained variance positive; one
-  16-minute stall episode (watchdog hole, fixed), many unexplained fast deaths,
-  `enemies_killed` always 0. Even older
+  16-minute stall episode (watchdog hole, fixed). After 15 hours (latest
+  `03b9c5e3-s1-t243200`, 622 episodes, 243k steps, zero faults;
+  [report](../reports/2026-10-23-pure-v3-overnight.md)): start-room exits 86-91%, idle
+  moves halved, explained variance 0.42, entropy 3.59; clears flat (0.1-0.2 per
+  episode), stage 2 never reached. Fast deaths are mostly real combat, self-bombs and
+  hazards. `enemies_killed` is always 0. `ent_coef` lowered 0.01 -> 0.005 for the next
+  session (the use head drifted back toward uniform). Even older
   lineages (v2-v5, `a0a93c29-s20-t26368`, `t27904` and ancestors) stay preserved.
 
 ## Verification
@@ -102,14 +108,15 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Next
 
-1. `pure-v2` is stopped (stop file present). Do not resume it.
-2. The two-hour `pure-v3` session was stopped by the user at checkpoint 25088.
-   Windows gate passed for `stall-watchdog-novel-progress`; no Lua redeploy needed.
-   Resume without --initialize for the authorized 12-hour run (stop after 43200 s).
-   [Run plan and evidence](../reports/2026-10-22-pure-v3-12h-start.md); actual timer
-   receipt: `runs/pure-v3/supervisor/twelve-hour-timer.json`.
-3. After that run analyze task 2.3 (no long stalls), fast deaths, bomb requests,
-   start-room exits and clears. `enemies_killed` remains unreliable.
+1. `pure-v1` and `pure-v2` are stopped; do not resume them.
+2. Continue `pure-v3` from `03b9c5e3-s1-t243200` without --initialize for the authorized
+   one-hour test (`ent_coef` 0.005, `gamma` 0.995; rollback: 0.01 and 0.99).
+   Timer receipt: `runs/pure-v3/supervisor/one-hour-timer.json`. After normal shutdown,
+   record counts/checkpoint/cleanup in `reports/2026-10-23-pure-v3-gamma-test.md`.
+   Mac-agent analysis compares metrics with the [15-hour report](../reports/2026-10-23-pure-v3-overnight.md).
+3. Candidate next lineage (needs an OpenSpec change and a plan): obstacle type in the
+   observation (rock, pit, spikes, TNT; bombable or not), damage source in metrics,
+   a working `enemies_killed` counter.
 4. Do not edit the working copy during a session.
 
 ## Navigation
