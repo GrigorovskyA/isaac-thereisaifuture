@@ -13,7 +13,8 @@
 ## 2. Verification
 
 - [x] 2.1 Full offline gate and strict OpenSpec validation.
-- [ ] 2.2 Windows `scripts/Check.ps1` and redeploy `mod/observer`.
+- [x] 2.2 Windows `scripts/Check.ps1` (1175 passed with Lua, no skips;
+  OpenSpec 15/15), RL smoke (3499 inputs), and hash-verified mod redeploy while closed.
 - [ ] 2.3 Short native check: obstacle classes match the room (rocks, pits, spikes,
   fire), no perimeter walls, minimap entries plausible (start room current, neighbours
   known), stall clock rises and resets, a kill and a self-bomb hit counted, death and

@@ -13,7 +13,8 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
   - `openspec/changes/pure-v4-map-hazards-and-stall`: observation schema 5 (obstacle
     classes, room shape, minimap, stall clock; 48 KiB messages), reward v5 (stall -10),
     kill and damage-source metrics, `train.csv` timing, lineage `pure-v4`. Tasks 1.1-1.3
-    done offline on macOS; Windows gate 2.2, mod redeploy and native check 2.3 pending.
+    done offline on macOS; Windows gate 2.2 and mod redeploy passed.
+    Native check 2.3 pending ([plan/evidence](../reports/2026-10-23-pure-v4-native-acceptance.md)).
   - `openspec/changes/stall-watchdog-novel-progress`: only facts new for the run reset
     the stall watchdog (revisited rooms and regained counters no longer do). 1.1 and
     2.1 done on macOS; Windows gate 2.2 passed (1123 tests with Lua, smoke passed).
@@ -93,8 +94,8 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
   input struct layout and owned worker import.
 - Pure-v3 gate facts stay valid for unchanged code: use-head prior, older configs and
   checkpoints refused, collectible 2.0.
-- Last Windows gate (schema 4): 1123 tests passed with Lua, mypy 31 files, strict specs
-  14/14, RL smoke passed. Pure-v4 needs a new Windows gate.
+- Current Windows gate (schema 5): 1175 tests passed with Lua and no skips, mypy 31
+  files, lint/format/pip clean, strict specs 15/15; RL smoke passed with 3499 inputs.
 - Native pure-v1/v2/v3 sessions confirmed death and watchdog New Run, use effect,
   checkpoint reload, frozen-source cleanup and train.csv rows.
 - Episode `use_*` counts are requested uses (policy choice), not acknowledged presses.
@@ -105,13 +106,11 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 ## Next
 
 1. `pure-v1`, `pure-v2` and `pure-v3` are stopped; do not resume them.
-2. Windows gate (`scripts\Check.ps1`) for `pure-v4-map-hazards-and-stall`; redeploy
-   `mod/observer` while Isaac is closed.
-3. Native check 2.3 (obstacle classes, no perimeter walls, minimap, stall clock, kill and
-   self-bomb counts, death and stall restart, checkpoint reload).
-4. Then `Start-Pure.cmd "<Isaac dir>" "<log.txt>" --initialize` for `pure-v4`; later
-   starts without `--initialize`. Compare clears, deaths and stall share with the
-   [15-hour report](../reports/2026-10-23-pure-v3-overnight.md).
+2. Windows gate and mod deployment passed; source commit `c494aff`.
+3. Run the bounded 15-minute native check 2.3 with `--initialize`: obstacle classes,
+   no perimeter walls, minimap, stall clock, kills/self-bomb hits, restarts and reload.
+4. Continue for one timed hour without `--initialize` only after native acceptance;
+   otherwise leave missing coverage open. Do not resume older lineages.
 5. Do not edit the working copy during a session.
 
 ## Navigation
