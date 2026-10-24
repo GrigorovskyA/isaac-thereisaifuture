@@ -839,7 +839,7 @@ class LiveRunOptions:
     stop_file: Path | None = None
     require_initial_isaac: bool = False
     # Evaluate mode only: a frozen policy under the training protocol; nothing is learned.
-    eval_policy: Literal["checkpoint", "random"] | None = None
+    eval_policy: Literal["checkpoint", "random", "random-prior"] | None = None
     eval_checkpoint: Path | None = None
 
     def __post_init__(self) -> None:
@@ -858,11 +858,13 @@ class LiveRunOptions:
         if self.eval_policy == "checkpoint":
             if self.eval_checkpoint is None:
                 raise ValueError("Checkpoint evaluation needs an exact checkpoint directory")
-        elif self.eval_policy == "random":
+        elif self.eval_policy in ("random", "random-prior"):
             if self.eval_checkpoint is not None:
-                raise ValueError("The random policy takes no checkpoint")
+                raise ValueError(f"The {self.eval_policy} policy takes no checkpoint")
         else:
-            raise ValueError("Evaluate mode needs eval_policy 'checkpoint' or 'random'")
+            raise ValueError(
+                "Evaluate mode needs eval_policy 'checkpoint', 'random' or 'random-prior'"
+            )
 
 
 def run_live(
@@ -1063,7 +1065,7 @@ def _evaluate_run(
     sink: Callable[[OracleEvent], None],
 ) -> None:
     """Frozen evaluation under the training protocol: same env, no learning, no checkpoints."""
-    from .baselines import Policy, RandomPolicy
+    from .baselines import Policy, RandomPolicy, RandomPriorPolicy
     from .checkpoint_policy import CheckpointPolicy
     from .episode_metrics import EpisodeMetricsEnv, EpisodeMetricsWriter
     from .training import PURE_CONFIG, PureTrainingConfig, load_training_config
@@ -1091,7 +1093,10 @@ def _evaluate_run(
             "timesteps": identity.timesteps,
         }
     else:
-        policy = RandomPolicy()
+        if options.eval_policy == "random-prior":
+            policy = RandomPriorPolicy(config.use_head_initial_none_probability)
+        else:
+            policy = RandomPolicy()
         details = {"checkpoint_id": None, "timesteps": None}
     record("evaluation", {"policy": options.eval_policy, **details, "config_hash": cfg_hash,
                           "seed": seed, "reward_contract": LIVE_REWARD_CONTRACT})  # fmt: skip

@@ -39,7 +39,7 @@ Without `--forever` the runner keeps its explicit finite mode: `--config`,
 
 ## Frozen evaluation
 
-Compare checkpoints (or random) under exactly the training protocol: same action
+Compare checkpoints (or a random baseline) under exactly the training protocol: same action
 repeat, reward v7, stall watchdog and restarts, but no learning and no checkpoint
 writes. Stop forever training first; one game runs at a time. One session per
 policy, one folder per session (a root that already has episodes is refused):
@@ -47,7 +47,15 @@ policy, one folder per session (a root that already has episodes is refused):
 ```powershell
 .\Start-Eval.cmd "<Isaac install dir>" "<path to log.txt>" t102400 3600 "runs\pure-v4\seed-1\checkpoints\<checkpoint id>"
 .\Start-Eval.cmd "<Isaac install dir>" "<path to log.txt>" random 3600
+.\Start-Eval.cmd "<Isaac install dir>" "<path to log.txt>" random-prior 3600
 ```
+
+`random` is uniform over every action head, so its use head presses a bomb, active item
+or pill/card 75% of the time. `random-prior` draws move and shoot uniformly and uses
+the head like a fresh model: none with the config's
+`contract.use_head_initial_none_probability` (0.85), the rest split evenly. Prefer it as
+the baseline for checkpoints. It is seeded like `random`, takes no `--checkpoint` and is
+selected by `--evaluate random-prior`.
 
 The same without the wrapper (`--seconds` 60..14400; seed, disk cap and restarts are
 derived):
@@ -72,7 +80,7 @@ derived):
 Compare finished roots (offline, read-only):
 
 ```powershell
-.venv\Scripts\python.exe scripts\compare_eval.py runs\pure-v4-eval\t102400 runs\pure-v4-eval\t204800 runs\pure-v4-eval\t237568 runs\pure-v4-eval\random
+.venv\Scripts\python.exe scripts\compare_eval.py runs\pure-v4-eval\t102400 runs\pure-v4-eval\t204800 runs\pure-v4-eval\t237568 runs\pure-v4-eval\random runs\pure-v4-eval\random-prior
 ```
 
 One row per root: episodes, death/stall/left-start-room/any-clear shares, mean damage

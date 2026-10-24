@@ -35,6 +35,33 @@ class RandomPolicy:
         return self._rng.integers(0, ACTION_NVEC, dtype=np.int64)
 
 
+class RandomPriorPolicy:
+    """Random baseline with the use head of a fresh model.
+
+    Move and shoot are uniform. The use head presses nothing with the configured initial
+    probability and splits the rest evenly over the other uses, like a model before learning.
+    """
+
+    name = "random-prior"
+    label = "random-prior-baseline"
+
+    def __init__(self, none_probability: float) -> None:
+        if not 0.0 < none_probability < 1.0:
+            raise ValueError("The use head none probability must be between 0 and 1")
+        uses = ACTION_NVEC[2]
+        rest = (1.0 - none_probability) / (uses - 1)
+        self._use_probabilities = [none_probability] + [rest] * (uses - 1)
+        self._rng = np.random.default_rng(0)
+
+    def reset(self, seed: int) -> None:
+        self._rng = np.random.default_rng(seed)
+
+    def act(self, observation: NDArray[np.float32]) -> NDArray[np.int64]:
+        move, shoot = self._rng.integers(0, ACTION_NVEC[:2], dtype=np.int64)
+        use = self._rng.choice(len(self._use_probabilities), p=self._use_probabilities)
+        return np.array([move, shoot, use], dtype=np.int64)
+
+
 class ScriptedPolicy:
     """Hand-written heuristic, NOT learned: shoot the nearest enemy and strafe when it is close.
 

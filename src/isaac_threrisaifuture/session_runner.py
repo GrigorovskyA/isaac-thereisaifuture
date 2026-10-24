@@ -75,20 +75,20 @@ def digest(path: Path) -> str:
 
 @dataclass(frozen=True)
 class EvaluationSpec:
-    """Frozen evaluation instead of training: one exact checkpoint, or the random policy."""
+    """Frozen evaluation instead of training: one exact checkpoint, or a random policy."""
 
-    policy: Literal["checkpoint", "random"]
+    policy: Literal["checkpoint", "random", "random-prior"]
     checkpoint: Path | None = None
 
     def __post_init__(self) -> None:
         if self.policy == "checkpoint":
             if self.checkpoint is None:
                 raise ValueError("Checkpoint evaluation needs an exact checkpoint directory")
-        elif self.policy == "random":
+        elif self.policy in ("random", "random-prior"):
             if self.checkpoint is not None:
-                raise ValueError("The random policy takes no checkpoint")
+                raise ValueError(f"The {self.policy} policy takes no checkpoint")
         else:
-            raise ValueError("Evaluation policy must be 'checkpoint' or 'random'")
+            raise ValueError("Evaluation policy must be 'checkpoint', 'random' or 'random-prior'")
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -953,7 +953,7 @@ def main() -> None:
     parser.add_argument("--disk-bytes", type=int)
     parser.add_argument(
         "--evaluate",
-        choices=("checkpoint", "random"),
+        choices=("checkpoint", "random", "random-prior"),
         help="Frozen evaluation session; --run-root is the new evaluation output root",
     )
     parser.add_argument("--checkpoint", type=Path, help="Exact checkpoint directory to evaluate")

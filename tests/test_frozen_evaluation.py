@@ -57,6 +57,7 @@ def options(out: Path, config: Path, **changes: Any) -> live.LiveRunOptions:
         {"eval_policy": None},
         {"eval_policy": "checkpoint"},  # no checkpoint named
         {"eval_policy": "random", "eval_checkpoint": Path("c")},
+        {"eval_policy": "random-prior", "eval_checkpoint": Path("c")},
         {"resume": True},
     ],
 )
@@ -65,8 +66,39 @@ def test_evaluate_options_validate_combinations(tmp_path, changes):
         live.LiveRunOptions(mode="evaluate", out_dir=tmp_path, **changes)
 
 
+def test_random_prior_evaluation_names_policy_and_uses_config_prior(
+    tmp_path, seen, trained, monkeypatch
+):
+    from isaac_threrisaifuture import baselines
+    from isaac_threrisaifuture.training import load_training_config
+
+    records: list[tuple[str, Any]] = []
+    created: list[float] = []
+
+    class Spy(baselines.RandomPriorPolicy):
+        def __init__(self, none_probability: float) -> None:
+            created.append(none_probability)
+            super().__init__(none_probability)
+
+    monkeypatch.setattr(baselines, "RandomPriorPolicy", Spy)
+    out = tmp_path / "eval"
+    with pytest.raises(live.LiveBudgetExpired):
+        live._evaluate_run(
+            None,  # type: ignore[arg-type]
+            options(out, trained.config, eval_policy="random-prior"),
+            lambda *row: records.append(row),
+            lambda _: None,
+        )
+    config, _ = load_training_config(trained.config)
+    assert created == [config.use_head_initial_none_probability]
+    assert records[0][1]["policy"] == "random-prior" and records[0][1]["checkpoint_id"] is None
+    assert records[-1][0] == "evaluation_result" and records[-1][1]["episodes"] >= 1
+    assert not list(out.rglob("checkpoints"))
+
+
 def test_evaluate_options_accept_valid_and_train_refuses_eval_fields(tmp_path):
     live.LiveRunOptions("evaluate", tmp_path, eval_policy="random")
+    live.LiveRunOptions("evaluate", tmp_path, eval_policy="random-prior")
     live.LiveRunOptions(
         "evaluate", tmp_path, eval_policy="checkpoint", eval_checkpoint=tmp_path / "t1"
     )

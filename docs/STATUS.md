@@ -9,7 +9,9 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
   learns from raw facts and outcome rewards only: no scripted setup, advice features
   or technique rewards. Archive content is history, not runtime authority.
 - Current native lineage: `pure-v4`, observation schema 5, reward contract `pure-v7`; one-hour native qualification passed. The reward-v5 trial is preserved separately as `runs/pure-v4-pre`; it is not resumed.
-- Active changes, complete but unarchived:
+- Active changes (not archived):
+  - `random-prior-eval-baseline`: Windows gate passed; native one-hour task 2.2
+    pending. Move/shoot uniform, use none 0.85, other uses 0.05 each.
   - `stagnation-cost-reward-v7`: Windows gate and one-hour native task 2.2 passed;
     [qualification report](../reports/2026-10-24-pure-v7-one-hour.md). Eight-hour acceptance 2.3 remains open.
   - `frozen-checkpoint-evaluation`: Windows gate and native task 2.2 passed, four
@@ -70,8 +72,8 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Verification
 
-- Current Windows gate: 1233 tests passed with Lua, no skips; mypy 31 files,
-  lint/format/pip clean, strict OpenSpec 18/18. Synthetic CPU smoke passed:
+- Current Windows gate: 1242 tests passed with Lua, no skips; mypy 31 files,
+  lint/format/pip clean, strict OpenSpec 19/19. Synthetic CPU smoke passed:
   16 steps, 3499 inputs, [5,5,4] actions. Synthetic smoke is not gameplay evidence.
 - Closed-game deployment hashes matched source and user-provided values:
   Lua 5e9352154a38ea4ad6b6d219d463993493cb676ba432f04fd2f3372853470315,
@@ -86,12 +88,13 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Next
 
-1. Reward-v7 qualification completed cleanly at d62dc21b-s1-t14848: 36 episodes,
-   25 stalls, 11 deaths, 22 start-room exits, mean damage fraction 1.2421, two clears.
-   Stagnation is bounded at -7 per episode; all 25 stalls paid -5. No policy improvement
-   is established. User authorized a four-hour continuation from this exact checkpoint,
-   without initialization/config edits; after stopping, verify cleanup and wait for a
-   decision. No post-run commits or automatic next session.
+1. Reward-v7 four-hour continuation completed cleanly at d62dc21b-s1-t74240:
+   158 episodes, 58.2% stalls, 80.4% start-room exits, damage fraction 1.5760,
+   173 kills, 21 clears; [hourly report](../reports/2026-10-24-pure-v7-four-hour.md).
+   User authorized continuation from t74240 until 2026-10-25 09:00 Europe/Amsterdam
+   (08:00 UTC, after DST), unchanged configs; verify the eight-hour lease rollover.
+   After clean training shutdown, evaluate latest then random-prior for one hour each,
+   compare with historical random/t102400, write the night report and remain stopped.
 2. Why v7: the [frozen evaluation](../reports/2026-10-24-pure-v4-frozen-eval.md)
    (t102400/t204800/t237568/random, 34/38/40/34 episodes) showed no checkpoint
    better than random: stall share 62/74/53% vs 41%, damage fraction 1.93/0.51/1.46

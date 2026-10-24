@@ -5,7 +5,12 @@ import dataclasses
 import numpy as np
 import pytest
 
-from isaac_threrisaifuture.baselines import ENEMY_SLOT, RandomPolicy, ScriptedPolicy
+from isaac_threrisaifuture.baselines import (
+    ENEMY_SLOT,
+    RandomPolicy,
+    RandomPriorPolicy,
+    ScriptedPolicy,
+)
 from isaac_threrisaifuture.encoding import OBSERVATION_SIZE
 from isaac_threrisaifuture.episodes import ACTION_NVEC
 from isaac_threrisaifuture.scenarios import SCENARIO_SET_VERSION, SCENARIOS, SPLITS, scenarios_for
@@ -39,6 +44,38 @@ def test_random_policy_is_reproducible_and_valid():
     first = [a.act(obs) for _ in range(20)]
     assert all(np.array_equal(x, b.act(obs)) for x in first)
     assert all(((0 <= x) & (x < ACTION_NVEC)).all() and x.shape == (3,) for x in first)
+
+
+def test_random_prior_policy_samples_the_configured_use_prior():
+    obs = np.zeros(OBSERVATION_SIZE, dtype=np.float32)
+    policy = RandomPriorPolicy(0.85)
+    policy.reset(11)
+    draws = np.array([policy.act(obs) for _ in range(20000)])
+    assert ((0 <= draws) & (draws < ACTION_NVEC)).all() and draws.shape == (20000, 3)
+    use = np.bincount(draws[:, 2], minlength=4) / len(draws)
+    assert abs(use[0] - 0.85) < 0.01
+    assert all(abs(share - 0.05) < 0.01 for share in use[1:])
+    for head in (0, 1):  # move and shoot stay uniform
+        share = np.bincount(draws[:, head], minlength=5) / len(draws)
+        assert all(abs(s - 0.2) < 0.015 for s in share)
+
+
+def test_random_prior_policy_is_reproducible_per_seed():
+    obs = np.zeros(OBSERVATION_SIZE, dtype=np.float32)
+    a, b, c = RandomPriorPolicy(0.85), RandomPriorPolicy(0.85), RandomPriorPolicy(0.85)
+    a.reset(3)
+    b.reset(3)
+    c.reset(4)
+    first = [a.act(obs) for _ in range(50)]
+    assert all(np.array_equal(x, b.act(obs)) for x in first)
+    assert not all(np.array_equal(x, c.act(obs)) for x in first)
+    assert a.name == "random-prior"
+
+
+@pytest.mark.parametrize("probability", [0.0, 1.0, -0.1, 1.5])
+def test_random_prior_policy_rejects_invalid_probability(probability):
+    with pytest.raises(ValueError):
+        RandomPriorPolicy(probability)
 
 
 def _obs(dx: float, dy: float) -> np.ndarray:

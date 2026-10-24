@@ -684,6 +684,9 @@ def test_evaluation_spec_validates_checkpoint(tmp_path):
         runner.EvaluationSpec("checkpoint")
     with pytest.raises(ValueError):
         runner.EvaluationSpec("random", tmp_path)
+    with pytest.raises(ValueError):
+        runner.EvaluationSpec("random-prior", tmp_path)
+    assert runner.EvaluationSpec("random-prior").to_json()["policy"] == "random-prior"
 
 
 def test_evaluation_root_guard(tmp_path):
@@ -768,6 +771,13 @@ def test_cli_evaluate_random_derives_everything(cli):
     assert chosen.disk_bytes == config.budget.disk_limit_mb * 1_000_000
 
 
+def test_cli_evaluate_random_prior_derives_everything(cli):
+    run, code = cli("--evaluate", "random-prior")
+    chosen = run.call_args.args[0]
+    assert code == 0 and chosen.evaluation == runner.EvaluationSpec("random-prior")
+    assert chosen.evaluation.checkpoint is None and not chosen.resume
+
+
 def test_cli_evaluate_checkpoint_passes_exact_directory(cli, tmp_path):
     checkpoint = tmp_path / "train" / "seed-1" / "checkpoints" / "t102400"
     run, code = cli("--evaluate", "checkpoint", "--checkpoint", checkpoint)
@@ -784,6 +794,9 @@ def test_cli_evaluate_refusals(cli, tmp_path):
         (["--forever", "--checkpoint", checkpoint], {}),
         (["--evaluate", "checkpoint"], {}),  # needs --checkpoint
         (["--evaluate", "random", "--checkpoint", checkpoint], {}),
+        (["--evaluate", "random-prior", "--checkpoint", checkpoint], {}),
+        (["--evaluate", "random-prior", "--forever"], {}),
+        (["--evaluate", "random-prior"], {"root": train}),
         (["--checkpoint", checkpoint], {}),  # without --evaluate
         (["--evaluate", "checkpoint", "--checkpoint", checkpoint], {"root": train}),
         (["--evaluate", "checkpoint", "--checkpoint", checkpoint], {"root": train / "eval"}),
