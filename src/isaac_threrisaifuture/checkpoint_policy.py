@@ -106,10 +106,13 @@ def _validate_normalizer(normalizer: Any, size: int = OBSERVATION_SIZE) -> None:
 
 
 class CheckpointPolicy:
-    """Deterministic frozen policy over one explicit checkpoint directory."""
+    """Frozen policy over one explicit checkpoint directory.
+
+    Deterministic (argmax) by default. `deterministic=False` samples actions like training
+    does; `sampling_seed` then fixes the torch generator so a run can be reproduced.
+    """
 
     label = "frozen-recurrentppo"
-    deterministic = True
 
     def __init__(
         self,
@@ -117,7 +120,11 @@ class CheckpointPolicy:
         *,
         expected_config_hash: str,
         expected_seed: int | None = None,
+        expected_reward_contract: RewardContract | None = None,
+        deterministic: bool = True,
+        sampling_seed: int | None = None,
     ) -> None:
+        self.deterministic = deterministic
         directory = Path(directory)
         if directory.name == LATEST_POINTER or (directory / LATEST_POINTER).exists():
             raise CheckpointError("Name one checkpoint directory, not the latest pointer root")
@@ -128,6 +135,7 @@ class CheckpointPolicy:
             directory,
             expected_config_hash=expected_config_hash,
             expected_seed=expected_seed,
+            expected_reward_contract=expected_reward_contract,
         )
         if manifest.algorithm != SUPPORTED_ALGORITHM:
             raise CheckpointError(f"Unsupported algorithm {manifest.algorithm!r}")
@@ -154,9 +162,14 @@ class CheckpointPolicy:
             model_sha256=hashes["model"],
             normalizer_sha256=hashes["normalizer"],
             reward_contract=manifest.reward_contract,
+            deterministic=deterministic,
         )
         self.name = f"checkpoint:{manifest.checkpoint_id}"
         self._model, self._normalizer = self._load()
+        if sampling_seed is not None:
+            import torch
+
+            torch.manual_seed(sampling_seed)
         self._state: tuple[NDArray[Any], ...] | None = None
         self._episode_start = np.ones((1,), dtype=bool)
 
@@ -206,7 +219,7 @@ class CheckpointPolicy:
             normalized,
             state=self._state,
             episode_start=self._episode_start,
-            deterministic=True,
+            deterministic=self.deterministic,
         )
         result = np.asarray(action)
         if result.shape == (1, len(ACTION_NVEC)):

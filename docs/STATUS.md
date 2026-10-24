@@ -91,8 +91,8 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Verification
 
-- Current Windows gate: 1185 tests passed with Lua, no skips; mypy 31 files,
-  lint/format/pip clean, strict OpenSpec 16/16. Synthetic CPU smoke passed:
+- Current Windows gate: 1215 tests passed with Lua, no skips; mypy 31 files,
+  lint/format/pip clean, strict OpenSpec 17/17. Synthetic CPU smoke passed:
   16 steps, 3499 inputs, [5,5,4] actions. Synthetic smoke is not gameplay evidence.
 - Closed-game deployment hashes matched source and user-provided values:
   Lua 5e9352154a38ea4ad6b6d219d463993493cb676ba432f04fd2f3372853470315,
@@ -109,14 +109,24 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 1. Night run is stopped at ed954e0a-s1-t237568; do not resume without a new request.
    gamma 0.998, gae_lambda 0.98, ent_coef 0.005 and pure-v6 remain unchanged.
-2. Suggested next experiment, not launched: frozen comparisons of retained t102400,
-   t204800 and t237568 plus a random baseline under the same bounded protocol.
-   ROADMAP P2 improvement is not established by this observational night run.
-3. Review planned-lease rollover being classified as a transport fault separately.
-   Health-loss oracle events hardcode damage_source=enemy; use native hits_* counters
-   for source aggregates, not that generic event label for death-cause attribution.
-4. Keep old lineages and pure-v4-pre preserved. No game or training was launched
-   during analysis. Report and STATUS are the only tracked changes.
+2. Frozen evaluation (Windows offline gate passed; native check pending; `openspec/changes/frozen-checkpoint-evaluation`):
+   `Start-Eval.cmd` / `session_runner --evaluate checkpoint|random` runs one supervised
+   session under the training protocol (action repeat 6, reward v6, stall 90 s) without
+   learning or checkpoint writes; `scripts/compare_eval.py` compares the eval roots.
+   Planned: one hour each for t102400, t204800, t237568 and random under
+   `runs/pure-v4-eval/<label>`. t55808 is no longer retained.
+3. Planned-lease rollover fix (Windows offline gate passed; 8-hour native rollover pending): the learner now stops
+   `STOP_MARGIN_SECONDS` (15 s) before the Lua lease expires, so the 8-hour rollover ends
+   `completed` instead of a transport fault.
+4. Retention: `keep_every` 200 -> 100 (about every 3.4 h); the checkpoint before each
+   hyperparameter change is pinned in `checkpoints/pinned.txt`. Lineage hash unchanged.
+5. Dashboard: stall share, start-room exits, kills, any-damage share, own-bomb hits,
+   standing-still and not-shooting shares, policy gradient loss, session boundaries and a
+   progress-by-hour table.
+6. After the evaluation: if later checkpoints beat earlier ones and random, continue
+   training with `watchdog.stall_seconds: 60`; otherwise revisit the reward (v7).
+7. The health-loss event label is always `enemy` (reward v6 penalises every source);
+   use the hits_* counters for sources. Keep old lineages and pure-v4-pre preserved.
 
 ## Navigation
 

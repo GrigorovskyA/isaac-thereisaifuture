@@ -182,6 +182,21 @@ def test_html_page_and_unknown_routes(served):
         body = response.read().decode()
         assert response.headers["Content-Type"].startswith("text/html")
     assert "/api/state" in body and "<svg" not in body.split("<script>")[0]
+    for title in (
+        "Stall share",
+        "Left start room share",
+        "Kills per episode",
+        "Episodes with any damage dealt",
+        "Own-bomb hits per episode",
+        "Standing still share",
+        "Not shooting share",
+        "Policy gradient loss",
+        "Progress by hour",
+        "Stall share, latest",
+        "session boundary",
+    ):
+        assert title in body
+    assert 'id="hourly"' in body
     for path in (
         "/x",
         "/api",

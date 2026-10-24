@@ -37,6 +37,50 @@ Without `--forever` the runner keeps its explicit finite mode: `--config`,
 `--disk-bytes`, and either `--time-budget-only` or explicit `--steps` and
 `--max-restarts`. Use it for bounded acceptance checks.
 
+## Frozen evaluation
+
+Compare checkpoints (or random) under exactly the training protocol: same action
+repeat, reward v6, stall watchdog and restarts, but no learning and no checkpoint
+writes. Stop forever training first; one game runs at a time. One session per
+policy, one folder per session (a root that already has episodes is refused):
+
+```powershell
+.\Start-Eval.cmd "<Isaac install dir>" "<path to log.txt>" t102400 3600 "runs\pure-v4\seed-1\checkpoints\<checkpoint id>"
+.\Start-Eval.cmd "<Isaac install dir>" "<path to log.txt>" random 3600
+```
+
+The same without the wrapper (`--seconds` 60..14400; seed, disk cap and restarts are
+derived):
+
+```powershell
+.venv\Scripts\python.exe -m isaac_threrisaifuture.session_runner --game "<Isaac install dir>" --game-log "<path to log.txt>" --config configs\training-pure-v4.yaml --run-root runs\pure-v4-eval\t102400 --output runs\pure-v4-eval\_sessions\t102400 --seconds 3600 --evaluate checkpoint --checkpoint "runs\pure-v4\seed-1\checkpoints\<checkpoint id>"
+```
+
+- `--checkpoint` names one exact checkpoint directory (never `latest`); it must match
+  the config contract hash, seed and reward contract. Actions are sampled, with the
+  config seed, like in training; the saved observation statistics are applied and not
+  updated. The checkpoint files are hash-frozen and re-checked at the end.
+- `--run-root` is the new evaluation output root. It must not be, contain or lie
+  inside the training run root, and must hold no `checkpoints` folder.
+- A normal stop at the time limit ends `completed` in `<output>\result.json`.
+  Stop early with `<output>\stop.request`.
+- Results: `<run-root>\metrics\episodes.csv`; events in
+  `<output>\events.jsonl` (`evaluation`, `evaluation_result`).
+- The session needs the full time limit for enough episodes: compare only runs with
+  similar `--seconds`, and read the stall interval before the means.
+
+Compare finished roots (offline, read-only):
+
+```powershell
+.venv\Scripts\python.exe scripts\compare_eval.py runs\pure-v4-eval\t102400 runs\pure-v4-eval\t204800 runs\pure-v4-eval\t237568 runs\pure-v4-eval\random
+```
+
+One row per root: episodes, death/stall/left-start-room/any-clear shares, mean damage
+fraction with its standard error, kills, rooms cleared, half hearts lost, return, max
+stage and the 95% Wilson interval of the stall share. The result is descriptive; the
+game seed is not controlled, so differences within the intervals are not evidence.
+`live_evaluation.py` / `evaluate-live` is superseded for pure lineages.
+
 ## Guards kept
 
 Steam launch and guarded file-2 Continue, loopback-only bridge, frozen source/

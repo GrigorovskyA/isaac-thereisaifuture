@@ -107,7 +107,7 @@ def test_pure_v4_config_pins_the_new_contract_and_refuses_older_lineages(tmp_pat
     assert contract.observation_schema_version == OBSERVATION_SCHEMA_VERSION == 5
     assert contract.reward_version == 6 and contract.action_repeat_game_updates == 6
     assert contract.use_head_initial_none_probability == 0.85
-    assert config.retention.keep_every == 200
+    assert config.retention.keep_every == 100
     for name in ("training-pure-v1.yaml", "training-pure-v2.yaml", "training-pure-v3.yaml"):
         old = ARCHIVED / name  # older schemas and rewards are refused by this code
         with pytest.raises(TrainingConfigError, match="use_head|reward version|schema"):
@@ -332,6 +332,28 @@ def test_retention_never_deletes_latest_or_parent(tmp_path):
     root = tmp_path / "checkpoints"
     save_many(root, 10, retention=(2, 1000))
     assert rollouts(root) == [9, 10]
+
+
+def test_retention_keeps_the_checkpoint_before_a_hyperparameter_change(tmp_path):
+    root = tmp_path / "checkpoints"
+    old = save_many(root, 5, retention=(2, 1000), hyperparameters={"gamma": 0.995})
+    for step in range(6, 12):
+        manifest = cp.save_checkpoint(
+            root,
+            model=Artifact(b"m%d" % step),
+            vec_normalize=Artifact(b"n%d" % step),
+            algorithm="RecurrentPPO",
+            cfg_hash="a" * 64,
+            seed=1,
+            timesteps=step * 10,
+            parent_checkpoint_id=cp.latest_checkpoint_dir(root).name,
+            rng_state={},
+            hyperparameters={"gamma": 0.998},
+            retention=(2, 1000),
+        )
+    assert cp.pinned_checkpoints(root) == {old[-1].checkpoint_id}
+    assert rollouts(root) == [5, 10, 11]
+    assert manifest.checkpoint_id == cp.latest_checkpoint_dir(root).name
 
 
 def test_retention_leaves_unindexed_and_pending_directories(tmp_path):

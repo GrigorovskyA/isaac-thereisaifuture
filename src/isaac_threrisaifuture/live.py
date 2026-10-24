@@ -358,6 +358,8 @@ class EventDeriver:
         self._derive_level(snap, emit)
         health = frame.health.red_half_hearts + frame.health.soul_half_hearts
         if self._health is not None and health < self._health:
+            # Every health loss is charged as "enemy": reward v6 penalises all sources alike.
+            # The oracle hits_* counters, not this label, tell the real source.
             emit("player_damaged", amount=float(self._health - health), damage_source="enemy")
         elif self._health is not None and health > self._health:
             emit("player_healed", amount=float(health - self._health))
@@ -814,7 +816,7 @@ def make_live_env(
 
 @dataclass(frozen=True)
 class LiveRunOptions:
-    mode: Literal["random", "train"]
+    mode: Literal["random", "train", "evaluate"]
     out_dir: Path
     connection_timeout: float = 300.0
     steps: int = 3000
@@ -828,6 +830,9 @@ class LiveRunOptions:
     session_deadline: float | None = None
     stop_file: Path | None = None
     require_initial_isaac: bool = False
+    # Evaluate mode only: a frozen policy under the training protocol; nothing is learned.
+    eval_policy: Literal["checkpoint", "random"] | None = None
+    eval_checkpoint: Path | None = None
 
     def __post_init__(self) -> None:
         if self.session_deadline is not None and not math.isfinite(self.session_deadline):
@@ -836,6 +841,20 @@ class LiveRunOptions:
             raise ValueError("Steps must be positive; minutes must be within the approval cap")
         if self.max_faults < 0 or self.connection_timeout <= 0:
             raise ValueError("Fault budget and connection timeout must be nonnegative/positive")
+        if self.mode != "evaluate":
+            if self.eval_policy is not None or self.eval_checkpoint is not None:
+                raise ValueError("Evaluation policy options apply to evaluate mode only")
+            return
+        if self.resume:
+            raise ValueError("Evaluation never resumes or writes a training lineage")
+        if self.eval_policy == "checkpoint":
+            if self.eval_checkpoint is None:
+                raise ValueError("Checkpoint evaluation needs an exact checkpoint directory")
+        elif self.eval_policy == "random":
+            if self.eval_checkpoint is not None:
+                raise ValueError("The random policy takes no checkpoint")
+        else:
+            raise ValueError("Evaluate mode needs eval_policy 'checkpoint' or 'random'")
 
 
 def run_live(
@@ -919,6 +938,8 @@ def run_live(
                         break
                 if options.mode == "random":
                     _random_run(client, options, record, sink, np.random.default_rng(options.seed))
+                elif options.mode == "evaluate":
+                    _evaluate_run(client, options, record, sink)
                 else:
                     _train_run(client, options, record, sink)
             except LiveBudgetExpired as exc:
@@ -1025,3 +1046,79 @@ def _train_run(
         record("budget", f"{exc}; unfinished rollout has no new checkpoint")
         return
     record("training_result", {k: str(v) for k, v in vars(result).items()})
+
+
+def _evaluate_run(
+    client: LiveClient,
+    options: LiveRunOptions,
+    record: Callable[[str, Any], None],
+    sink: Callable[[OracleEvent], None],
+) -> None:
+    """Frozen evaluation under the training protocol: same env, no learning, no checkpoints."""
+    from .baselines import Policy, RandomPolicy
+    from .checkpoint_policy import CheckpointPolicy
+    from .episode_metrics import EpisodeMetricsEnv, EpisodeMetricsWriter
+    from .training import PURE_CONFIG, PureTrainingConfig, load_training_config
+
+    config, cfg_hash = load_training_config(options.config_path or PURE_CONFIG)
+    if not isinstance(config, PureTrainingConfig):
+        raise ValueError("Evaluation needs a config version 2 (pure) profile")
+    seed = config.seed if options.seed is None else options.seed
+    policy: Policy
+    checkpoint: CheckpointPolicy | None = None
+    if options.eval_policy == "checkpoint":
+        assert options.eval_checkpoint is not None
+        checkpoint = CheckpointPolicy(
+            options.eval_checkpoint,
+            expected_config_hash=cfg_hash,
+            expected_seed=config.seed,
+            expected_reward_contract=LIVE_REWARD_CONTRACT,
+            deterministic=False,  # sample like training does
+            sampling_seed=seed,
+        )
+        policy = checkpoint
+        identity = checkpoint.identity
+        details: dict[str, Any] = {
+            "checkpoint_id": identity.checkpoint_id,
+            "timesteps": identity.timesteps,
+        }
+    else:
+        policy = RandomPolicy()
+        details = {"checkpoint_id": None, "timesteps": None}
+    record("evaluation", {"policy": options.eval_policy, **details, "config_hash": cfg_hash,
+                          "seed": seed, "reward_contract": LIVE_REWARD_CONTRACT})  # fmt: skip
+    deadline = min(time.monotonic() + options.minutes * 60, options.session_deadline or math.inf)
+    writer = EpisodeMetricsWriter(options.out_dir / "metrics" / "episodes.csv")
+    env: gym.Env[Any, Any] = EpisodeMetricsEnv(
+        make_live_env(
+            client,
+            action_repeat=config.action_repeat_game_updates,
+            max_faults=10**9,  # as in training, only the consecutive cap ends a session
+            record=record,
+            oracle_sink=sink,
+            run_deadline=deadline,
+            stop_file=options.stop_file,
+            reward_version=config.contract.reward_version,
+            stall_seconds=config.watchdog.stall_seconds,
+            max_consecutive_faults=config.budget.max_consecutive_faults,
+        ),
+        writer,
+    )
+    episodes = steps = 0
+    try:
+        observation, _ = env.reset()
+        policy.reset(seed)
+        while True:
+            if time.monotonic() >= deadline:
+                raise LiveBudgetExpired("Live wall-time budget exhausted")
+            observation, _, terminated, truncated, _ = env.step(policy.act(observation))
+            steps += 1
+            if terminated or truncated:
+                episodes += 1
+                observation, _ = env.reset()
+                policy.reset(seed + episodes)
+    finally:
+        env.close()
+        record("evaluation_result", {"episodes": episodes, "steps": steps})
+        if checkpoint is not None:
+            checkpoint.verify_unchanged()

@@ -368,6 +368,9 @@ class FakeRuntime(runner.NativeRuntime):
             self.code = 0
         elif self.mode == "cancel":
             (self.plan.output / "stop.request").touch()
+        elif self.mode == "timer-margin" and self.clock.now >= 220 - runner.STOP_MARGIN_SECONDS:
+            self.event("budget", "Live wall-time budget exhausted")
+            self.code = 0
         elif self.mode == "timer" and self.clock.now >= 220:
             self.event("budget", "Live wall-time budget exhausted")
             self.code = 0
@@ -418,6 +421,7 @@ def clock(monkeypatch):
     [
         ("early", "early_stop"),
         ("timer", "completed"),
+        ("timer-margin", "completed"),
         ("cancel", "user_cancelled"),
         ("focus", "fault"),
         ("refused", "fault"),
@@ -594,3 +598,202 @@ def test_owned_worker_command_is_importable_module(plan, monkeypatch):
     runtime.start()
     assert popen.call_args.args[0][2:4] == ["-m", "isaac_threrisaifuture.session_runner"]
     runtime.console.close()
+
+
+def test_worker_stops_learner_before_the_lease_expires(tmp_path, monkeypatch):
+    output = tmp_path / "session"
+    output.mkdir()
+    payload = {
+        "options": {
+            "output": str(output),
+            "run_root": str(tmp_path),
+            "config": "c.yaml",
+            "seed": 1,
+            "steps": 512,
+            "seconds": 600,
+        },
+        "clock": {"deadline": 1000.0},
+    }
+    path = tmp_path / "plan.json"
+    path.write_text(json.dumps(payload))
+    received = {}
+    monkeypatch.setattr(runner, "time", SimpleNamespace(monotonic=lambda: 10.0, time=lambda: 0.0))
+    monkeypatch.setattr(runner, "run_live", lambda options, on_record: received.update(o=options))
+    runner.worker(path)
+    assert received["o"].session_deadline == 1000.0 - runner.STOP_MARGIN_SECONDS
+
+
+# --- frozen evaluation sessions ------------------------------------------------------------
+
+
+@pytest.fixture
+def eval_plan(plan, tmp_path):
+    return replace(
+        plan,
+        run_root=tmp_path / "eval" / "t1",
+        parent_id="",
+        steps=runner.TIME_ONLY_STEPS,
+        max_restarts=0,
+        resume=False,
+        evaluation=runner.EvaluationSpec("checkpoint", tmp_path / "train/checkpoints/t1"),
+    )
+
+
+class EvalRuntime(FakeRuntime):
+    """An evaluation has no parent and no checkpoint progress."""
+
+    def preflight(self):
+        self.calls.append("preflight")
+
+    def identity(self):
+        raise AssertionError("evaluation must never read checkpoint progress")
+
+    def enter(self, deadline):
+        self.calls.append("enter")
+        self.event("evaluation", {"policy": "checkpoint"})
+
+
+@pytest.mark.parametrize(
+    "mode,state",
+    [("timer", "completed"), ("timer-margin", "completed"), ("early", "early_stop")],
+)
+def test_evaluation_deadline_stop_is_completed_without_checkpoint_progress(
+    eval_plan, clock, mode, state
+):
+    result = runner.supervise(eval_plan, EvalRuntime(eval_plan, clock, mode))
+    assert result["state"] == state
+    assert result["latest_checkpoint"] is None and result["checkpoint_note"] is None
+    assert result["fault"] is None and result["cleanup_errors"] == []
+    saved = json.loads((eval_plan.output / "plan.json").read_text())
+    assert saved["parent"] is None
+    assert saved["options"]["evaluation"]["policy"] == "checkpoint"
+    assert saved["count_limit_mode"] == "nonbinding_schema_sentinels"
+
+
+@pytest.mark.parametrize(
+    "change",
+    [{"resume": True}, {"parent_id": "p"}, {"max_restarts": 5}, {"steps": 100}, {"forever": True}],
+)
+def test_evaluation_plan_refuses_training_semantics(eval_plan, change):
+    with pytest.raises(ValueError, match="Evaluation sessions"):
+        replace(eval_plan, **change)
+
+
+def test_evaluation_spec_validates_checkpoint(tmp_path):
+    with pytest.raises(ValueError):
+        runner.EvaluationSpec("checkpoint")
+    with pytest.raises(ValueError):
+        runner.EvaluationSpec("random", tmp_path)
+
+
+def test_evaluation_root_guard(tmp_path):
+    train = tmp_path / "pure-v4"
+    checkpoint = train / "seed-1" / "checkpoints" / "t1"
+    checkpoint.mkdir(parents=True)
+    spec = runner.EvaluationSpec("checkpoint", checkpoint)
+    runner.validate_evaluation_root(tmp_path / "eval" / "t1", spec)
+    for root in (train, train / "seed-1", train / "eval", checkpoint):
+        with pytest.raises(ValueError):
+            runner.validate_evaluation_root(root, spec)
+    random = runner.EvaluationSpec("random")
+    with pytest.raises(ValueError, match="contains checkpoints"):
+        runner.validate_evaluation_root(train, random)
+    used = tmp_path / "eval" / "used"
+    (used / "metrics").mkdir(parents=True)
+    (used / "metrics" / "episodes.csv").write_text("header\n")
+    with pytest.raises(ValueError, match="already has episodes"):
+        runner.validate_evaluation_root(used, random)
+
+
+def test_worker_passes_evaluate_mode_and_checkpoint(tmp_path, monkeypatch):
+    output = tmp_path / "session"
+    output.mkdir()
+    checkpoint = tmp_path / "train" / "checkpoints" / "t1"
+    payload = {
+        "options": {
+            "output": str(output), "run_root": str(tmp_path / "eval"), "config": "c.yaml",
+            "seed": 1, "steps": runner.TIME_ONLY_STEPS, "seconds": 600, "resume": False,
+            "evaluation": {"policy": "checkpoint", "checkpoint": str(checkpoint)},
+        },
+        "clock": {"deadline": 1000.0},
+    }  # fmt: skip
+    path = tmp_path / "plan.json"
+    path.write_text(json.dumps(payload))
+    received = {}
+    monkeypatch.setattr(runner, "time", SimpleNamespace(monotonic=lambda: 10.0, time=lambda: 0.0))
+    monkeypatch.setattr(runner, "run_live", lambda options, on_record: received.update(o=options))
+    runner.worker(path)
+    chosen = received["o"]
+    assert chosen.mode == "evaluate" and chosen.eval_policy == "checkpoint"
+    assert chosen.eval_checkpoint == checkpoint and not chosen.resume
+    assert chosen.session_deadline == 1000.0 - runner.STOP_MARGIN_SECONDS
+    assert chosen.out_dir == tmp_path / "eval"
+
+
+@pytest.fixture
+def cli(tmp_path, monkeypatch):
+    """Run main() with fake Windows args; returns (plan, exit code, stderr)."""
+    import sys
+
+    monkeypatch.setattr(runner, "os", SimpleNamespace(name="nt"))
+    run = Mock(return_value={"state": "completed"})
+    monkeypatch.setattr(runner, "supervise", run)
+    config = runner.PURE_CONFIG
+
+    def call(*extra, drop=(), root=tmp_path / "eval" / "t1"):
+        args = ["runner", "--game", str(tmp_path / "game"), "--game-log", str(tmp_path / "log")]
+        named = {"config": config, "run-root": root, "output": tmp_path / "out",
+                 "seconds": 1800}  # fmt: skip
+        for name, value in named.items():
+            if name not in drop:
+                args += [f"--{name}", str(value)]
+        monkeypatch.setattr(sys, "argv", [*args, *map(str, extra)])
+        run.reset_mock()
+        try:
+            runner.main()
+        except SystemExit as exit_:
+            return run, exit_.code
+        raise AssertionError("main did not exit")
+
+    return call
+
+
+def test_cli_evaluate_random_derives_everything(cli):
+    run, code = cli("--evaluate", "random")
+    chosen = run.call_args.args[0]
+    assert code == 0 and chosen.evaluation == runner.EvaluationSpec("random")
+    config, _ = runner.load_training_config(runner.PURE_CONFIG)
+    assert chosen.seed == config.seed and chosen.parent_id == "" and not chosen.resume
+    assert chosen.max_restarts == 0 and chosen.steps == runner.TIME_ONLY_STEPS
+    assert chosen.disk_bytes == config.budget.disk_limit_mb * 1_000_000
+
+
+def test_cli_evaluate_checkpoint_passes_exact_directory(cli, tmp_path):
+    checkpoint = tmp_path / "train" / "seed-1" / "checkpoints" / "t102400"
+    run, code = cli("--evaluate", "checkpoint", "--checkpoint", checkpoint)
+    chosen = run.call_args.args[0]
+    assert code == 0 and chosen.evaluation.checkpoint == checkpoint.resolve()
+
+
+def test_cli_evaluate_refusals(cli, tmp_path):
+    train = tmp_path / "train"
+    checkpoint = train / "seed-1" / "checkpoints" / "t1"
+    checkpoint.mkdir(parents=True)
+    refused = [
+        (["--evaluate", "random", "--forever"], {}),
+        (["--forever", "--checkpoint", checkpoint], {}),
+        (["--evaluate", "checkpoint"], {}),  # needs --checkpoint
+        (["--evaluate", "random", "--checkpoint", checkpoint], {}),
+        (["--checkpoint", checkpoint], {}),  # without --evaluate
+        (["--evaluate", "checkpoint", "--checkpoint", checkpoint], {"root": train}),
+        (["--evaluate", "checkpoint", "--checkpoint", checkpoint], {"root": train / "eval"}),
+        (["--evaluate", "random"], {"root": train}),  # holds a checkpoints folder
+        (["--evaluate", "random", "--parent-id", "x"], {}),
+        (["--evaluate", "random", "--steps", "5"], {}),
+        (["--evaluate", "random", "--time-budget-only"], {}),
+        (["--evaluate", "random"], {"drop": ("seconds",)}),
+    ]
+    for extra, kwargs in refused:
+        run, code = cli(*extra, **kwargs)
+        assert code == 2, extra
+        run.assert_not_called()

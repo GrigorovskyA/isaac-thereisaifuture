@@ -43,6 +43,9 @@ budget:
   max_consecutive_faults: 5
 retention:
   keep_latest: 5
-  keep_every: 200  # periodic checkpoints in addition to the newest five; ~52 MB each
+  # Periodic checkpoints in addition to the newest five, ~52 MB each: every 100 rollouts
+  # is about every 3.4 h, ~0.4 GB a day. The checkpoint before each hyperparameter
+  # change is pinned in checkpoints/pinned.txt and never pruned.
+  keep_every: 100
 watchdog:
   stall_seconds: 90

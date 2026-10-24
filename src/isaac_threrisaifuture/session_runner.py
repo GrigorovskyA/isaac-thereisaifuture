@@ -19,7 +19,7 @@ import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from .checkpoints import CheckpointError, latest_checkpoint_dir, load_checkpoint
 from .launcher import MOD_DIRECTORY, PROJECT_ROOT, game_running, preflight, request_steam_launch
@@ -45,6 +45,10 @@ IDLE_SECONDS = 180
 TIME_ONLY_RESTARTS = 5000
 TIME_ONLY_MAX_SECONDS = 4 * 3600
 MAX_SESSION_SECONDS = 28740  # the 8 h Lua lease minus a minute of margin
+# The learner stops this long before the approval expires. Lua checks the lease every
+# frame and closes the connection as soon as it lapses, so a learner that stops exactly
+# at the deadline loses the race and the planned rollover is recorded as a fault.
+STOP_MARGIN_SECONDS = 15.0
 
 
 def atomic_json(path: Path, data: Any) -> None:
@@ -70,6 +74,49 @@ def digest(path: Path) -> str:
 
 
 @dataclass(frozen=True)
+class EvaluationSpec:
+    """Frozen evaluation instead of training: one exact checkpoint, or the random policy."""
+
+    policy: Literal["checkpoint", "random"]
+    checkpoint: Path | None = None
+
+    def __post_init__(self) -> None:
+        if self.policy == "checkpoint":
+            if self.checkpoint is None:
+                raise ValueError("Checkpoint evaluation needs an exact checkpoint directory")
+        elif self.policy == "random":
+            if self.checkpoint is not None:
+                raise ValueError("The random policy takes no checkpoint")
+        else:
+            raise ValueError("Evaluation policy must be 'checkpoint' or 'random'")
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "policy": self.policy,
+            "checkpoint": None if self.checkpoint is None else str(self.checkpoint),
+        }
+
+
+def validate_evaluation_root(run_root: Path, spec: EvaluationSpec) -> None:
+    """An evaluation root is fresh output only: never a training root, never a lineage."""
+    root = run_root.resolve()
+    if root.exists() and (any(root.rglob("checkpoints")) or any(root.rglob("latest.txt"))):
+        raise ValueError("Evaluation root contains checkpoints; use a separate folder")
+    if spec.checkpoint is not None:
+        checkpoint = spec.checkpoint.resolve()
+        training_root = (
+            checkpoint.parent.parent.parent if checkpoint.parent.name == "checkpoints" else None
+        )
+        if checkpoint.is_relative_to(root) or root.is_relative_to(checkpoint):
+            raise ValueError("Evaluation root overlaps the checkpoint directory")
+        if training_root is not None and root.is_relative_to(training_root):
+            raise ValueError("Evaluation root is inside the training run root")
+    episodes = root / "metrics" / "episodes.csv"
+    if episodes.exists() and episodes.stat().st_size > 0:
+        raise ValueError("Evaluation root already has episodes; use a new folder per evaluation")
+
+
+@dataclass(frozen=True)
 class SessionPlan:
     game: Path
     game_log: Path
@@ -87,11 +134,27 @@ class SessionPlan:
     forever: bool = False
     resume: bool = True
     stop_file: Path | None = None  # extra stop request, checked with the session's own
+    # Evaluation sessions: no parent, no progress, unlimited restarts like pure training.
+    evaluation: EvaluationSpec | None = None
 
     def __post_init__(self) -> None:
         if not math.isfinite(self.seconds) or not 60 <= self.seconds <= MAX_SESSION_SECONDS:
             raise ValueError("Session seconds must be finite and within 60..28740")
-        if self.forever:
+        if self.evaluation is not None:
+            if (
+                self.forever
+                or self.time_budget_only
+                or self.resume
+                or self.parent_id
+                or self.steps != TIME_ONLY_STEPS
+                or self.max_restarts != 0
+                or self.disk_bytes < 1
+                or self.seconds > TIME_ONLY_MAX_SECONDS
+            ):
+                raise ValueError(
+                    "Evaluation sessions are <=4h, fresh, with nonbinding steps and 0 restarts"
+                )
+        elif self.forever:
             if self.steps != TIME_ONLY_STEPS or self.max_restarts != 0 or self.disk_bytes < 1:
                 raise ValueError(
                     "Forever sessions need nonbinding steps, 0 restarts and a disk cap"
@@ -166,7 +229,7 @@ class Progress:
     def tick(self, now: float) -> None:
         # Pure training collects all the time; it is only "waiting" when no episode or
         # checkpoint event arrived for longer than a rollout plus a stall restart.
-        if self.phase in ("training", "checkpointing"):
+        if self.phase in ("training", "checkpointing", "evaluating"):
             if self.last_activity is not None and now - self.last_activity > IDLE_SECONDS:
                 self.transition("waiting", max(self.phase_since, self.last_activity + IDLE_SECONDS))
 
@@ -189,6 +252,8 @@ class Progress:
                 self.reason = f"Training timestep target reached at {data.get('timesteps')}"
         elif event == "training":
             self.transition("training", now)
+        elif event == "evaluation":
+            self.transition("evaluating", now)
         elif event == "checkpointing":
             self.transition("checkpointing", now)
         elif event == "checkpoint_completed":
@@ -253,6 +318,8 @@ class NativeRuntime:
         return self.plan.game / MOD_DIRECTORY / APPROVAL_NAME
 
     def identity(self) -> dict[str, Any]:
+        if self.plan.evaluation is not None:
+            raise ValueError("An evaluation session has no checkpoint progress")
         directory = latest_checkpoint_dir(
             self.plan.run_root / f"seed-{self.plan.seed}" / "checkpoints"
         )
@@ -287,7 +354,10 @@ class NativeRuntime:
         if self.plan.forever and not isinstance(config, PureTrainingConfig):
             raise ValueError("Forever sessions need a config version 2 (pure) profile")
         parent: dict[str, Any] | None = None
-        if self.plan.resume:
+        evaluated: list[Path] = []
+        if self.plan.evaluation is not None:
+            evaluated = self.check_evaluation(config)
+        elif self.plan.resume:
             parent = self.identity()
             if parent["id"] != self.plan.parent_id:
                 raise ValueError("Unexpected parent checkpoint; no fresh-model fallback")
@@ -302,8 +372,26 @@ class NativeRuntime:
         # Retention may delete the parent while a forever session runs; freeze it otherwise.
         if parent is not None and not self.plan.forever:
             paths.extend(Path(parent["path"]).iterdir())
+        paths.extend(evaluated)  # the evaluated checkpoint must stay byte-identical
         self.frozen = {str(p): digest(p) for p in paths if p.is_file()}
         return parent
+
+    def check_evaluation(self, config: Any) -> list[Path]:
+        """Validate the evaluation target; returns the checkpoint files to freeze."""
+        spec = self.plan.evaluation
+        assert spec is not None
+        if not isinstance(config, PureTrainingConfig):
+            raise ValueError("Evaluation needs a config version 2 (pure) profile")
+        validate_evaluation_root(self.plan.run_root, spec)
+        if spec.checkpoint is None:
+            return []
+        load_checkpoint(
+            spec.checkpoint,
+            expected_config_hash=self.config_hash,
+            expected_seed=config.seed,
+            expected_reward_contract=LIVE_REWARD_CONTRACT,
+        )
+        return [p for p in spec.checkpoint.iterdir() if p.is_file()]
 
     def hold_sleep(self) -> None:
         self.kernel = ctypes.windll.kernel32
@@ -473,7 +561,8 @@ def supervise(plan: SessionPlan, runtime: NativeRuntime | None = None) -> dict[s
             plan.output / "plan.json",
             {
                 "options": {
-                    k: str(v) if isinstance(v, Path) else v for k, v in asdict(plan).items()
+                    **{k: str(v) if isinstance(v, Path) else v for k, v in asdict(plan).items()},
+                    "evaluation": None if plan.evaluation is None else plan.evaluation.to_json(),
                 },
                 "clock": asdict(clock),
                 "config_hash": runtime.config_hash,
@@ -484,7 +573,7 @@ def supervise(plan: SessionPlan, runtime: NativeRuntime | None = None) -> dict[s
                 "retries": 0,
                 "count_limit_mode": (
                     "nonbinding_schema_sentinels"
-                    if plan.time_budget_only or plan.forever
+                    if plan.time_budget_only or plan.forever or plan.evaluation is not None
                     else "explicit_diagnostic"
                 ),
             },
@@ -585,7 +674,7 @@ def supervise(plan: SessionPlan, runtime: NativeRuntime | None = None) -> dict[s
             state = "user_cancelled"
         elif (
             progress.stop_observed_at is not None
-            and progress.stop_observed_at >= clock.deadline
+            and progress.stop_observed_at >= clock.deadline - STOP_MARGIN_SECONDS
             and progress.reason is not None
             and (
                 "wall time" in progress.reason.lower()
@@ -775,27 +864,73 @@ def worker(path: Path) -> None:
             )
             stream.flush()
 
+        evaluation = raw.get("evaluation")
+        extra: dict[str, Any] = {}
+        if evaluation is not None:
+            checkpoint = evaluation["checkpoint"]
+            extra = {
+                "eval_policy": evaluation["policy"],
+                "eval_checkpoint": None if checkpoint is None else Path(checkpoint),
+            }
         try:
             run_live(
                 LiveRunOptions(
-                    mode="train",
+                    mode="train" if evaluation is None else "evaluate",
                     out_dir=Path(raw["run_root"]),
                     config_path=Path(raw["config"]),
                     seed=raw["seed"],
                     steps=raw["steps"],
                     minutes=raw["seconds"] / 60,
-                    resume=raw.get("resume", True),
+                    resume=raw.get("resume", True) and evaluation is None,
                     max_faults=0,
                     connection_timeout=min(90, raw["seconds"]),
-                    session_deadline=payload["clock"]["deadline"],
+                    session_deadline=payload["clock"]["deadline"] - STOP_MARGIN_SECONDS,
                     stop_file=output / "stop.request",
                     require_initial_isaac=True,
+                    **extra,
                 ),
                 on_record=record,
             )
         except Exception as exc:
             record("fault", f"{type(exc).__name__}: {exc}")
             raise
+
+
+def _evaluate_main(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
+    """One frozen evaluation session; limits are derived like the time-only mode does."""
+    for name in ("config", "run_root", "output", "seconds"):
+        if getattr(args, name) is None:
+            parser.error(f"--{name.replace('_', '-')} is required with --evaluate")
+    if any(getattr(args, n) is not None for n in ("parent_id", "steps", "max_restarts")):
+        parser.error("--evaluate derives its limits; omit --parent-id, --steps and --max-restarts")
+    if args.time_budget_only:
+        parser.error("--evaluate is already time-bounded; omit --time-budget-only")
+    try:
+        spec = EvaluationSpec(args.evaluate, args.checkpoint and args.checkpoint.resolve())
+        validate_evaluation_root(args.run_root, spec)
+        config, _ = load_training_config(args.config.resolve())
+        if not isinstance(config, PureTrainingConfig):
+            raise ValueError("Evaluation needs a config version 2 (pure) profile")
+        plan = SessionPlan(
+            args.game.resolve(),
+            args.game_log.resolve(),
+            args.config.resolve(),
+            args.run_root.resolve(),
+            args.output.resolve(),
+            "",
+            config.seed if args.seed is None else args.seed,
+            args.seconds,
+            TIME_ONLY_STEPS,
+            0,  # unlimited New Run after death or stall, as in training
+            args.disk_bytes or config.budget.disk_limit_mb * 1_000_000,
+            resume=False,
+            evaluation=spec,
+        )
+    except ValueError as error:
+        parser.error(str(error))
+    result = supervise(plan)
+    print(json.dumps(result, indent=2))
+    return 1 if result["state"] == "fault" else 0
 
 
 def main() -> None:
@@ -816,9 +951,17 @@ def main() -> None:
     parser.add_argument("--max-restarts", type=int)
     parser.add_argument("--time-budget-only", action="store_true")
     parser.add_argument("--disk-bytes", type=int)
+    parser.add_argument(
+        "--evaluate",
+        choices=("checkpoint", "random"),
+        help="Frozen evaluation session; --run-root is the new evaluation output root",
+    )
+    parser.add_argument("--checkpoint", type=Path, help="Exact checkpoint directory to evaluate")
     args = parser.parse_args()
     if os.name != "nt":
         parser.error("Native Windows is required")
+    if args.forever and (args.evaluate is not None or args.checkpoint is not None):
+        parser.error("--evaluate runs one session; it cannot be combined with --forever")
     if args.forever:
         derived = ("parent_id", "seed", "seconds", "steps", "max_restarts", "output")
         if any(getattr(args, name) is not None for name in derived) or args.time_budget_only:
@@ -840,6 +983,10 @@ def main() -> None:
         raise SystemExit(1 if failed else 0)
     if args.initialize:
         parser.error("--initialize applies to --forever only")
+    if args.evaluate is not None:
+        raise SystemExit(_evaluate_main(parser, args))
+    if args.checkpoint is not None:
+        parser.error("--checkpoint applies to --evaluate checkpoint only")
     for name in ("config", "run_root", "output", "parent_id", "seed", "seconds", "disk_bytes"):
         if getattr(args, name) is None:
             parser.error(f"--{name.replace('_', '-')} is required without --forever")
@@ -851,6 +998,7 @@ def main() -> None:
         parser.error("Diagnostic mode requires --steps and --max-restarts")
     values = vars(args)
     values.pop("forever"), values.pop("initialize")
+    values.pop("evaluate"), values.pop("checkpoint")
     for key in ("game", "game_log", "config", "run_root", "output"):
         values[key] = values[key].resolve()
     result = supervise(SessionPlan(**values))

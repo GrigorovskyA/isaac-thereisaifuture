@@ -27,6 +27,7 @@ RewardContract = Literal["combat-v1", "pure-v6"]
 
 MANIFEST_NAME = "manifest.json"
 LATEST_POINTER = "latest.txt"
+PINNED_FILE = "pinned.txt"
 
 
 class CheckpointError(Exception):
@@ -177,6 +178,14 @@ def save_checkpoint(
             if parent.checkpoint_id != parent_checkpoint_id or timesteps <= parent.timesteps:
                 raise CheckpointError("Stale checkpoint parent or non-increasing timesteps")
             rollout_index = (parent.rollout_index or 0) + 1
+            # The last checkpoint before a hyperparameter change is the "before" point of
+            # that change; pin it so retention never removes it.
+            if (
+                parent.hyperparameters is not None
+                and hyperparameters is not None
+                and parent.hyperparameters != hyperparameters
+            ):
+                _pin(root, parent.checkpoint_id)
         elif any(
             path.is_dir() and not path.name.startswith(".pending-") for path in root.iterdir()
         ):
@@ -202,11 +211,28 @@ def save_checkpoint(
         return manifest
 
 
+def _pin(root: Path, checkpoint_id: str) -> None:
+    pinned = pinned_checkpoints(root)
+    if checkpoint_id not in pinned:
+        with (root / PINNED_FILE).open("a", encoding="utf-8") as stream:
+            stream.write(checkpoint_id + "\n")
+
+
+def pinned_checkpoints(root: Path) -> set[str]:
+    """Checkpoint ids that retention keeps forever (one per line in `pinned.txt`)."""
+    try:
+        text = (root / PINNED_FILE).read_text("utf-8")
+    except OSError:
+        return set()
+    return {line.strip() for line in text.splitlines() if line.strip()}
+
+
 def prune_checkpoints(root: Path, *, keep_latest: int, keep_every: int) -> list[str]:
     """Delete old checkpoints; keep the newest ones and every `keep_every`-th rollout.
 
-    The latest checkpoint and its parent are never deleted. Directories without a rollout
-    index (older lineages) and anything unreadable are left alone. Call under the writer lock.
+    The latest checkpoint, its parent and pinned checkpoints are never deleted. Directories
+    without a rollout index (older lineages) and anything unreadable are left alone. Call
+    under the writer lock.
     """
     if keep_latest < 2 or keep_every < 1:
         raise ValueError("Retention needs keep_latest >= 2 and keep_every >= 1")
@@ -222,7 +248,7 @@ def prune_checkpoints(root: Path, *, keep_latest: int, keep_every: int) -> list[
         index = raw.get("rollout_index") if isinstance(raw, dict) else None
         if isinstance(index, int):
             found[path.name] = (index, raw.get("parent_checkpoint_id"))
-    keep = {latest}
+    keep = {latest} | pinned_checkpoints(root)
     if latest in found and found[latest][1] is not None:
         keep.add(str(found[latest][1]))
     newest = sorted(found, key=lambda name: found[name][0], reverse=True)[:keep_latest]

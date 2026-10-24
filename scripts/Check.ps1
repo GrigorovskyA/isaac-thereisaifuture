@@ -9,8 +9,8 @@ function Invoke-PythonCheck {
 Push-Location $projectRoot
 try {
     if (-not (Test-Path -LiteralPath $python)) { throw 'Run scripts/Bootstrap.ps1 first.' }
-    Invoke-PythonCheck @('-m', 'ruff', 'check', 'src', 'tests', 'scripts/smoke_rl.py')
-    Invoke-PythonCheck @('-m', 'ruff', 'format', '--check', 'src', 'tests', 'scripts/smoke_rl.py')
+    Invoke-PythonCheck @('-m', 'ruff', 'check', 'src', 'tests', 'scripts/smoke_rl.py', 'scripts/compare_eval.py')
+    Invoke-PythonCheck @('-m', 'ruff', 'format', '--check', 'src', 'tests', 'scripts/smoke_rl.py', 'scripts/compare_eval.py')
     Invoke-PythonCheck @('-m', 'mypy')
     Invoke-PythonCheck @('-m', 'pytest', '-m', 'not game')
     Invoke-PythonCheck @('-m', 'pip', 'check')

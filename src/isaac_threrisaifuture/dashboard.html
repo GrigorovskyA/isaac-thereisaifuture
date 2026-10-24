@@ -77,6 +77,8 @@ th { color: var(--ink2); font-weight: 600; }
 .tablecard { margin-bottom: 12px; }
 .tablecard h2 { margin-bottom: 8px; }
 .data-table { max-height: 260px; overflow: auto; }
+.data-table.tall { max-height: 460px; }
+tr.thin td { color: var(--muted); }
 .empty { text-align: center; padding: 48px 16px; color: var(--ink2); }
 .empty h2 { color: var(--ink); margin-bottom: 8px; }
 code { background: var(--wash); padding: 1px 6px; border-radius: 4px; }
@@ -120,6 +122,7 @@ code { background: var(--wash); padding: 1px 6px; border-radius: 4px; }
       <div class="card empty" id="train-empty" hidden></div>
       <div class="grid" id="traingrid"></div>
     </section>
+    <section class="card tablecard"><h2>Progress by hour</h2><div class="subtitle" id="hourly-sub"></div><div class="data-table tall tablewrap" id="hourly"></div></section>
     <section class="card tablecard"><h2>Reward breakdown</h2><div class="subtitle" id="reward-sub"></div><div class="tablewrap" id="reward"></div></section>
     <section class="card tablecard"><h2>Recent episodes</h2><div class="subtitle">Last 20 episodes, newest first</div><div class="tablewrap" id="recent"></div></section>
   </div>
@@ -176,6 +179,8 @@ function ago(ms) {
 function nowServer() { return Date.now() + S.serverOffset; }
 
 // ---- data -------------------------------------------------------------------------------
+const num = (v) => (typeof v === "number" ? v : null);
+const SESSION_GAP_MS = 10 * 60 * 1000;
 const METRICS = [
   { key: "return", title: "Return" },
   { key: "damage_dealt_fraction", title: "Damage dealt" },
@@ -186,7 +191,31 @@ const METRICS = [
   { key: "half_hearts_lost", title: "Half-hearts lost per episode" },
   { key: "use_bomb", title: "Use presses per episode (bomb)", sub: "bomb key presses; active item and pill/card are in the table view",
     extra: [{ key: "use_active", name: "Active mean" }, { key: "use_pillcard", name: "Pill/card mean" }] },
+  { title: "Stall share", pct: true, sub: "share of episodes ended by the stall watchdog (90 s idle)",
+    get: (r) => (r.truncation_reason === "stall" ? 1 : 0) },
+  { title: "Left start room share", pct: true, sub: "share of episodes that visited more than one room",
+    get: (r) => (num(r.rooms_visited) === null ? null : r.rooms_visited > 1 ? 1 : 0) },
+  { title: "Kills per episode", key: "enemies_killed" },
+  { title: "Episodes with any damage dealt", pct: true, sub: "share of episodes with damage dealt above zero",
+    get: (r) => (num(r.damage_dealt_fraction) === null ? null : r.damage_dealt_fraction > 0 ? 1 : 0) },
+  { title: "Own-bomb hits per episode", key: "hits_own_bomb", sub: "table view adds enemy, projectile and spikes hits",
+    extra: [{ key: "hits_enemy", name: "Enemy mean" }, { key: "hits_projectile", name: "Projectile mean" }, { key: "hits_spikes", name: "Spikes mean" }] },
 ];
+function metricColumn(m) { return m.get ? S.rows.map((r) => m.get(r)) : column(m.key); }
+const pctv = (v) => (v === null || v === undefined ? "-" : trim(v * 100, 1) + "%");
+// Row indexes where the wall-clock gap to the previous row exceeds 10 minutes: a new session starts there.
+function sessionStarts(rows) {
+  const out = new Map();
+  let prev = NaN;
+  rows.forEach((r, i) => {
+    const t = Date.parse(r.wall_time || "");
+    if (isNaN(t)) return;
+    if (!isNaN(prev) && t - prev > SESSION_GAP_MS) out.set(i, t - prev);
+    prev = t;
+  });
+  return out;
+}
+const SESSION_NOTE = "dashed line = session boundary (gap over 10 min)";
 function column(key) { return S.rows.map((r) => (typeof r[key] === "number" ? r[key] : null)); }
 function rolling(vals, n) {
   const out = new Array(vals.length);
@@ -311,7 +340,8 @@ function lineCard(metric) {
   function draw() {
     const host = card.chart;
     if (host.hidden || !last) return;
-    const { xs, vals, roll } = last;
+    const { xs, vals, roll, bnd } = last;
+    const fv = metric.pct ? pctv : val;
     const w = Math.max(240, host.clientWidth), L = 46, R = 14, T = 10, B = 40;
     const pr = w - R, pb = H - B;
     const svg = sv("svg", { width: w, height: H, viewBox: `0 0 ${w} ${H}`, role: "img", tabindex: "0",
@@ -327,7 +357,9 @@ function lineCard(metric) {
     const xt = nice(xmin, xmax, Math.max(2, Math.floor((pr - L) / 90))).filter((t) => t >= xmin && t <= xmax)
       .map((t) => ({ pos: t, label: axisFmt(t) }));
     const g = sv("g");
-    axes(g, w, L, pr, T, pb, yt, y, xt, x, S.xmode === "episode" ? "Episode" : "Cumulative steps");
+    axes(g, w, L, pr, T, pb, yt, y, xt, x, S.xmode === "episode" ? "Episode" : "Cumulative steps", metric.pct ? (v) => trim(v * 100, 1) + "%" : undefined);
+    for (const i of bnd.keys())
+      g.appendChild(sv("line", { x1: x(xs[i]), x2: x(xs[i]), y1: T, y2: pb, stroke: "var(--muted)", "stroke-width": 1, "stroke-dasharray": "3 3" }));
     const n = vals.length, stride = Math.max(1, Math.ceil(n / 700));
     for (let i = 0; i < n; i += stride) if (vals[i] !== null)
       g.appendChild(sv("circle", { cx: x(xs[i]), cy: y(vals[i]), r: 1.8, fill: "var(--dot)" }));
@@ -340,7 +372,7 @@ function lineCard(metric) {
       const ex = x(xs[n - 1]), ey = y(roll[n - 1]);
       g.appendChild(sv("circle", { cx: ex, cy: ey, r: 4, fill: "var(--s1)", stroke: "var(--surface)", "stroke-width": 2 }));
       g.appendChild(sv("text", { x: ex - 8, y: ey - 9, "text-anchor": "end", fill: "var(--ink)", "font-size": 12, "font-weight": 600,
-        stroke: "var(--surface)", "stroke-width": 3, "paint-order": "stroke" }, val(roll[n - 1])));
+        stroke: "var(--surface)", "stroke-width": 3, "paint-order": "stroke" }, fv(roll[n - 1])));
     }
     const cross = sv("g", { visibility: "hidden" });
     const vline = sv("line", { y1: T, y2: pb, stroke: "var(--ink2)", "stroke-width": 1 });
@@ -358,10 +390,12 @@ function lineCard(metric) {
       dotV.setAttribute("cy", vals[i] === null ? -9 : y(vals[i]));
       cross.setAttribute("visibility", "visible");
       const row = S.rows[i], box = svg.getBoundingClientRect();
-      showTip(anchorEvent, `Episode ${(i + 1).toLocaleString("en-US")} · ${val(row.timesteps)} steps`, [
-        { key: "var(--s1)", value: val(roll[i]), label: `rolling mean (${S.win})` },
-        { key: "var(--muted)", value: val(vals[i]), label: "this episode" },
-      ], anchorEvent ? null : { x: box.left + px, y: box.top + T + 20 });
+      const rowsTip = [
+        { key: "var(--s1)", value: fv(roll[i]), label: `rolling mean (${S.win})` },
+        { key: "var(--muted)", value: fv(vals[i]), label: "this episode" },
+      ];
+      if (bnd.has(i)) rowsTip.push({ value: "Session boundary", label: `${ago(bnd.get(i))} gap before this episode` });
+      showTip(anchorEvent, `Episode ${(i + 1).toLocaleString("en-US")} · ${val(row.timesteps)} steps`, rowsTip, anchorEvent ? null : { x: box.left + px, y: box.top + T + 20 });
     }
     hit.addEventListener("pointermove", (e) => {
       const b = svg.getBoundingClientRect();
@@ -377,20 +411,23 @@ function lineCard(metric) {
     host.replaceChildren(svg);
   }
   function update(xs) {
-    const vals = column(metric.key), roll = rolling(vals, S.win);
-    last = { xs, vals, roll };
-    card.subtitle.textContent = (metric.sub ? metric.sub + "; " : "") + `rolling mean of ${S.win} episodes; dots = single episodes`;
+    const vals = metricColumn(metric), roll = rolling(vals, S.win), bnd = sessionStarts(S.rows);
+    last = { xs, vals, roll, bnd };
+    const fv = metric.pct ? pctv : val;
+    card.subtitle.textContent = (metric.sub ? metric.sub + "; " : "") + `rolling mean of ${S.win} episodes; dots = single episodes`
+      + (bnd.size ? "; " + SESSION_NOTE : "");
     const extras = (metric.extra || []).map((e) => column(e.key));
     // Table twin: one row per window, newest first.
     const rows = [], N = S.win;
     for (let end = vals.length; end > 0 && rows.length < 30; end -= N) {
       const from = Math.max(0, end - N);
       const slice = vals.slice(from, end).filter((v) => v !== null);
-      rows.push([`${from + 1}–${end}`, val(xs[end - 1]), val(slice.length ? slice.reduce((a, b) => a + b, 0) / slice.length : null),
-        val(slice.length ? Math.min(...slice) : null), val(slice.length ? Math.max(...slice) : null),
+      const mean = slice.length ? slice.reduce((a, b) => a + b, 0) / slice.length : null;
+      rows.push([`${from + 1}–${end}`, val(xs[end - 1]), fv(mean),
+        ...(metric.pct ? [] : [val(slice.length ? Math.min(...slice) : null), val(slice.length ? Math.max(...slice) : null)]),
         ...extras.map((c) => { const m = meanRange(c, from, end); return m === null ? "-" : trim(m, 2); })]);
     }
-    fillTable(card.table, ["Episodes", S.xmode === "episode" ? "Episode" : "Steps", "Mean", "Min", "Max", ...(metric.extra || []).map((e) => e.name)], rows);
+    fillTable(card.table, ["Episodes", S.xmode === "episode" ? "Episode" : "Steps", metric.pct ? "Share" : "Mean", ...(metric.pct ? [] : ["Min", "Max"]), ...(metric.extra || []).map((e) => e.name)], rows);
     draw();
   }
   return { root: card.root, update, draw };
@@ -499,6 +536,8 @@ function seriesCard(spec) {
       .map((t) => ({ pos: t, label: axisFmt(t) }));
     const g = sv("g");
     axes(g, w, L, pr, T, pb, yt, y, xt, x, "Timesteps", fmt);
+    for (const p of pts) if (p.gap)
+      g.appendChild(sv("line", { x1: x(p.x), x2: x(p.x), y1: T, y2: pb, stroke: "var(--muted)", "stroke-width": 1, "stroke-dasharray": "3 3" }));
     const n = pts.length, step = Math.max(1, Math.ceil(n / Math.max(50, pr - L)));
     let d = "";
     for (let i = 0; i < n; i += step) d += (d ? "L" : "M") + x(pts[i].x).toFixed(1) + " " + y(pts[i].v).toFixed(1);
@@ -522,8 +561,9 @@ function seriesCard(spec) {
       dot.setAttribute("cx", px); dot.setAttribute("cy", y(pts[i].v));
       cross.setAttribute("visibility", "visible");
       const box = svg.getBoundingClientRect();
-      showTip(ev, `Update ${(pts[i].i + 1).toLocaleString("en-US")} · ${compact(pts[i].x)} steps`,
-        [{ key: "var(--s1)", value: sig(pts[i].v), label: spec.name }], ev ? null : { x: box.left + px, y: box.top + T + 20 });
+      const rowsTip = [{ key: "var(--s1)", value: sig(pts[i].v), label: spec.name }];
+      if (pts[i].gap) rowsTip.push({ value: "Session boundary", label: `${ago(pts[i].gap)} gap before this update` });
+      showTip(ev, `Update ${(pts[i].i + 1).toLocaleString("en-US")} · ${compact(pts[i].x)} steps`, rowsTip, ev ? null : { x: box.left + px, y: box.top + T + 20 });
     }
     hit.addEventListener("pointermove", (e) => {
       const b = svg.getBoundingClientRect();
@@ -540,14 +580,22 @@ function seriesCard(spec) {
   }
   function update() {
     pts = [];
-    S.train.forEach((r, i) => { const v = spec.get(r); if (v !== null && typeof r.timesteps === "number") pts.push({ i, x: r.timesteps, v }); });
+    const bl = [...sessionStarts(S.train)];
+    let bi = 0;
+    S.train.forEach((r, i) => {
+      const v = spec.get(r);
+      if (v === null || typeof r.timesteps !== "number") return;
+      const p = { i, x: r.timesteps, v };
+      while (bi < bl.length && bl[bi][0] <= i) { p.gap = bl[bi][1]; bi++; }
+      pts.push(p);
+    });
+    card.subtitle.textContent = spec.sub + (bl.length ? "; " + SESSION_NOTE : "");
     const rows = pts.slice(-300).reverse().map((p) => [String(p.i + 1), compact(p.x), sig(p.v)]);
     fillTable(card.table, ["Update", "Timesteps", spec.name], rows);
     draw();
   }
   return { root: card.root, update, draw };
 }
-const num = (v) => (typeof v === "number" ? v : null);
 const TRAIN_SPECS = [
   { title: "Policy entropy", name: "policy entropy", sub: "higher = more random choices; falls as the policy commits",
     get: (r) => (num(r.entropy_loss) === null ? null : -r.entropy_loss) },
@@ -556,6 +604,9 @@ const TRAIN_SPECS = [
   { title: "Approx KL", name: "approx KL", sub: "how far each update moves the policy", get: (r) => num(r.approx_kl) },
   { title: "Value loss", name: "value loss", sub: "error of the value head", get: (r) => num(r.value_loss) },
   { title: "Clip fraction", name: "clip fraction", sub: "share of samples the PPO clip cut off", zero: true, get: (r) => num(r.clip_fraction) },
+  { title: "Standing still share", name: "move none share", sub: "share of rollout steps with no movement key pressed", zero: true, get: (r) => num(r.move_none) },
+  { title: "Not shooting share", name: "shoot none share", sub: "share of rollout steps with no shoot key pressed", zero: true, get: (r) => num(r.shoot_none) },
+  { title: "Policy gradient loss", name: "policy gradient loss", sub: "surrogate loss of the policy head", get: (r) => num(r.policy_gradient_loss) },
   { title: "Bomb share of use actions", name: "bomb share", sub: "share of rollout steps that pressed the bomb key", zero: true, get: (r) => num(r.use_bomb) },
 ];
 
@@ -642,11 +693,11 @@ function tile(label, value, sub, hero) {
   t.appendChild(s);
   return t;
 }
-function deltaNode(cur, prev, label, pct) {
+function deltaNode(cur, prev, label, pct, lowerBetter) {
   if (cur === null || prev === null) return "no previous window yet";
-  const d = cur - prev, dir = Math.abs(d) < 0.005 ? "flat" : d > 0 ? "up" : "down";
+  const d = cur - prev, flat = Math.abs(d) < 0.005, dir = flat ? "flat" : (d > 0) !== !!lowerBetter ? "up" : "down";
   const span = h("span", { class: "delta", "data-dir": dir },
-    (dir === "up" ? "▲ " : dir === "down" ? "▼ " : "● ") + (pct ? signed(d * 100, 0) + " pp" : signed(d, 2)));
+    (flat ? "● " : d > 0 ? "▲ " : "▼ ") + (pct ? signed(d * 100, 0) + " pp" : signed(d, 2)));
   const f = document.createDocumentFragment();
   f.append(span, document.createTextNode(" " + label));
   return f;
@@ -685,6 +736,8 @@ function renderTiles() {
   const ex = exitShare(n - N, n), exPrev = n >= 2 * N ? exitShare(n - 2 * N, n - N) : null;
   const bombs = column("use_bomb"), bc = meanRange(bombs, n - N, n), bp = n >= 2 * N ? meanRange(bombs, n - 2 * N, n - N) : null;
   const tp = throughput();
+  const stallShare = (from, to) => { let c = 0, k = 0; for (let i = Math.max(0, from); i < to && i < n; i++) { k++; if (S.rows[i].truncation_reason === "stall") c++; } return k ? c / k : null; };
+  const st = stallShare(n - N, n), stPrev = n >= 2 * N ? stallShare(n - 2 * N, n - N) : null;
   const tiles = $("tiles");
   tiles.replaceChildren(
     tile("Episodes", n.toLocaleString("en-US"), "completed so far", true),
@@ -693,12 +746,50 @@ function renderTiles() {
     tile("Rooms cleared per episode", cur === null ? "-" : trim(cur, 2), deltaNode(cur, prev, `vs previous ${N}`)),
     tile("Left start room", ex === null ? "-" : Math.round(ex * 100) + "%",
       ex === null ? "not recorded in this data" : deltaNode(ex, exPrev, `vs previous ${N}`, true)),
+    tile(`Stall share, latest ${Math.min(N, n)}`, st === null ? "-" : Math.round(st * 100) + "%", deltaNode(st, stPrev, `vs previous ${N}`, true, true)),
     tile("Bombs per episode", bc === null ? "-" : trim(bc, 2), bc === null ? "not recorded in this data" : deltaNode(bc, bp, `vs previous ${N}`)),
     tile("Steps per hour", tp ? compact(Math.round(tp.perHour)) : "-", tp ? `wall clock, last ${ago(tp.span)} of episodes` : "needs two episodes a minute apart"),
     tile(`Deaths vs stalls, last ${Math.min(N, n)}`, `${deaths} / ${stalls}`, "deaths / stall restarts"),
     tile("Latest checkpoint", ck ? ck.checkpoint_id : "none", ck
       ? `${ago(nowServer() - Date.parse(ck.created_at))} ago · rollout ${ck.rollout_index ?? "?"}` : "waiting for the first checkpoint", "id"),
   );
+}
+function hourStart(ms) { const d = new Date(ms); d.setMinutes(0, 0, 0); return d.getTime(); }
+function avg(a) { const v = a.filter((x) => x !== null && x !== undefined); return v.length ? v.reduce((s, x) => s + x, 0) / v.length : null; }
+// One row per local wall-clock hour of episode wall_time, newest first; train rows are matched by the same hour.
+function renderHourly() {
+  const MIN_EP = 10, MAX_ROWS = 48, groups = new Map(), tgroups = new Map();
+  for (const [src, dst] of [[S.rows, groups], [S.train, tgroups]]) {
+    for (const r of src) {
+      const t = Date.parse(r.wall_time || "");
+      if (isNaN(t)) continue;
+      const k = hourStart(t);
+      if (!dst.has(k)) dst.set(k, []);
+      dst.get(k).push(r);
+    }
+  }
+  const pad = (n) => String(n).padStart(2, "0"), pc = (v) => (v === null ? "-" : Math.round(v * 100) + "%"), f2 = (v) => (v === null ? "-" : v.toFixed(2));
+  const keys = [...groups.keys()].sort((a, b) => b - a).slice(0, MAX_ROWS);
+  const rows = keys.map((k) => {
+    const eps = groups.get(k), tr = tgroups.get(k) || [], d = new Date(k);
+    const share = (fn) => avg(eps.map(fn));
+    return { thin: eps.length < MIN_EP, cells: [
+      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:00` + (eps.length < MIN_EP ? " *" : ""),
+      String(eps.length),
+      pc(share((r) => (r.outcome === "terminated" ? 1 : 0))),
+      pc(share((r) => (r.truncation_reason === "stall" ? 1 : 0))),
+      pc(share((r) => (num(r.rooms_visited) === null ? null : r.rooms_visited > 1 ? 1 : 0))),
+      f2(avg(eps.map((r) => num(r.damage_dealt_fraction)))), f2(avg(eps.map((r) => num(r.enemies_killed)))),
+      f2(avg(eps.map((r) => num(r.rooms_cleared)))), f2(avg(eps.map((r) => num(r.half_hearts_lost)))),
+      f2(avg(eps.map((r) => num(r.return)))),
+      f2(avg(tr.map((r) => (num(r.entropy_loss) === null ? null : -r.entropy_loss)))),
+      f2(avg(tr.map((r) => num(r.explained_variance)))), String(tr.length),
+    ] };
+  });
+  $("hourly-sub").textContent = `Local time, newest first, latest ${MAX_ROWS} hours. * = fewer than ${MIN_EP} episodes, muted because the means are noisy. Entropy, explained variance and updates come from training rows in the same hour.`;
+  fillTable($("hourly"), ["Hour", "Episodes", "Death %", "Stall %", "Left start %", "Damage", "Kills", "Clears", "Half-hearts lost", "Return",
+    "Entropy", "Expl. variance", "Updates"], rows.map((r) => r.cells));
+  [...$("hourly").querySelectorAll("tbody tr")].forEach((tr, i) => { if (rows[i].thin) tr.className = "thin"; });
 }
 function renderReward() {
   const n = S.rows.length, N = S.win;
@@ -742,6 +833,7 @@ function statusInfo() {
   switch (sup.state) {
     case "training": case "checkpointing":
       return { tone: "good", icon: "✓", text: sup.state === "training" ? "Running: training" : "Running: checkpointing", running: true };
+    case "evaluating": return { tone: "good", icon: "✓", text: "Running: frozen evaluation", running: true };
     case "waiting": return { tone: "warning", icon: "!", text: "Waiting for the game", running: true };
     case "startup": return { tone: "warning", icon: "!", text: "Starting up", running: true };
     case "completed": return { tone: "warning", icon: "!", text: "Session finished, next starting", running: true };
@@ -809,6 +901,7 @@ function render(force) {
     const xs = xValues();
     cards.forEach((c) => c.update(xs));
     mix.update(xs);
+    renderHourly();
     renderReward();
     renderRecent();
     renderTrain();

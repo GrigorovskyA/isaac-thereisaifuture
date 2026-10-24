@@ -5,6 +5,8 @@ saves, resumes, follows the latest pointer, writes approvals or forces restarts.
 `live_loop_v1` approval is still required. One absolute monotonic deadline bounds listening,
 reset, paused waits, steps and reconnects; in-flight I/O may overrun it by the bounds documented
 in `LiveBackend` (ack 1 s, step wait 5 s). Results are descriptive pilot data, never a ranking.
+For pure lineages the supervised `session_runner --evaluate` (live mode `evaluate`) supersedes
+this runner: it uses the training protocol, stall watchdog and `episodes.csv`.
 """
 
 import json
