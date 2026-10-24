@@ -16,7 +16,14 @@
 ## 2. Verification
 
 - [x] 2.1 Full offline gate and strict OpenSpec validation (macOS).
-- [ ] 2.2 Native Windows: `scripts/Check.ps1`, then one evaluation session per
+- [x] 2.2 Native Windows: `scripts/Check.ps1`, then one evaluation session per
   checkpoint (t102400, t204800, t237568) and random, each ending `completed`
   with a non-empty `episodes.csv`, `runs/pure-v4` byte-identical afterwards, and the
   comparison table printed by `scripts/compare_eval.py`.
+
+  Windows gate: 1215 passed with Lua, no skips, strict OpenSpec 17/17. Successful
+  evaluations: t102400/t204800/t237568/random = 34/38/40/34 complete episodes,
+  all result states completed, learner exits 0, cleanup errors empty. All 77 files
+  in runs/pure-v4 and 825 tracked source files stayed byte-identical. Two refused
+  t237568 focus starts (zero episodes) are preserved and disclosed in
+  reports/2026-10-24-pure-v4-frozen-eval.md. Training remains stopped.

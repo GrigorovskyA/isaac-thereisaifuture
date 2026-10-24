@@ -11,6 +11,8 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 - Current native lineage: `pure-v4`, observation schema 5, reward contract `pure-v6`.
   The reward-v5 trial is preserved separately as `runs/pure-v4-pre`; it is not resumed.
 - Active changes, complete but unarchived:
+  - `frozen-checkpoint-evaluation`: Windows gate and native task 2.2 passed, four
+    hourly comparisons completed; [results](../reports/2026-10-24-pure-v4-frozen-eval.md).
   - `pure-v4-map-hazards-and-stall`: all GRID_WALL excluded, typed obstacles,
     room shape/minimap/stall clock, kill/hit metrics and training timings.
     Windows gate, deployment and bounded native task 2.3 passed after the wall fix.
@@ -107,26 +109,24 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Next
 
-1. Night run is stopped at ed954e0a-s1-t237568; do not resume without a new request.
-   gamma 0.998, gae_lambda 0.98, ent_coef 0.005 and pure-v6 remain unchanged.
-2. Frozen evaluation (Windows offline gate passed; native check pending; `openspec/changes/frozen-checkpoint-evaluation`):
-   `Start-Eval.cmd` / `session_runner --evaluate checkpoint|random` runs one supervised
-   session under the training protocol (action repeat 6, reward v6, stall 90 s) without
-   learning or checkpoint writes; `scripts/compare_eval.py` compares the eval roots.
-   Planned: one hour each for t102400, t204800, t237568 and random under
-   `runs/pure-v4-eval/<label>`. t55808 is no longer retained.
-3. Planned-lease rollover fix (Windows offline gate passed; 8-hour native rollover pending): the learner now stops
-   `STOP_MARGIN_SECONDS` (15 s) before the Lua lease expires, so the 8-hour rollover ends
-   `completed` instead of a transport fault.
-4. Retention: `keep_every` 200 -> 100 (about every 3.4 h); the checkpoint before each
-   hyperparameter change is pinned in `checkpoints/pinned.txt`. Lineage hash unchanged.
-5. Dashboard: stall share, start-room exits, kills, any-damage share, own-bomb hits,
-   standing-still and not-shooting shares, policy gradient loss, session boundaries and a
-   progress-by-hour table.
-6. After the evaluation: if later checkpoints beat earlier ones and random, continue
-   training with `watchdog.stall_seconds: 60`; otherwise revisit the reward (v7).
-7. The health-loss event label is always `enemy` (reward v6 penalises every source);
-   use the hits_* counters for sources. Keep old lineages and pure-v4-pre preserved.
+1. Training remains stopped at ed954e0a-s1-t237568; stop.forever is retained.
+   Do not resume or initialize. Reward pure-v6 and stall 90 s remain unchanged.
+2. [Frozen evaluation](../reports/2026-10-24-pure-v4-frozen-eval.md) passed:
+   t102400/t204800/t237568/random have 34/38/40/34 complete episodes, all completed,
+   exits 0, no faults/cleanup errors in those sessions; training root byte-identical.
+   Two earlier t237568 focus refusals with zero episodes are preserved separately.
+3. Comparison damage/episode: 1.931/0.511/1.464/1.702; clears total: 7/2/9/7.
+   All remain on stage 1. Later checkpoints are not consistently better than early
+   or random. The condition for continuing with stall 60 s is not demonstrated;
+   wait for the user decision about reward v7 or a further controlled experiment.
+4. STOP_MARGIN_SECONDS=15 produced clean completed one-hour deadlines; native
+   eight-hour rollover remains untested. Retention keep_every=100 and pre-tuning
+   checkpoint pinning passed offline tests, with no training save/prune during eval.
+5. Evaluation display can remain waiting after a long episode despite new rows;
+   record this status-transition issue separately, without altering tested runtime.
+   Dashboard views passed the offline gate; interactive acceptance was not run.
+6. Keep old lineages/pure-v4-pre preserved. Generic player_damaged event sources
+   are hardcoded enemy; use native hits_* counters for source aggregates.
 
 ## Navigation
 
