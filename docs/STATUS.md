@@ -1,6 +1,6 @@
 # Project status
 
-Updated 2026-10-23 (Europe/Amsterdam). Current state only; dated evidence is history.
+Updated 2026-10-24 (Europe/Amsterdam). Current state only; dated evidence is history.
 The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Direction
@@ -75,6 +75,20 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
   The rising stall share motivates the night-run hyperparameter change, not a
   contract/reward/model reset: gamma 0.995 -> 0.998, gae_lambda 0.95 -> 0.98.
 
+- The 12-hour night run ended by timer at 08:16:39 CEST on 24 October:
+  t55808 -> t237568 (+181760 saved steps, 355 rollout/checkpoint rows), 445 complete
+  episodes, 335 kills, 51 clears. Final model/normalizer load passed. Both learner
+  exits were 0 and cleanup_errors empty; all 816 tracked files stayed frozen.
+  Eight-hour rollover recorded one transport/budget fault, then resumed t176128;
+  final session fault=null. Training is stopped and stop.forever remains.
+- [Night analysis](../reports/2026-10-24-pure-v4-overnight.md): versus the preceding
+  118-episode continuation, stalls 67.8% -> 60.7%, damage 0.834 -> 1.032, kills
+  0.551 -> 0.753 per episode; clears nearly flat (0.110 -> 0.115), stage 2 never
+  reached. First/last three-hour blocks: stalls 48.3% -> 65.4%, exits 80.8% -> 66.3%.
+  Partial combat recovery, no sustained progression breakthrough. No kills/zero-damage
+  completed rows; bomb requests 5.26%, 23 fast deaths within 70 steps. Approximate
+  oracle-progress replay found no gap over two minutes in 443 fresh-run episodes.
+
 ## Verification
 
 - Current Windows gate: 1185 tests passed with Lua, no skips; mypy 31 files,
@@ -93,17 +107,16 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Next
 
-1. User authorized a 12-hour night continuation (43200 seconds) from the latest
-   ed954e0a-s1-t55808 without --initialize, with gamma 0.998 and gae_lambda 0.98.
-   ent_coef 0.005, reward, contract and other settings stay unchanged.
-2. Prepared wrapper: reports/local/pure-v4-night-20261023/Run-TwelveHour.ps1.
-   Actual timer: runs/pure-v4/supervisor/twelve-hour-timer.json. The new session
-   plan records the resume parent; the first saved manifest must confirm both
-   new hyperparameters. Session lease 28740 s permits the supervisor's 8-hour rollover.
-3. Keep the timer parent PowerShell open; disk cap 20,480,000,000 bytes, fault cap 5.
-   Observe the first 15 minutes, then do not intervene or edit the working copy
-   until shutdown. Native startup evidence stays in reports/local/pure-v4-night-20261023.
-4. Never initialize again for continuation or resume pure-v4-pre/older lineages.
+1. Night run is stopped at ed954e0a-s1-t237568; do not resume without a new request.
+   gamma 0.998, gae_lambda 0.98, ent_coef 0.005 and pure-v6 remain unchanged.
+2. Suggested next experiment, not launched: frozen comparisons of retained t102400,
+   t204800 and t237568 plus a random baseline under the same bounded protocol.
+   ROADMAP P2 improvement is not established by this observational night run.
+3. Review planned-lease rollover being classified as a transport fault separately.
+   Health-loss oracle events hardcode damage_source=enemy; use native hits_* counters
+   for source aggregates, not that generic event label for death-cause attribution.
+4. Keep old lineages and pure-v4-pre preserved. No game or training was launched
+   during analysis. Report and STATUS are the only tracked changes.
 
 ## Navigation
 
