@@ -54,7 +54,7 @@ creation and never on resume; learning may move it anywhere). Commands are bound
 session, epoch, room visit and frame; stale or replayed commands are refused and
 input is released on expiry, disconnect, fault and stop.
 
-## Reward v6 (`configs/reward-v6.yaml`)
+## Reward v7 (`configs/reward-v7.yaml`)
 
 | Term | Value | Rule |
 | --- | --- | --- |
@@ -62,17 +62,18 @@ input is released on expiry, disconnect, fault and stop.
 | First room clear | 10.0 | per (stage, room) per run |
 | First room visit | 3.0 | per (stage, room) per run; start room free |
 | First floor entry | 10.0 | per stage per run; start floor free |
-| Health lost | -1.0 per half-heart | |
+| Health lost | -0.5 per half-heart | |
 | Death | -10.0 | terminal |
-| Stall restart | -10.0 | once, on the final step of an episode truncated by the stall watchdog; never with death |
+| Stall restart | -5.0 | once, on the final step of an episode truncated by the stall watchdog; never with death |
 | Time | -0.005 per second | active time only |
 | Coin / bomb / key | 0.05 / 0.1 / 0.1 | only above the run's peak count; shared cap 3.0 per run |
 | New collectible | 2.0 | per item ID per run (reward v3 paid 1.0) |
 | Healing | 0.5 per half-heart | only up to health lost earlier in the run |
+| Stagnation | -0.1 per second | stall watchdog idle seconds past a 20 s grace, charged in the step that adds them; none after progress resets the clock, for a dead player or without a watchdog (at most -7.0 per episode with the 90 s limit) |
 | Novelty | 0.02 | first visit only, per (stage, room, 40-unit cell) per run (about 1.8 for a full 1x1 room) |
 
 There is no reward for using items; item value and synergies must show up through
-combat and progress. Ledger columns are logged separately. Reward v6 keeps the reward v5 coefficients and adds kill credit: a one-shot kill used to pay nothing, because an enemy that dies between snapshots only leaves the oracle list. The observer reports `killed` identities and the event deriver pays the remaining HP once (never more than max HP per enemy). Reward v5 equalled reward v4 except that a stall restart costs -10 (equal to death; was -5, which paid better than fighting in `pure-v3`). Reward v4 and v5 are archived. Reward v2 paid most
+combat and progress. Ledger columns are logged separately. Reward v7 equals reward v6 except for the stagnation cost, stall restart -5 (was -10) and health lost -0.5 (was -1); the frozen evaluation showed pure-v4 policies stalling more than random play. Reward v6 keeps the reward v5 coefficients and adds kill credit: a one-shot kill used to pay nothing, because an enemy that dies between snapshots only leaves the oracle list. The observer reports `killed` identities and the event deriver pays the remaining HP once (never more than max HP per enemy). Reward v5 equalled reward v4 except that a stall restart costs -10 (equal to death; was -5, which paid better than fighting in `pure-v3`). Reward v4 to v6 are archived. Reward v2 paid most
 for idling (novelty grew like 2*sqrt(n) and a stall restart was free), so it
 was replaced and its lineage `pure-v1` retired; its config is in `archive/configs/`.
 

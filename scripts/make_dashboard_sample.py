@@ -136,6 +136,8 @@ def build(root: Path, episodes: int, seed: int, updates: int = 1000) -> None:
                 part = round(rng.gauss(0.5 * skill, 0.3), 3)
                 if name == "stall":
                     part = -5.0 if stall else 0.0
+                elif name == "stagnation":
+                    part = -7.0 if stall else 0.0
                 elif name in ("damage_taken", "death", "time"):
                     part = -abs(part) - 0.2
                 row[f"col_{name}"] = part
@@ -155,7 +157,7 @@ def build(root: Path, episodes: int, seed: int, updates: int = 1000) -> None:
         timesteps=total_steps,
         parent_checkpoint_id=None,
         rng_state={},
-        reward_contract="pure-v6",
+        reward_contract="pure-v7",
         hyperparameters={"learning_rate": 3e-4, "n_steps": 2048, "synthetic": True},
     )
     session = root / "supervisor" / "session-synthetic-0001"

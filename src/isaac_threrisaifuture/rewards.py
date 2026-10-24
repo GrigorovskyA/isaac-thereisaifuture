@@ -13,6 +13,7 @@ import yaml
 
 from .entities import EntityFrame, OracleEvent
 from .env import UPDATES_PER_SECOND
+from .stall_watchdog import DEFAULT_STALL_SECONDS
 
 DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "configs" / "reward-v1.yaml"
 _KEYS = (
@@ -127,9 +128,11 @@ class RewardLedger:
             parts["death"] += c.death
 
 
-DEFAULT_CONFIG_V6 = Path(__file__).resolve().parents[2] / "configs" / "reward-v6.yaml"
-# The same ledger pays all three: v5 changed stall_restart, v6 adds kill credit in the deriver.
-REWARD_V4_VERSIONS = (4, 5, 6)
+DEFAULT_CONFIG_V7 = Path(__file__).resolve().parents[2] / "configs" / "reward-v7.yaml"
+# The same ledger pays v4-v7: v5 changed stall_restart, v6 adds kill credit in the deriver and
+# v7 adds the stagnation cost (the only version with a `stagnation` section).
+REWARD_V4_VERSIONS = (4, 5, 6, 7)
+STAGNATION_VERSION = 7
 REWARD_V4_COLUMNS = (
     "enemy_damage",
     "room_clear",
@@ -145,6 +148,7 @@ REWARD_V4_COLUMNS = (
     "heal",
     "novelty",
     "stall",
+    "stagnation",
 )
 _V4_SECTIONS: dict[str, tuple[str, ...]] = {
     "outcome": (
@@ -167,6 +171,7 @@ _V4_SECTIONS: dict[str, tuple[str, ...]] = {
     ),
     "novelty": ("coefficient", "cell_size"),
 }
+_STAGNATION_KEYS = ("per_second", "grace_seconds")
 
 
 @dataclass(frozen=True)
@@ -187,21 +192,27 @@ class RewardV4Coefficients:
     heal_half_heart: float
     novelty_coefficient: float
     novelty_cell_size: float
+    stagnation_per_second: float = 0.0
+    stagnation_grace_seconds: float = 0.0
 
     def __post_init__(self) -> None:
         if self.consumable_run_cap < 0 or self.novelty_cell_size <= 0:
             raise ValueError("The consumable cap must be >= 0 and the novelty cell size positive")
+        if self.stagnation_grace_seconds < 0:
+            raise ValueError("The stagnation grace period must be >= 0")
 
     @classmethod
-    def load(cls, path: Path = DEFAULT_CONFIG_V6) -> Self:
+    def load(cls, path: Path = DEFAULT_CONFIG_V7) -> Self:
         raw: Any = yaml.safe_load(path.read_text(encoding="utf-8"))
         top = {"reward_version", "status", *_V4_SECTIONS}
+        if isinstance(raw, dict) and raw.get("reward_version") == STAGNATION_VERSION:
+            top.add("stagnation")  # required for v7, forbidden for v4-v6
         if (
             not isinstance(raw, dict)
             or set(raw) != top
             or raw["reward_version"] not in REWARD_V4_VERSIONS
         ):
-            raise ValueError(f"Reward v4/v5/v6 configuration must define exactly {sorted(top)}")
+            raise ValueError(f"Reward v4-v7 configuration must define exactly {sorted(top)}")
         values: dict[str, float] = {}
         for name, keys in _V4_SECTIONS.items():
             section = raw[name]
@@ -212,6 +223,15 @@ class RewardV4Coefficients:
                 if isinstance(value, bool) or not isinstance(value, (int, float)):
                     raise ValueError(f"{name}.{key} must be a number")
                 values[f"novelty_{key}" if name == "novelty" else key] = float(value)
+        if "stagnation" in raw:
+            section = raw["stagnation"]
+            if not isinstance(section, dict) or set(section) != set(_STAGNATION_KEYS):
+                raise ValueError(f"The stagnation section must define exactly {_STAGNATION_KEYS}")
+            for key in _STAGNATION_KEYS:
+                value = section[key]
+                if isinstance(value, bool) or not isinstance(value, (int, float)):
+                    raise ValueError(f"stagnation.{key} must be a number")
+                values[f"stagnation_{key}"] = float(value)
         return cls(**values)
 
 
@@ -224,6 +244,8 @@ class RewardLedgerV4:
     """
 
     coefficients: RewardV4Coefficients
+    stall_seconds: float = DEFAULT_STALL_SECONDS
+    _stagnation_paid: float = 0.0
     _run: tuple[str, int] | None = None
     # Room indexes repeat on every floor, so rooms are keyed by (stage, room index).
     _visited: set[tuple[int, int]] = field(default_factory=set)
@@ -260,6 +282,7 @@ class RewardLedgerV4:
         for table in (self._peak, self._initial_hp, self._removed):
             table.clear()
         self._consumable_paid = self._lost = self._damage_fraction = 0.0
+        self._stagnation_paid = 0.0
         self._max_stage = frame.room.stage
         self._pickups = dict.fromkeys(("coin", "bomb", "key", "collectible"), 0.0)
         # The start room, start floor and starting items are baseline, never rewarded.
@@ -304,6 +327,24 @@ class RewardLedgerV4:
         A dead player was not stalled, so death never pays it.
         """
         return 0.0 if self._dead else self.coefficients.stall_restart
+
+    def stagnation(self, before: float, after: float) -> float:
+        """Cost of the idle seconds a step added past the grace period.
+
+        A step whose clock went down (new progress) pays nothing; neither does a dead player.
+        """
+        c = self.coefficients
+        if self._dead or c.stagnation_per_second == 0.0:
+            return 0.0
+        grace = c.stagnation_grace_seconds
+        added = max(0.0, after - grace) - max(0.0, before - grace)
+        cost = c.stagnation_per_second * max(0.0, added)
+        # One run-wide allowance: clock resets never replenish it, and the last
+        # snapshot may overshoot the watchdog limit by part of a step.
+        floor = c.stagnation_per_second * max(0.0, self.stall_seconds - grace)
+        cost = max(cost, min(0.0, floor - self._stagnation_paid))
+        self._stagnation_paid += cost
+        return cost
 
     def run_stats(self) -> dict[str, Any]:
         """Run-level facts for the episode summary."""

@@ -149,7 +149,7 @@ def test_latest_checkpoint_is_read_from_a_real_save(served):
     manifest = save_checkpoint(
         root, model=Artifact(), vec_normalize=Artifact(), algorithm="RecurrentPPO",
         cfg_hash="a" * 64, seed=3, timesteps=4096, parent_checkpoint_id=None, rng_state={},
-        reward_contract="pure-v6", hyperparameters={"learning_rate": 0.001},
+        reward_contract="pure-v7", hyperparameters={"learning_rate": 0.001},
     )  # fmt: skip
     ckpt = get(base, "/api/state")["latest_checkpoint"]
     assert ckpt["checkpoint_id"] == manifest.checkpoint_id and ckpt["timesteps"] == 4096

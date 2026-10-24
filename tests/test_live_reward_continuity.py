@@ -159,7 +159,7 @@ def test_legacy_manifest_stays_readable_but_mismatched_resume_has_no_env(tmp_pat
         == "combat-v1"
     )
     calls = []
-    with pytest.raises(CheckpointError, match="combat-v1 != pure-v6"):
+    with pytest.raises(CheckpointError, match="combat-v1 != pure-v7"):
         train(
             cfg,
             digest,
@@ -167,7 +167,7 @@ def test_legacy_manifest_stays_readable_but_mismatched_resume_has_no_env(tmp_pat
             env_factory=lambda _: calls.append("created"),
             out_dir=tmp_path,
             resume=True,
-            reward_contract="pure-v6",
+            reward_contract="pure-v7",
         )
     assert not calls and path.read_bytes() == original
     assert (root / "latest.txt").read_text() == "legacy"
@@ -175,13 +175,13 @@ def test_legacy_manifest_stays_readable_but_mismatched_resume_has_no_env(tmp_pat
 
 
 def test_matching_reward_contract_loads_and_wrong_contract_rejects(tmp_path):
-    saved = write_checkpoint(tmp_path / "new", reward_contract="pure-v6")
+    saved = write_checkpoint(tmp_path / "new", reward_contract="pure-v7")
     assert (
         load_checkpoint(
             tmp_path / "new",
             expected_config_hash=saved.config_hash,
             expected_seed=7,
-            expected_reward_contract="pure-v6",
+            expected_reward_contract="pure-v7",
         )
         == saved
     )
@@ -194,7 +194,7 @@ def test_matching_reward_contract_loads_and_wrong_contract_rejects(tmp_path):
         )
 
 
-@pytest.mark.parametrize("contract", ["combat-v1", "pure-v6"])
+@pytest.mark.parametrize("contract", ["combat-v1", "pure-v7"])
 def test_checkpoint_save_persists_reward_contract_and_parent(tmp_path, contract):
     class Artifact:
         def save(self, path):
@@ -220,3 +220,16 @@ def test_checkpoint_save_persists_reward_contract_and_parent(tmp_path, contract)
     )
     assert loaded.reward_contract == contract and loaded.parent_checkpoint_id == "parent"
     assert (tmp_path / "latest.txt").read_text() == saved.checkpoint_id
+
+
+def test_pure_v6_checkpoints_are_refused_under_pure_v7(tmp_path):
+    saved = write_checkpoint(tmp_path / "new", reward_contract="pure-v7")
+    manifest = tmp_path / "new" / "manifest.json"
+    manifest.write_text(manifest.read_text("utf-8").replace("pure-v7", "pure-v6"), "utf-8")
+    with pytest.raises(CheckpointError, match="Invalid checkpoint manifest"):
+        load_checkpoint(
+            tmp_path / "new",
+            expected_config_hash=saved.config_hash,
+            expected_seed=7,
+            expected_reward_contract="pure-v7",
+        )

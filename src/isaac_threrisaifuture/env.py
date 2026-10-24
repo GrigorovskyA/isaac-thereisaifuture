@@ -70,6 +70,8 @@ class StateAwareAccountant(RewardAccountant, Protocol):
 
     def stall_restart(self) -> float: ...
 
+    def stagnation(self, before: float, after: float) -> float: ...
+
 
 class IsaacCombatEnv(gym.Env[NDArray[np.float32], NDArray[np.int64]]):
     metadata: dict[str, Any] = {"render_modes": []}
@@ -96,6 +98,11 @@ class IsaacCombatEnv(gym.Env[NDArray[np.float32], NDArray[np.int64]]):
         self._columns: dict[str, float] = {}
         self._facts = _new_facts()
         self._start_room: int | None = None
+        self._idle_seconds = 0.0  # stall watchdog idle clock at the previous step
+
+    def _backend_idle_seconds(self) -> float:
+        """Idle clock of the stall watchdog; backends without one report 0.0."""
+        return float(getattr(self.controller.backend, "stall_idle_seconds", 0.0))
 
     def request_truncation(self, reason: str) -> None:
         """Truncate the running episode after its next step; the reason reaches step info."""
@@ -116,6 +123,7 @@ class IsaacCombatEnv(gym.Env[NDArray[np.float32], NDArray[np.int64]]):
         self._columns = {}
         self._facts = _new_facts()
         self._start_room = transition.room_index
+        self._idle_seconds = self._backend_idle_seconds()
         if self.accountant is not None:
             self.accountant.reset(transition.episode_id)
             if isinstance(self.accountant, StateAwareAccountant):
@@ -146,6 +154,12 @@ class IsaacCombatEnv(gym.Env[NDArray[np.float32], NDArray[np.int64]]):
                 )
             else:
                 reward, components = self.accountant.consume(transition.events, elapsed)
+            idle = self._backend_idle_seconds()
+            if isinstance(self.accountant, StateAwareAccountant):
+                stagnation = self.accountant.stagnation(self._idle_seconds, idle)
+                reward += stagnation
+                components = {**components, "stagnation": stagnation}
+            self._idle_seconds = idle
             if (
                 transition.truncated
                 and transition.truncation_reason == "stall"

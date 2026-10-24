@@ -27,7 +27,8 @@ lineage `pure-v4`, `docs/UPDATE_DECISION.md`):
   supervisor (`session_runner --forever`) may run bounded sessions back to back,
   each within the Lua lease (8 h), always resuming `latest`. Lineages `pure-v1` (reward v2),
   `pure-v2` (schema 3, reward v3, action repeat 3) and `pure-v3` (schema 4, reward v4) are preserved on disk and are not
-  resumed (their contracts differ).
+  resumed (their contracts differ). The reward v6 run of `pure-v4` is kept as
+  `runs/pure-v4-reward-v6`; `pure-v4` restarts with reward v7 (`--initialize`).
 - New Run after death and after a stall-watchdog restart is authorized without a
   count limit (approval `max_restarts` 0). Restart pacing still applies.
 - Sessions stop on the stop file, Ctrl+C, the disk cap or the consecutive

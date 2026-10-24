@@ -8,9 +8,11 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 - Pure self-learning since 2026-10-22 ([decision](UPDATE_DECISION.md)). RecurrentPPO
   learns from raw facts and outcome rewards only: no scripted setup, advice features
   or technique rewards. Archive content is history, not runtime authority.
-- Current native lineage: `pure-v4`, observation schema 5, reward contract `pure-v6`.
-  The reward-v5 trial is preserved separately as `runs/pure-v4-pre`; it is not resumed.
+- Current native lineage: `pure-v4`, observation schema 5, reward contract `pure-v7` (implemented offline, not yet
+  run natively). The reward-v5 trial is preserved separately as `runs/pure-v4-pre`; it is not resumed.
 - Active changes, complete but unarchived:
+  - `stagnation-cost-reward-v7`: implemented offline (tasks 1.1-1.4, 2.1); Windows
+    gate passed; native one-hour task 2.2 pending, eight-hour acceptance 2.3 open.
   - `frozen-checkpoint-evaluation`: Windows gate and native task 2.2 passed, four
     hourly comparisons completed; [results](../reports/2026-10-24-pure-v4-frozen-eval.md).
   - `pure-v4-map-hazards-and-stall`: all GRID_WALL excluded, typed obstacles,
@@ -36,16 +38,17 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 - Action 2: MultiDiscrete([5,5,4]), held for six updates (0.2 s). Use none/bomb/
   active/pill-card; fresh use-head prior P(none)=0.85. Requested use is not proof
   of a visible effect.
-- Reward: `configs/reward-v6.yaml`, semantic contract `pure-v6`, v5 coefficients
-  plus remaining-HP kill credit. Enemy damage 5, first clear 10, first room 3,
-  new collectible 2, lost half-heart -1, death -10, stall -10 once without death.
+- Reward: `configs/reward-v7.yaml`, semantic contract `pure-v7`: v6 (v5 coefficients
+  plus kill credit) with lost half-heart -0.5, stall -5 once without death and a
+  stagnation cost -0.1 per idle second past 20 s (episode stagnation cap -7.0 plus stall -5).
+  Enemy damage 5, first clear 10, first room 3, new collectible 2, death -10.
   The generic manifest reward_schema_version=1 is separate from reward_contract.
 - Episode = run. Death terminates; 90 active seconds without run-new progress
   truncates and restarts. Revisited rooms/regained counters do not reset progress.
 - `configs/training-pure-v4.yaml`: gamma 0.998, gae_lambda 0.98, ent_coef 0.005, seed 1;
   contract hash
-  `ed954e0a5f2b064fc11634396f612bae4497fa4d2bddda5d6e16914ca67fe792`.
-  Observation 5/action 2/reward contract pure-v6 must match. Earlier contracts refused.
+  `d62dc21baf19941b0484e857f2124e8fbffb3d564ab9763a2e13619230c63bc4`
+  (reward v6: `ed954e0a...`). Observation 5/action 2/reward contract pure-v7 must match. Earlier contracts refused.
 - Supervisor: `Start-Pure.cmd`, `runs/pure-v4`, unlimited death/stall New Runs,
   five consecutive faults maximum, disk cap 20,480,000,000 bytes; session lease
   28740 seconds. A timer-owned stop.forever bounds the authorized continuation.
@@ -59,42 +62,17 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
   [gamma-test report](../reports/2026-10-23-pure-v3-gamma-test.md).
 - Reward-v5 pure-v4 trial: final 9aab0d2d-s1-t18432, preserved in runs/pure-v4-pre.
   It showed uncredited one-shot kills and narrow-room walls. No deletion or model
-  migration; old checkpoints are incompatible with pure-v6.
-- Fresh reward-v6 pure-v4 initialized once at source 7be28a4 after preserving the
-  trial. Qualification ended at ed954e0a-s1-t3072: six saved rollout checkpoints,
-  nine complete episodes (six deaths, three stalls), nine kills, two clears.
-  A tenth episode was interrupted; partial rollout work is not in the saved model.
-  Model and normalizer loaded successfully and produced a valid recorded-frame action.
-- Qualification ended cleanly at 16:38:10 CEST: learner_exit=0, fault=null,
-  cleanup_errors=[], no owned game/learner/supervisor/listener/approval remained.
-  All 815 tracked files stayed unchanged throughout the native session.
-- The planned four-hour continuation was stopped early by the user after 3 h 28 m
-  44 s, at ed954e0a-s1-t55808 (20:11:46 CEST). Result: user_cancelled,
-  learner_exit=0, fault=null, cleanup_errors=[]; Isaac/supervisor/learner stopped.
-  Completed episode rows in UTC hours 14-17 confirm: stall share 0.39/0.58/0.70/0.81,
-  death share 0.61 -> 0.19, damage fraction about 1.0-1.3 -> 0.57. One-shot kills
-  are credited; no completed episodes with kills > 0 and zero damage.
-  The rising stall share motivates the night-run hyperparameter change, not a
-  contract/reward/model reset: gamma 0.995 -> 0.998, gae_lambda 0.95 -> 0.98.
-
-- The 12-hour night run ended by timer at 08:16:39 CEST on 24 October:
-  t55808 -> t237568 (+181760 saved steps, 355 rollout/checkpoint rows), 445 complete
-  episodes, 335 kills, 51 clears. Final model/normalizer load passed. Both learner
-  exits were 0 and cleanup_errors empty; all 816 tracked files stayed frozen.
-  Eight-hour rollover recorded one transport/budget fault, then resumed t176128;
-  final session fault=null. Training is stopped and stop.forever remains.
-- [Night analysis](../reports/2026-10-24-pure-v4-overnight.md): versus the preceding
-  118-episode continuation, stalls 67.8% -> 60.7%, damage 0.834 -> 1.032, kills
-  0.551 -> 0.753 per episode; clears nearly flat (0.110 -> 0.115), stage 2 never
-  reached. First/last three-hour blocks: stalls 48.3% -> 65.4%, exits 80.8% -> 66.3%.
-  Partial combat recovery, no sustained progression breakthrough. No kills/zero-damage
-  completed rows; bomb requests 5.26%, 23 fast deaths within 70 steps. Approximate
-  oracle-progress replay found no gap over two minutes in 443 fresh-run episodes.
+  migration; old checkpoints are incompatible with pure-v7.
+- Reward-v6 pure-v4 run (initialized at source 7be28a4): qualification, a 3 h 28 m
+  continuation and a 12-hour night run ended cleanly at ed954e0a-s1-t237568
+  (445 night episodes, 51 clears, stage 2 never reached; stall share rose 48% ->
+  65%). Its directory is to be kept as `runs/pure-v4-reward-v6`. Training is stopped
+  and stop.forever remains. [Night analysis](../reports/2026-10-24-pure-v4-overnight.md).
 
 ## Verification
 
-- Current Windows gate: 1215 tests passed with Lua, no skips; mypy 31 files,
-  lint/format/pip clean, strict OpenSpec 17/17. Synthetic CPU smoke passed:
+- Current Windows gate: 1233 tests passed with Lua, no skips; mypy 31 files,
+  lint/format/pip clean, strict OpenSpec 18/18. Synthetic CPU smoke passed:
   16 steps, 3499 inputs, [5,5,4] actions. Synthetic smoke is not gameplay evidence.
 - Closed-game deployment hashes matched source and user-provided values:
   Lua 5e9352154a38ea4ad6b6d219d463993493cb676ba432f04fd2f3372853470315,
@@ -109,23 +87,20 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Next
 
-1. Training remains stopped at ed954e0a-s1-t237568; stop.forever is retained.
-   Do not resume or initialize. Reward pure-v6 and stall 90 s remain unchanged.
-2. [Frozen evaluation](../reports/2026-10-24-pure-v4-frozen-eval.md) passed:
-   t102400/t204800/t237568/random have 34/38/40/34 complete episodes, all completed,
-   exits 0, no faults/cleanup errors in those sessions; training root byte-identical.
-   Two earlier t237568 focus refusals with zero episodes are preserved separately.
-3. Comparison damage/episode: 1.931/0.511/1.464/1.702; clears total: 7/2/9/7.
-   All remain on stage 1. Later checkpoints are not consistently better than early
-   or random. The condition for continuing with stall 60 s is not demonstrated;
-   wait for the user decision about reward v7 or a further controlled experiment.
-4. STOP_MARGIN_SECONDS=15 produced clean completed one-hour deadlines; native
-   eight-hour rollover remains untested. Retention keep_every=100 and pre-tuning
-   checkpoint pinning passed offline tests, with no training save/prune during eval.
-5. Evaluation display can remain waiting after a long episode despite new rows;
-   record this status-transition issue separately, without altering tested runtime.
-   Dashboard views passed the offline gate; interactive acceptance was not run.
-6. Keep old lineages/pure-v4-pre preserved. Generic player_damaged event sources
+1. Training is stopped (last checkpoint ed954e0a-s1-t237568); stop.forever is retained.
+   Reward v7 is implemented offline only. Windows `scripts/Check.ps1` is pending, then
+   rename `runs\pure-v4` to `runs\pure-v4-reward-v6` and run one native one-hour
+   session with `--initialize` (change tasks 2.2). No resume of reward-v6 checkpoints.
+2. Why v7: the [frozen evaluation](../reports/2026-10-24-pure-v4-frozen-eval.md)
+   (t102400/t204800/t237568/random, 34/38/40/34 episodes) showed no checkpoint
+   better than random: stall share 62/74/53% vs 41%, damage fraction 1.93/0.51/1.46
+   vs 1.70, all on stage 1. Acceptance after 8 h: stall share below 41% and damage
+   fraction at least 1.70.
+3. STOP_MARGIN_SECONDS=15 produced clean one-hour deadlines; native eight-hour
+   rollover is untested. Evaluation display can stay waiting after a long episode
+   (record separately). Dashboard views passed the offline gate, interactive
+   acceptance was not run.
+4. Keep old lineages and pure-v4-pre preserved. Generic player_damaged event sources
    are hardcoded enemy; use native hits_* counters for source aggregates.
 
 ## Navigation

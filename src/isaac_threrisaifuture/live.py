@@ -43,7 +43,7 @@ from .observation import (
     decode,
 )
 from .observer_client import ObservationClient, ObserverConfig
-from .stall_watchdog import RunProgress, StallWatchdog
+from .stall_watchdog import DEFAULT_STALL_SECONDS, RunProgress, StallWatchdog
 
 __all__ = ["LiveCommandAck", "LiveOracle", "LiveSnapshot", "OracleEnemy"]
 
@@ -51,7 +51,7 @@ APPROVAL_NAME = "action_authorization.json"
 TRAINING_MAX_SECONDS = 28800  # mirrors Config.training_max_seconds in main.lua
 MAX_RESTARTS = 5000
 MAX_REWARD_IDENTITIES = 4096
-LIVE_REWARD_CONTRACT: Literal["pure-v6"] = "pure-v6"
+LIVE_REWARD_CONTRACT: Literal["pure-v7"] = "pure-v7"
 _CONSUMABLES: tuple[Literal["coin", "bomb", "key"], ...] = ("coin", "bomb", "key")
 SNAPSHOT_BACKLOG = 512
 ACK_TIMEOUT = 1.0
@@ -358,7 +358,7 @@ class EventDeriver:
         self._derive_level(snap, emit)
         health = frame.health.red_half_hearts + frame.health.soul_half_hearts
         if self._health is not None and health < self._health:
-            # Every health loss is charged as "enemy": reward v6 penalises all sources alike.
+            # Every health loss is charged as "enemy": reward v7 penalises all sources alike.
             # The oracle hits_* counters, not this label, tell the real source.
             emit("player_damaged", amount=float(self._health - health), damage_source="enemy")
         elif self._health is not None and health > self._health:
@@ -579,6 +579,11 @@ class LiveBackend:
             return 0.0
         return min(max(self.watchdog.idle_seconds / self.watchdog.stall_seconds, 0.0), 1.0)
 
+    @property
+    def stall_idle_seconds(self) -> float:
+        """Idle seconds on the stall watchdog's clock; 0 without one."""
+        return 0.0 if self.watchdog is None else self.watchdog.idle_seconds
+
     def episode_oracle_stats(self) -> dict[str, int]:
         """Kills and player hits by source since the episode start (metrics only).
 
@@ -773,12 +778,12 @@ def make_live_env(
     oracle_sink: Callable[[OracleEvent], None] | None = None,
     run_deadline: float | None = None,
     stop_file: Path | None = None,
-    reward_version: int = 6,
+    reward_version: int = 7,
     stall_seconds: float | None = None,
     clock: Callable[[], float] = time.monotonic,
     max_consecutive_faults: int | None = None,
 ) -> FaultTolerantEnv:
-    """Live env; the pure profile pays reward v6 (v1 stays selectable for old comparisons).
+    """Live env; the pure profile pays reward v7 (v1 stays selectable for old comparisons).
 
     With `stall_seconds`, a stall truncates the episode with reason `stall` and sends
     one restart command. Leave it unset for attach-only runs such as evaluation.
@@ -786,11 +791,14 @@ def make_live_env(
     from .env import IsaacCombatEnv, RewardAccountant
     from .rewards import CombatCoefficients, RewardLedger, RewardLedgerV4, RewardV4Coefficients
 
-    if reward_version not in (1, 6):
-        raise ValueError(f"Unsupported reward version {reward_version}; use 1 or 6")
+    if reward_version not in (1, 7):
+        raise ValueError(f"Unsupported reward version {reward_version}; use 1 or 7")
     accountant: RewardAccountant = (
-        RewardLedgerV4(RewardV4Coefficients.load())
-        if reward_version == 6
+        RewardLedgerV4(
+            RewardV4Coefficients.load(),
+            stall_seconds=DEFAULT_STALL_SECONDS if stall_seconds is None else stall_seconds,
+        )
+        if reward_version == 7
         else RewardLedger(CombatCoefficients.load())
     )
 
@@ -1018,7 +1026,7 @@ def _train_run(
             stop_file=options.stop_file,
             reward_version=config.contract.reward_version
             if isinstance(config, PureTrainingConfig)
-            else 6,
+            else 7,
             stall_seconds=config.watchdog.stall_seconds
             if isinstance(config, PureTrainingConfig)
             else None,
