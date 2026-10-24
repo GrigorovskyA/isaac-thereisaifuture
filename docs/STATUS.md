@@ -8,11 +8,10 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 - Pure self-learning since 2026-10-22 ([decision](UPDATE_DECISION.md)). RecurrentPPO
   learns from raw facts and outcome rewards only: no scripted setup, advice features
   or technique rewards. Archive content is history, not runtime authority.
-- Current native lineage: `pure-v4`, observation schema 5, reward contract `pure-v7` (implemented offline, not yet
-  run natively). The reward-v5 trial is preserved separately as `runs/pure-v4-pre`; it is not resumed.
+- Current native lineage: `pure-v4`, observation schema 5, reward contract `pure-v7`; one-hour native qualification passed. The reward-v5 trial is preserved separately as `runs/pure-v4-pre`; it is not resumed.
 - Active changes, complete but unarchived:
-  - `stagnation-cost-reward-v7`: implemented offline (tasks 1.1-1.4, 2.1); Windows
-    gate passed; native one-hour task 2.2 pending, eight-hour acceptance 2.3 open.
+  - `stagnation-cost-reward-v7`: Windows gate and one-hour native task 2.2 passed;
+    [qualification report](../reports/2026-10-24-pure-v7-one-hour.md). Eight-hour acceptance 2.3 remains open.
   - `frozen-checkpoint-evaluation`: Windows gate and native task 2.2 passed, four
     hourly comparisons completed; [results](../reports/2026-10-24-pure-v4-frozen-eval.md).
   - `pure-v4-map-hazards-and-stall`: all GRID_WALL excluded, typed obstacles,
@@ -66,7 +65,7 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 - Reward-v6 pure-v4 run (initialized at source 7be28a4): qualification, a 3 h 28 m
   continuation and a 12-hour night run ended cleanly at ed954e0a-s1-t237568
   (445 night episodes, 51 clears, stage 2 never reached; stall share rose 48% ->
-  65%). Its directory is to be kept as `runs/pure-v4-reward-v6`. Training is stopped
+  65%). Its directory is preserved as `runs/pure-v4-reward-v6`. Training is stopped
   and stop.forever remains. [Night analysis](../reports/2026-10-24-pure-v4-overnight.md).
 
 ## Verification
@@ -87,10 +86,12 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Next
 
-1. Training is stopped (last checkpoint ed954e0a-s1-t237568); stop.forever is retained.
-   Reward v7 is implemented offline only. Windows `scripts/Check.ps1` is pending, then
-   rename `runs\pure-v4` to `runs\pure-v4-reward-v6` and run one native one-hour
-   session with `--initialize` (change tasks 2.2). No resume of reward-v6 checkpoints.
+1. Reward-v7 qualification completed cleanly at d62dc21b-s1-t14848: 36 episodes,
+   25 stalls, 11 deaths, 22 start-room exits, mean damage fraction 1.2421, two clears.
+   Stagnation is bounded at -7 per episode; all 25 stalls paid -5. No policy improvement
+   is established. User authorized a four-hour continuation from this exact checkpoint,
+   without initialization/config edits; after stopping, verify cleanup and wait for a
+   decision. No post-run commits or automatic next session.
 2. Why v7: the [frozen evaluation](../reports/2026-10-24-pure-v4-frozen-eval.md)
    (t102400/t204800/t237568/random, 34/38/40/34 episodes) showed no checkpoint
    better than random: stall share 62/74/53% vs 41%, damage fraction 1.93/0.51/1.46
