@@ -13,7 +13,7 @@
 
 - [x] 2.1 Full offline gate and strict OpenSpec validation (macOS); training contract
   hash unchanged. Windows gate: 1242 passed with Lua, strict OpenSpec 19/19 (2026-10-24).
-- [ ] 2.2 Native Windows: `scripts/Check.ps1`, then one 3600 s `random-prior`
+- [x] 2.2 Native Windows: `scripts/Check.ps1`, then one 3600 s `random-prior`
   evaluation session ending `completed` with a non-empty `episodes.csv`,
   `runs/pure-v4` byte-identical afterwards, and the `scripts/compare_eval.py` table
   next to `random` and the checkpoints.
