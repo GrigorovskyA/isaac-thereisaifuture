@@ -9,6 +9,7 @@ stops training.
 
 import csv
 import logging
+import os
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -36,8 +37,15 @@ HEADS = (("move", DIRECTIONS), ("shoot", DIRECTIONS), ("use", USES))
 SHARES = tuple(f"{head}_{name}" for head, names in HEADS for name in names)
 # rollout_seconds: wall clock of the rollout. update_seconds: the pause between the previous
 # rollout end and this rollout start (optimizer, checkpoint and any idle wait); empty for the first.
-TIMING = ("rollout_seconds", "update_seconds")
+# game_wait_seconds / command_seconds: time inside the bridge snapshot wait and the command send
+# of a live backend during the rollout; snapshots_per_step: snapshots taken per env step. All
+# three are empty for backends without timing counters.
+BRIDGE_TIMING = ("game_wait_seconds", "command_seconds", "snapshots_per_step")
+TIMING = ("rollout_seconds", "update_seconds", *BRIDGE_TIMING)
 TRAIN_FIELDS = ("wall_time", "timesteps", "rollout_index", *TIMING, *STATS, *SHARES)
+# Header of files written before the bridge timing columns; such files are rewritten once with
+# the full header, old rows keeping empty timing cells.
+LEGACY_FIELDS = tuple(name for name in TRAIN_FIELDS if name not in BRIDGE_TIMING)
 
 
 def action_shares(actions: Any) -> dict[str, float]:
@@ -67,7 +75,9 @@ class TrainMetricsCallback(BaseCallback):
             if path.exists() and path.stat().st_size > 0:
                 with path.open(encoding="utf-8", newline="") as handle:
                     rows = list(csv.reader(handle))
-                if rows[0] != list(TRAIN_FIELDS):
+                if rows[0] == list(LEGACY_FIELDS):
+                    self._upgrade(rows)
+                elif rows[0] != list(TRAIN_FIELDS):
                     raise ValueError(f"Existing metrics file has a different header: {path}")
                 self._index = len(rows) - 1
             else:
@@ -84,6 +94,21 @@ class TrainMetricsCallback(BaseCallback):
         now = self._clock()
         self._rollout_start = now
         self._update_seconds = None if self._last_end is None else max(now - self._last_end, 0.0)
+        self._bridge_timing()  # drop anything counted outside a rollout
+
+    def _bridge_timing(self) -> dict[str, float | None]:
+        """Read and reset the live backend's timing counters; empty values without them."""
+        try:
+            env: Any = self.training_env.get_attr("unwrapped")[0]
+            counters = env.controller.backend.timing_counters()
+            steps = max(float(counters["steps"]), 1.0)
+            return {
+                "game_wait_seconds": float(counters["wait_seconds"]),
+                "command_seconds": float(counters["command_seconds"]),
+                "snapshots_per_step": float(counters["snapshots"]) / steps,
+            }
+        except Exception:  # no env, or a backend without counters (sim, fakes)
+            return dict.fromkeys(BRIDGE_TIMING)
 
     def _on_rollout_end(self) -> None:
         now = self._clock()
@@ -94,6 +119,7 @@ class TrainMetricsCallback(BaseCallback):
             self._pending = {
                 "rollout_seconds": None if started is None else max(now - started, 0.0),
                 "update_seconds": self._update_seconds,
+                **self._bridge_timing(),
                 "timesteps": int(self.model.num_timesteps),
                 "rollout_index": self._index,
                 **action_shares(buffer.actions),
@@ -120,10 +146,25 @@ class TrainMetricsCallback(BaseCallback):
         except Exception as error:
             self._fail(error)
 
+    def _upgrade(self, rows: list[list[str]]) -> None:
+        """Rewrite an old-header file with the full header; old rows get empty timing cells."""
+        temporary = self.path.with_name(self.path.name + ".upgrade")
+        with temporary.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(
+                handle, fieldnames=TRAIN_FIELDS, restval="", lineterminator="\n"
+            )
+            writer.writeheader()
+            writer.writerows(dict(zip(LEGACY_FIELDS, row, strict=True)) for row in rows[1:])
+        os.replace(temporary, self.path)
+
     def _append(self, row: dict[str, Any]) -> None:
         with self.path.open("a", encoding="utf-8", newline="") as handle:
             writer = csv.DictWriter(
-                handle, fieldnames=TRAIN_FIELDS, restval="", lineterminator="\n"
+                handle,
+                fieldnames=TRAIN_FIELDS,
+                restval="",
+                extrasaction="ignore",
+                lineterminator="\n",
             )
             writer.writerow(row)
             handle.flush()

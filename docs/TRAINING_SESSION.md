@@ -30,6 +30,16 @@ Results: `runs\pure-v4\supervisor\forever.json` (stop reason and sessions),
 explained variance, KL, clip fraction and the action mix per head),
 `runs\pure-v4\seed-<seed>\checkpoints` (5 newest plus every 200th rollout; ~52 MB each).
 
+Timing columns in `train.csv`: `rollout_seconds` is the wall time of the rollout and
+`update_seconds` the pause before it (optimizer, checkpoint, idle). For live runs
+`game_wait_seconds` is the time spent waiting for game snapshots and `command_seconds`
+the time spent sending commands and waiting for their acks, both summed over the rollout;
+`snapshots_per_step` is the snapshots taken per env step. Python time (policy, encoding,
+reward, wrappers) is `rollout_seconds - game_wait_seconds - command_seconds`. The cells are
+empty for sim backends. A `train.csv` written before these columns is rewritten once with
+the new header at the next start; its old rows keep empty timing cells.
+The dashboard shows the three shares of the rollout time.
+
 ## Single session
 
 Without `--forever` the runner keeps its explicit finite mode: `--config`,
@@ -87,6 +97,11 @@ One row per root: episodes, death/stall/left-start-room/any-clear shares, mean d
 fraction with its standard error, kills, rooms cleared, half hearts lost, return, max
 stage and the 95% Wilson interval of the stall share. The result is descriptive; the
 game seed is not controlled, so differences within the intervals are not evidence.
+`damage_1k`, `kills_1k` and `clears_1k` are totals per 1000 steps. They do not depend
+on how episodes end, so they compare policies that die at different rates; the stall
+share does not. `--baseline random-prior` adds a table of each run's rate difference to
+that root with a 95% bootstrap interval over episodes. One 3600 s session gives
+intervals about ±3 wide on `damage_1k`; use two sessions per policy for acceptance.
 `live_evaluation.py` / `evaluate-live` is superseded for pure lineages.
 
 ## Guards kept

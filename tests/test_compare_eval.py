@@ -69,3 +69,36 @@ def test_damage_standard_error_is_sample_sd_over_root_n(tmp_path):
     )
     expected = 0.2581988897 / 2  # sample sd of the four values over sqrt(4)
     assert math.isclose(compare.summarize(root)["damage_se"], expected, rel_tol=1e-6)
+
+
+def test_rates_divide_totals_by_all_steps(tmp_path):
+    compare = load_script()
+    root = write_root(
+        tmp_path / "r",
+        [
+            {"timesteps": 100, "damage_dealt_fraction": 1.0, "enemies_killed": 2,
+             "rooms_cleared": 1},
+            {"timesteps": 300, "damage_dealt_fraction": 1.0, "enemies_killed": 0,
+             "rooms_cleared": 0},
+        ],
+    )  # fmt: skip
+    row = compare.summarize(root)
+    assert math.isclose(row["damage_1k"], 5.0)  # 2.0 damage over 400 steps
+    assert math.isclose(row["kills_1k"], 5.0) and math.isclose(row["clears_1k"], 2.5)
+
+
+def test_rate_difference_to_baseline_has_a_bootstrap_interval(tmp_path):
+    compare = load_script()
+    better = [{"timesteps": 100, "enemies_killed": k} for k in (2, 3, 2, 3) * 10]
+    worse = [{"timesteps": 100, "enemies_killed": k} for k in (0, 1, 0, 1) * 10]
+    a = write_root(tmp_path / "trained", better)
+    b = write_root(tmp_path / "random-prior", worse)
+    point, low, high = compare.rate_difference(
+        compare.read_rows(a), compare.read_rows(b), "kills_1k"
+    )
+    assert math.isclose(point, 20.0) and 0 < low < point < high
+    again = compare.rate_difference(compare.read_rows(a), compare.read_rows(b), "kills_1k")
+    assert again == (point, low, high)  # fixed seed: the same interval every time
+    table = compare.format_differences([a, b], b)
+    assert table.splitlines()[0].startswith("minus random-prior")
+    assert len(table.splitlines()) == 2 and table.splitlines()[1].startswith("trained")

@@ -21,5 +21,8 @@
   `runs\pure-v4-reward-v6`; one-hour native session with `--initialize`; episode rows
   have nonzero `col_stagnation` only in episodes that idled past 20 s, and every stall
   row has `col_stall` -5. Evidence: [one-hour native report](../../../reports/2026-10-24-pure-v7-one-hour.md).
-- [ ] 2.3 Acceptance: after 8 hours, frozen evaluation of the latest checkpoint has a
-  stall share below 41% and an enemy damage fraction of at least 1.70.
+- [ ] 2.3 Acceptance (revised 2026-10-25, see proposal): frozen evaluation of the latest
+  checkpoint over two 3600 s sessions; `compare_eval.py --baseline random-prior` shows
+  the 95% interval of `kills_1k` difference above zero and a positive `clears_1k`
+  difference. The 2026-10-25 single-session result for t244736: kills_1k +2.65
+  [+0.09, +5.82], clears_1k +0.25 [-0.17, +0.70], damage_1k +2.00 [-0.85, +5.59].

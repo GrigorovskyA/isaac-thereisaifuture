@@ -48,9 +48,22 @@ policy can find early on.
 
 ## Acceptance
 
-After 8 hours of training, a frozen evaluation of the latest checkpoint under the same
-protocol (`Start-Eval.cmd`, 3600 s) has a stall share below random's 41% and an enemy
-damage fraction at least random's 1.70. Otherwise the next change targets exploration.
+Revised 2026-10-25. The first criterion (stall share below random's 41%) is confounded
+by deaths: random play dies in 59% of episodes, and a death ends an episode before it
+can stall. The 2026-10-25 evaluation of `t244736` had more kills and clears per step
+than random but a 62% stall share, because it died less.
+
+Acceptance now uses progress per 1000 steps, which does not depend on how episodes
+end. A frozen evaluation of the latest checkpoint (`Start-Eval.cmd`, two 3600 s
+sessions, about 80 episodes) is compared with `random-prior` by
+`scripts/compare_eval.py --baseline random-prior`:
+
+- the 95% bootstrap interval of `kills_1k` minus `random-prior` is above zero; and
+- the point difference of `clears_1k` is positive.
+
+One 3600 s session per policy was too short: for `t244736` the `damage_1k`
+difference was +2.00 with interval [-0.85, +5.59]. Otherwise the next change targets
+exploration.
 
 ## Impact
 

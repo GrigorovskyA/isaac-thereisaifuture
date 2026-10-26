@@ -440,6 +440,11 @@ class LiveBackend:
     restart_rejections: int = 0
     # Oracle counters (kills, hits by source) at episode start; metrics only.
     _oracle_start: dict[str, int] = field(default_factory=dict)
+    # Wall-time diagnostics since the last `timing_counters()` call (seconds, counts).
+    _wait_seconds: float = 0.0
+    _command_seconds: float = 0.0
+    _timed_steps: int = 0
+    _snapshots: int = 0
 
     def start_episode(self, scenario: Scenario, seed: int | None) -> StepResult:
         """Continue the run; after a death wait for the autonomous restart to reconnect."""
@@ -463,7 +468,7 @@ class LiveBackend:
                     )
                     self.client.connect()
                 backlog = self.client.drain()
-                snap = backlog[-1] if backlog else self.client.take(min(remaining, 5.0))
+                snap = backlog[-1] if backlog else self._take(min(remaining, 5.0))
             except ProtocolError:
                 raise
             except LiveBudgetExpired:
@@ -496,7 +501,43 @@ class LiveBackend:
             snap.entity_frame, tuple(self.deriver.begin(snap)), room_index=snap.oracle.room_index
         )
 
+    def _command(self, *args: Any, **kwargs: Any) -> Any:
+        """`client.command` with its wall time added to the diagnostics."""
+        start = time.monotonic()
+        try:
+            return self.client.command(*args, **kwargs)
+        finally:
+            self._command_seconds += time.monotonic() - start
+
+    def _take(self, timeout: float) -> LiveSnapshot:
+        """`client.take` with its wall time and count added to the diagnostics."""
+        start = time.monotonic()
+        try:
+            snap = self.client.take(timeout)
+        finally:
+            self._wait_seconds += time.monotonic() - start
+        self._snapshots += 1
+        return snap
+
+    def timing_counters(self) -> dict[str, float]:
+        """Read and reset the wall-time diagnostics (metrics only, never a model input).
+
+        `wait_seconds` is time inside `client.take` (waiting for the game),
+        `command_seconds` inside `client.command` (send and ack), plus the steps and
+        snapshots taken in the same window.
+        """
+        counters = {
+            "wait_seconds": self._wait_seconds,
+            "command_seconds": self._command_seconds,
+            "steps": float(self._timed_steps),
+            "snapshots": float(self._snapshots),
+        }
+        self._wait_seconds = self._command_seconds = 0.0
+        self._timed_steps = self._snapshots = 0
+        return counters
+
     def step(self, action: Action, repeat: int) -> StepResult:
+        self._timed_steps += 1
         result = self._advance(action, repeat)
         if self._stall_fired:
             self._stall_fired = False
@@ -521,7 +562,7 @@ class LiveBackend:
         reference = self._current
         if reference is None:
             raise BridgeError("No live episode")
-        ack = self.client.command("restart", reference)
+        ack = self._command("restart", reference)
         if ack.status != "accepted":
             self.restart_rejections += 1
             return False
@@ -541,12 +582,12 @@ class LiveBackend:
         reference = self._current
         assert reference.frame_id is not None
         self._check_budget()
-        ack = self.client.command(
+        ack = self._command(
             "action",
             reference,
-            move=DIRECTIONS[action.move],  # type: ignore[arg-type]
-            shoot=DIRECTIONS[action.shoot],  # type: ignore[arg-type]
-            use=USES[action.use],  # type: ignore[arg-type]
+            move=DIRECTIONS[action.move],
+            shoot=DIRECTIONS[action.shoot],
+            use=USES[action.use],
             frames=repeat,
         )
         accepted = ack.status == "accepted"
@@ -557,7 +598,7 @@ class LiveBackend:
             deadline = min(deadline, self.run_deadline)
         while self._current.frame_id is not None and self._current.frame_id < target:
             self._check_budget()
-            snap = self.client.take(max(0.0, deadline - time.monotonic()))
+            snap = self._take(max(0.0, deadline - time.monotonic()))
             if snap.status == "paused":
                 deadline = min(start + self.pause_limit, time.monotonic() + self.step_timeout)
                 if self.run_deadline is not None:
@@ -610,7 +651,7 @@ class LiveBackend:
         if self._current is None or not self.client.connected or self._restarting_from:
             return
         try:
-            self.client.command("release", self._current)
+            self._command("release", self._current)
         except BridgeError:
             pass  # the hold expires within 15 frames / 250 ms; the peer is already closed
 

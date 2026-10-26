@@ -721,3 +721,53 @@ def test_extra_stop_file_cancels_a_session(tmp_path, monkeypatch):
     )  # fmt: skip
     result = runner.supervise(plan, FakeRuntime(plan, clk, "timer"))
     assert result["state"] == "user_cancelled"
+
+
+def test_train_csv_bridge_timing_columns_come_from_backend_counters_when_present(tmp_path):
+    class Backend:
+        def timing_counters(self):
+            return {"wait_seconds": 3.0, "command_seconds": 0.5, "steps": 4.0, "snapshots": 10.0}
+
+    def run(path, backend):
+        ticks = iter([0.0, 4.0])
+        callback = TrainMetricsCallback(path, clock=lambda: next(ticks))
+        env = types.SimpleNamespace(controller=types.SimpleNamespace(backend=backend))
+        callback.model = types.SimpleNamespace(  # type: ignore[assignment]
+            num_timesteps=4,
+            rollout_buffer=types.SimpleNamespace(actions=np.zeros((4, 1, 3))),
+            logger=types.SimpleNamespace(name_to_value={}),
+            get_env=lambda: types.SimpleNamespace(get_attr=lambda name: [env]),
+        )
+        callback._on_rollout_start()
+        callback._on_rollout_end()
+        callback._on_training_end()
+        return list(csv.DictReader(path.open(encoding="utf-8")))
+
+    (row,) = run(tmp_path / "live.csv", Backend())
+    assert (row["game_wait_seconds"], row["command_seconds"]) == ("3.0", "0.5")
+    assert row["snapshots_per_step"] == "2.5"
+    (row,) = run(tmp_path / "sim.csv", object())
+    assert row["rollout_seconds"] == "4.0"
+    assert row["game_wait_seconds"] == row["command_seconds"] == row["snapshots_per_step"] == ""
+
+
+def test_train_csv_with_the_old_header_is_upgraded_to_the_new_columns(tmp_path):
+    from isaac_threrisaifuture.training_metrics import LEGACY_FIELDS
+
+    path = tmp_path / "train.csv"
+    old_row = ["2026-10-24T00:00:00+00:00", "512", "0", "100.0"] + [""] * (len(LEGACY_FIELDS) - 4)
+    path.write_text(",".join(LEGACY_FIELDS) + "\n" + ",".join(old_row) + "\n", "utf-8")
+    callback = TrainMetricsCallback(path, clock=iter([0.0, 1.0]).__next__)
+    callback.model = types.SimpleNamespace(  # type: ignore[assignment]
+        num_timesteps=4,
+        rollout_buffer=types.SimpleNamespace(actions=np.zeros((4, 1, 3))),
+        logger=types.SimpleNamespace(name_to_value={}),
+    )
+    callback._on_rollout_start()
+    callback._on_rollout_end()
+    callback._on_training_end()
+    rows = list(csv.DictReader(path.open(encoding="utf-8")))
+    assert list(rows[0]) == list(TRAIN_FIELDS) and len(rows) == 2
+    assert rows[0]["rollout_seconds"] == "100.0" and rows[0]["game_wait_seconds"] == ""
+    assert rows[1]["rollout_seconds"] == "1.0" and rows[1]["rollout_index"] == "1"
+    assert not (tmp_path / "train.csv.upgrade").exists()

@@ -263,3 +263,40 @@ def test_interrupted_training_rollout_does_not_claim_a_checkpoint(monkeypatch, t
     assert "no new checkpoint" in records[-1][1]
     assert records[-1][1].startswith(reason)
     assert not list(tmp_path.rglob("latest.txt"))
+
+
+def test_backend_timing_counters_accumulate_and_reset(monkeypatch):
+    from types import SimpleNamespace
+
+    from isaac_threrisaifuture.episodes import Action
+    from isaac_threrisaifuture.live import LiveBackend
+
+    clock = [0.0]
+    monkeypatch.setattr("isaac_threrisaifuture.live.time.monotonic", lambda: clock[0])
+    frames = iter([live(2), live(3)])
+
+    def command(kind, reference, **kwargs):
+        clock[0] += 0.25
+        return SimpleNamespace(status="accepted", frame_id=reference.frame_id)
+
+    def take(timeout):
+        clock[0] += 1.0
+        return next(frames)
+
+    client = SimpleNamespace(drain=lambda: [], command=command, take=take)
+    backend = LiveBackend(client)  # type: ignore[arg-type]
+    backend._current = live(1)
+    backend.step(Action(), 1)
+    backend.step(Action(), 1)
+    assert backend.timing_counters() == {
+        "wait_seconds": pytest.approx(2.0),
+        "command_seconds": pytest.approx(0.5),
+        "steps": 2.0,
+        "snapshots": 2.0,
+    }
+    assert backend.timing_counters() == {
+        "wait_seconds": 0.0,
+        "command_seconds": 0.0,
+        "steps": 0.0,
+        "snapshots": 0.0,
+    }

@@ -596,6 +596,10 @@ function seriesCard(spec) {
   }
   return { root: card.root, update, draw };
 }
+// Part of the rollout wall time in one bridge timing column; null for rows without it.
+function rolloutShare(r, key) {
+  return num(r[key]) === null || !(num(r.rollout_seconds) > 0) ? null : r[key] / r.rollout_seconds;
+}
 const TRAIN_SPECS = [
   { title: "Policy entropy", name: "policy entropy", sub: "higher = more random choices; falls as the policy commits",
     get: (r) => (num(r.entropy_loss) === null ? null : -r.entropy_loss) },
@@ -606,6 +610,10 @@ const TRAIN_SPECS = [
   { title: "Clip fraction", name: "clip fraction", sub: "share of samples the PPO clip cut off", zero: true, get: (r) => num(r.clip_fraction) },
   { title: "Standing still share", name: "move none share", sub: "share of rollout steps with no movement key pressed", zero: true, get: (r) => num(r.move_none) },
   { title: "Not shooting share", name: "shoot none share", sub: "share of rollout steps with no shoot key pressed", zero: true, get: (r) => num(r.shoot_none) },
+  { title: "Rollout time: game wait share", name: "game wait share", sub: "share of rollout wall time spent waiting for game snapshots (live runs)", zero: true, get: (r) => rolloutShare(r, "game_wait_seconds") },
+  { title: "Rollout time: commands share", name: "commands share", sub: "share of rollout wall time spent sending commands and waiting for acks", zero: true, get: (r) => rolloutShare(r, "command_seconds") },
+  { title: "Rollout time: Python share", name: "Python share", sub: "rollout time not spent in the bridge: policy, encoding, reward, wrappers", zero: true,
+    get: (r) => { const w = rolloutShare(r, "game_wait_seconds"), c = rolloutShare(r, "command_seconds"); return w === null || c === null ? null : Math.max(0, 1 - w - c); } },
   { title: "Policy gradient loss", name: "policy gradient loss", sub: "surrogate loss of the policy head", get: (r) => num(r.policy_gradient_loss) },
   { title: "Bomb share of use actions", name: "bomb share", sub: "share of rollout steps that pressed the bomb key", zero: true, get: (r) => num(r.use_bomb) },
 ];
