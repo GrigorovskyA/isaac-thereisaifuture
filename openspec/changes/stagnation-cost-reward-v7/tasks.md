@@ -26,3 +26,9 @@
   the 95% interval of `kills_1k` difference above zero and a positive `clears_1k`
   difference. The 2026-10-25 single-session result for t244736: kills_1k +2.65
   [+0.09, +5.82], clears_1k +0.25 [-0.17, +0.70], damage_1k +2.00 [-0.85, +5.59].
+  Not passed on 2026-10-26: t477184 over two sessions against two random-prior sessions
+  gave kills_1k -1.01 [-2.38, +0.28] and clears_1k -0.07
+  ([report](../../../reports/2026-10-26-pure-v7-t477184-eval-and-timing.md)). The two
+  random-prior sessions alone differ by 0.88 kills_1k, so one session per checkpoint is
+  not enough to rank checkpoints. Training rates stayed at random level for 477k steps,
+  with 82% of steps spent in stalled episodes. Follow-up: `short-stall-reward-v8`.

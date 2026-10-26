@@ -10,8 +10,8 @@ openspec="${ISAAC_OPENSPEC:-$HOME/.cache/isaac-openspec/node_modules/@fission-ai
 cache="${XDG_CACHE_HOME:-$HOME/.cache}"
 cd "$root"
 [ -n "${ISAAC_JSON_LUA:-}" ] || echo "ISAAC_JSON_LUA unset: Lua observer suites will skip" >&2
-"$py" -m ruff check --no-cache src tests scripts/smoke_rl.py scripts/compare_eval.py
-"$py" -m ruff format --no-cache --check src tests scripts/smoke_rl.py scripts/compare_eval.py
+"$py" -m ruff check --no-cache src tests scripts/smoke_rl.py scripts/compare_eval.py scripts/lua_perf.py
+"$py" -m ruff format --no-cache --check src tests scripts/smoke_rl.py scripts/compare_eval.py scripts/lua_perf.py
 "$py" -m mypy --platform win32 --cache-dir "$cache/isaac-mypy"
 "$py" -m pytest -p no:cacheprovider -m "not game"
 uv pip check --python "$py"

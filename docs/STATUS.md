@@ -8,11 +8,21 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 - Pure self-learning since 2026-10-22 ([decision](UPDATE_DECISION.md)). RecurrentPPO
   learns from raw facts and outcome rewards only: no scripted setup, advice features
   or technique rewards. Archive content is history, not runtime authority.
-- Current native lineage: `pure-v4`, observation schema 5, reward contract `pure-v7`; one-hour native qualification passed. The reward-v5 trial is preserved separately as `runs/pure-v4-pre`; it is not resumed.
+- Current lineage: `pure-v4`, observation schema 5, reward contract `pure-v8` (offline
+  only; restarts with `--initialize`). The reward-v7 run is to be preserved as
+  `runs/pure-v4-reward-v7`. The reward-v5 trial is preserved separately as
+  `runs/pure-v4-pre`; it is not resumed.
 - Active changes (not archived):
+  - `short-stall-reward-v8`: stall limit 40 s (was 90), stagnation -0.25 per idle second
+    past 12 s, cap still -7.0. Offline gate passed; Windows task 2.2 and acceptance 2.3 open.
+  - `observer-frame-timing`: the observer logs an `Observer perf` line every ~10 s
+    (callback, capture and encode time); `scripts/lua_perf.py` summarizes log.txt. Needs an
+    observer redeploy; native task 2.2 open.
   - `random-prior-eval-baseline`: Windows gate and native one-hour task 2.2 passed. Move/shoot uniform, use none 0.85, other uses 0.05 each.
   - `stagnation-cost-reward-v7`: Windows gate and one-hour native task 2.2 passed;
-    [qualification report](../reports/2026-10-24-pure-v7-one-hour.md). Revised per-1000-step acceptance 2.3 remains open.
+    [qualification report](../reports/2026-10-24-pure-v7-one-hour.md). Acceptance 2.3 not
+    passed ([t477184 report](../reports/2026-10-26-pure-v7-t477184-eval-and-timing.md));
+    superseded by reward v8.
   - `frozen-checkpoint-evaluation`: Windows gate and native task 2.2 passed, four
     hourly comparisons completed; [results](../reports/2026-10-24-pure-v4-frozen-eval.md).
   - `pure-v4-map-hazards-and-stall`: all GRID_WALL excluded, typed obstacles,
@@ -38,22 +48,24 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 - Action 2: MultiDiscrete([5,5,4]), held for six updates (0.2 s). Use none/bomb/
   active/pill-card; fresh use-head prior P(none)=0.85. Requested use is not proof
   of a visible effect.
-- Reward: `configs/reward-v7.yaml`, semantic contract `pure-v7`: v6 (v5 coefficients
+- Reward: `configs/reward-v8.yaml`, semantic contract `pure-v8`: v6 (v5 coefficients
   plus kill credit) with lost half-heart -0.5, stall -5 once without death and a
-  stagnation cost -0.1 per idle second past 20 s (episode stagnation cap -7.0 plus stall -5).
+  stagnation cost -0.25 per idle second past 12 s (episode stagnation cap -7.0 plus stall -5).
   Enemy damage 5, first clear 10, first room 3, new collectible 2, death -10.
   The generic manifest reward_schema_version=1 is separate from reward_contract.
-- Episode = run. Death terminates; 90 active seconds without run-new progress
+- Episode = run. Death terminates; 40 active seconds without run-new progress
   truncates and restarts. Revisited rooms/regained counters do not reset progress.
 - `configs/training-pure-v4.yaml`: gamma 0.998, gae_lambda 0.98, ent_coef 0.005, seed 1;
   contract hash
-  `d62dc21baf19941b0484e857f2124e8fbffb3d564ab9763a2e13619230c63bc4`
-  (reward v6: `ed954e0a...`). Observation 5/action 2/reward contract pure-v7 must match. Earlier contracts refused.
+  `fb22b3429127c22b325c20594d1ab6d2931fae684ceab6eef9af4731136eb938`
+  (reward v7: `d62dc21b...`, reward v6: `ed954e0a...`). Observation 5/action 2/reward
+  contract pure-v8 must match. Earlier contracts refused.
 - Supervisor: `Start-Pure.cmd`, `runs/pure-v4`, unlimited death/stall New Runs,
   five consecutive faults maximum, disk cap 20,480,000,000 bytes; session lease
   28740 seconds. A timer-owned stop.forever bounds the authorized continuation.
 - `Start-Dashboard.cmd`: read-only runs/pure-v4 at http://127.0.0.1:8765.
-  Episodes include enemies_killed/hits_*; train.csv includes rollout/update seconds.
+  Episodes include enemies_killed/hits_*; train.csv includes rollout/update seconds and
+  bridge timing (game wait, commands, snapshots per step).
 
 ## Lineage
 
@@ -68,11 +80,18 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
   (445 night episodes, 51 clears, stage 2 never reached; stall share rose 48% ->
   65%). Its directory is preserved as `runs/pure-v4-reward-v6`. Training is stopped
   and stop.forever remains. [Night analysis](../reports/2026-10-24-pure-v4-overnight.md).
+- Reward-v7 pure-v4 run: about 33 h to d62dc21b-s1-t492032. Training rates stayed at
+  random level; 69% of episodes stalled and 82% of steps were in stalled episodes.
+  t477184 over two frozen sessions: kills_1k -1.01 [-2.38, +0.28] against random-prior.
+  Two random-prior sessions differ by 0.88 kills_1k. Bridge timing: 92% of rollout time
+  is waiting for game snapshots (the game runs ~32 updates/s), 5% commands, 3% Python.
+  [Report](../reports/2026-10-26-pure-v7-t477184-eval-and-timing.md). To be preserved as
+  `runs/pure-v4-reward-v7`.
 
 ## Verification
 
-- Current Windows gate: 1247 tests passed with Lua, no skips; mypy 31 files,
-  lint/format/pip clean, strict OpenSpec 19/19. Synthetic CPU smoke passed:
+- Current Windows gate: 1271 tests passed with Lua, no skips; mypy 31 files,
+  lint/format/pip clean, strict OpenSpec 21/21. Synthetic CPU smoke passed:
   16 steps, 3499 inputs, [5,5,4] actions. Synthetic smoke is not gameplay evidence.
 - Closed-game deployment hashes matched source and user-provided values:
   Lua 5e9352154a38ea4ad6b6d219d463993493cb676ba432f04fd2f3372853470315,
@@ -87,15 +106,18 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Next
 
-1. Latest reward-v7 checkpoint: d62dc21b-s1-t477184. The 2026-10-25/26 run stopped
-   after its second lease: a recovered floor-transition timeout remained sticky in
-   supervisor fault state, and the finite launcher stopped instead of rolling over.
-   Model/normalizer saved; cleanup clean. No restart or bridge-timeout fix is included here.
-2. Current authorized sequence: frozen t477184-a and t477184-b, then random-prior-b,
-   3600 s each; compare all roots with --baseline random-prior. Revised task 2.3 uses
-   two sessions per policy: kills_1k difference CI lower bound >0 and clears_1k point
-   difference >0. Then resume from t477184 for one hour only and verify new train.csv
-   game_wait_seconds, command_seconds, snapshots_per_step; unchanged model contract.
+1. Windows: Check.ps1; deploy the changed observer `main.lua` with Isaac closed; rename
+   `runs\pure-v4` to `runs\pure-v4-reward-v7`; start reward v8 with `--initialize` for one
+   hour (v8 task 2.2), then summarize log.txt with `scripts/lua_perf.py` (frame-timing
+   task 2.2) together with the train.csv bridge timing.
+2. Then continuous v8 training. Acceptance 2.3: share of steps in stalled episodes below
+   50% over the first 8 h session, and two frozen sessions against random-prior with the
+   per-1000-step criterion. Rank checkpoints only with two sessions each.
+3. If the observer's capture/encode time is a large share of wall time, a separate change
+   can send snapshots less often; the game currently runs at about half speed.
+4. The 2026-10-25/26 run stopped after its second lease: a recovered floor-transition
+   timeout remained sticky in supervisor fault state, and the timer did not roll over.
+   No restart or bridge-timeout fix is included here.
 3. STOP_MARGIN_SECONDS=15 produced clean one-hour deadlines; native eight-hour
    rollover succeeded on 2026-10-25; a later recovered fault blocked the following one. Evaluation display can stay waiting after a long episode
    (record separately). Dashboard views passed the offline gate, interactive

@@ -40,6 +40,12 @@ empty for sim backends. A `train.csv` written before these columns is rewritten 
 the new header at the next start; its old rows keep empty timing cells.
 The dashboard shows the three shares of the rollout time.
 
+The game side is measured by the observer: while streaming it writes an `Observer perf`
+line to Isaac's log.txt about every 10 s (updates, renders, snapshots, and milliseconds
+inside the update and render callbacks, snapshot capture and JSON encoding). Summarize it
+with `python scripts/lua_perf.py "<path to log.txt>"` (`--since TEXT` keeps the windows after
+the last line containing TEXT).
+
 ## Single session
 
 Without `--forever` the runner keeps its explicit finite mode: `--config`,
@@ -50,7 +56,7 @@ Without `--forever` the runner keeps its explicit finite mode: `--config`,
 ## Frozen evaluation
 
 Compare checkpoints (or a random baseline) under exactly the training protocol: same action
-repeat, reward v7, stall watchdog and restarts, but no learning and no checkpoint
+repeat, reward v8, stall watchdog and restarts, but no learning and no checkpoint
 writes. Stop forever training first; one game runs at a time. One session per
 policy, one folder per session (a root that already has episodes is refused):
 

@@ -126,6 +126,42 @@ local function note(message)
     end
 end
 
+-- Frame timing diagnostics (no wire or behavior effect). Counters accumulate Isaac.GetTime()
+-- deltas (ms) and one log line is written per window while streaming:
+-- "Observer perf window_ms= updates= renders= snapshots= update_ms= render_ms= capture_ms= encode_ms="
+-- update_ms/render_ms are time inside each callback; capture_ms/encode_ms cover snapshot
+-- capture() and json.encode of snapshots. All values are integers; keep the keys stable
+-- because scripts/lua_perf.py parses them.
+local perf_window_ms = 10000
+local perf = { start = nil, updates = 0, renders = 0, snapshots = 0,
+    update_ms = 0, render_ms = 0, capture_ms = 0, encode_ms = 0 }
+
+local function perf_flush(now)
+    if not perf.start then perf.start = now; return end
+    if now - perf.start < perf_window_ms then return end
+    if state.phase == "streaming" then
+        -- note() skips repeated messages; keep its repeat guard unchanged by perf lines.
+        local previous = diagnostic
+        note(string.format("Observer perf window_ms=%d updates=%d renders=%d snapshots=%d"
+            .. " update_ms=%d render_ms=%d capture_ms=%d encode_ms=%d",
+            now - perf.start, perf.updates, perf.renders, perf.snapshots,
+            perf.update_ms, perf.render_ms, perf.capture_ms, perf.encode_ms))
+        diagnostic = previous
+    end
+    perf.start, perf.updates, perf.renders, perf.snapshots = now, 0, 0, 0
+    perf.update_ms, perf.render_ms, perf.capture_ms, perf.encode_ms = 0, 0, 0, 0
+end
+
+-- Count one finished callback that started at t0; never raises into the game.
+local function perf_done(kind, t0)
+    pcall(function()
+        local now = Isaac.GetTime()
+        perf[kind .. "s"] = perf[kind .. "s"] + 1
+        perf[kind .. "_ms"] = perf[kind .. "_ms"] + (now - t0)
+        if kind == "render" then perf_flush(now) end
+    end)
+end
+
 action_note = function(event, h)
     local ok, data = pcall(function()
         local player = Isaac.GetPlayer(0)
@@ -170,7 +206,9 @@ close = function(reason)
 end
 
 local function queue(message, now)
+    local timed = message.type == "snapshot" and Isaac.GetTime()
     local encoded = json.encode(message)
+    if timed then perf.encode_ms = perf.encode_ms + (Isaac.GetTime() - timed) end
     if #encoded > Config.max_bytes or #state.tx > 0 then
         close("Output limit exceeded")
         return false
@@ -599,7 +637,10 @@ local function capture()
 end
 
 local function snapshot(now)
+    local started = Isaac.GetTime()
     local data, reason = capture()
+    perf.capture_ms = perf.capture_ms + (Isaac.GetTime() - started)
+    perf.snapshots = perf.snapshots + 1
     state.sequence = state.sequence + 1
     state.pending_frame = data and data.frame or nil
     local message = {
@@ -867,13 +908,17 @@ local function lifecycle()
 end
 
 mod:AddCallback(ModCallbacks.MC_POST_RENDER, function()
+    local started = Isaac.GetTime()
     local ok, err = pcall(function() action_guard(Isaac.GetTime()); pump(); lifecycle() end)
     if not ok then close("Observer capability/protocol fault: " .. tostring(err)) end
+    perf_done("render", started)
 end)
 mod:AddCallback(ModCallbacks.MC_POST_UPDATE, function()
+    local started = Isaac.GetTime()
     state.updates = state.updates + 1
     local ok, err = pcall(action_guard, Isaac.GetTime())
     if not ok then close("Action guard fault: " .. tostring(err)) end
+    perf_done("update", started)
 end)
 mod:AddCallback(ModCallbacks.MC_POST_GAME_STARTED, function(_, continued)
     release()

@@ -10,6 +10,10 @@
 # scratch. Reward v7 (stagnation cost, stall restart -5, hit -0.5; openspec change
 # stagnation-cost-reward-v7) restarts lineage pure-v4 from scratch because the frozen evaluation
 # showed no advantage over random play; the reward v6 run is kept as runs/pure-v4-reward-v6.
+# Reward v8 (stall limit 90 s -> 40 s, stagnation -0.25 per second after 12 s; openspec change
+# short-stall-reward-v8) restarts lineage pure-v4 from scratch again: after 477k steps the v7
+# policy was still at random level and 82% of all steps were spent in stalled episodes. The
+# reward v7 run is kept as runs/pure-v4-reward-v7. Hyperparameters are unchanged.
 # Only `contract` binds the lineage; `hyperparameters` may be tuned between sessions
 # and are recorded per checkpoint.
 config_version: 2
@@ -22,7 +26,7 @@ contract:
   action_repeat_game_updates: 6
   observation_schema_version: 5
   action_schema_version: 2
-  reward_version: 7
+  reward_version: 8
   # Initial P(no use press) of the use head, set at fresh model creation only.
   use_head_initial_none_probability: 0.85
 hyperparameters:
@@ -51,4 +55,4 @@ retention:
   # change is pinned in checkpoints/pinned.txt and never pruned.
   keep_every: 100
 watchdog:
-  stall_seconds: 90
+  stall_seconds: 40

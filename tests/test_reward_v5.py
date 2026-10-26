@@ -6,7 +6,7 @@ import pytest
 import yaml
 from test_reward_v4 import COEF, REWARD_V4_COLUMNS, run_env
 
-from isaac_threrisaifuture.rewards import DEFAULT_CONFIG_V7, RewardV4Coefficients
+from isaac_threrisaifuture.rewards import DEFAULT_CONFIG_V8, RewardV4Coefficients
 
 ARCHIVE = Path(__file__).parents[1] / "archive" / "configs"
 ARCHIVED_V4 = ARCHIVE / "reward-v4.yaml"
@@ -32,13 +32,13 @@ def test_v6_keeps_the_v5_coefficients():
     assert v6 == v5
 
 
-def test_the_ledger_loads_versions_4_to_7_only(tmp_path):
+def test_the_ledger_loads_versions_4_to_8_only(tmp_path):
     assert RewardV4Coefficients.load(ARCHIVED_V4).stall_restart == -5.0
     assert RewardV4Coefficients.load(ARCHIVED_V5) == RewardV4Coefficients.load(ARCHIVED_V6)
-    assert RewardV4Coefficients.load(DEFAULT_CONFIG_V7).stagnation_per_second == -0.1
-    raw = yaml.safe_load(DEFAULT_CONFIG_V7.read_text("utf-8"))
-    raw["reward_version"] = 8
-    path = tmp_path / "v8.yaml"
+    assert RewardV4Coefficients.load(DEFAULT_CONFIG_V8).stagnation_per_second == -0.25
+    raw = yaml.safe_load(DEFAULT_CONFIG_V8.read_text("utf-8"))
+    raw["reward_version"] = 9
+    path = tmp_path / "v9.yaml"
     path.write_text(yaml.safe_dump(raw), "utf-8")
     with pytest.raises(ValueError):
         RewardV4Coefficients.load(path)

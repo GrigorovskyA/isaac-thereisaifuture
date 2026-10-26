@@ -11,7 +11,7 @@ for gameplay. All project artifacts are English.
 Since 2026-10-22 the project is **pure self-learning** ([decision](docs/UPDATE_DECISION.md)):
 one RecurrentPPO model (`pure-v4`) learns from scratch and continuously, from raw
 game facts (observation schema 5: 3499 floats incl. stats, tear flags, weapons, own attacks, bombs,
-obstacle classes, room shape, minimap and stall clock) and outcome rewards only (reward v7), deciding every 6 game updates (0.2 s) with a
+obstacle classes, room shape, minimap and stall clock) and outcome rewards only (reward v8), deciding every 6 game updates (0.2 s) with a
 use-item action head that starts at P(none)=0.85, a stall watchdog and unlimited New Run after death. There is
 no scripted setup or advice feature. The hinted work is history in `archive/`.
 The refactor is verified offline; native acceptance is pending. Read

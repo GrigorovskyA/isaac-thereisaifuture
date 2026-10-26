@@ -128,11 +128,12 @@ class RewardLedger:
             parts["death"] += c.death
 
 
-DEFAULT_CONFIG_V7 = Path(__file__).resolve().parents[2] / "configs" / "reward-v7.yaml"
-# The same ledger pays v4-v7: v5 changed stall_restart, v6 adds kill credit in the deriver and
-# v7 adds the stagnation cost (the only version with a `stagnation` section).
-REWARD_V4_VERSIONS = (4, 5, 6, 7)
-STAGNATION_VERSION = 7
+DEFAULT_CONFIG_V8 = Path(__file__).resolve().parents[2] / "configs" / "reward-v8.yaml"
+# The same ledger pays v4-v8: v5 changed stall_restart, v6 adds kill credit in the deriver, v7 adds
+# the stagnation cost and v8 shortens the stall limit it is sized for. Only v7 and v8 have a
+# `stagnation` section; the archived v7 config stays loadable like the archived v4-v6 ones.
+REWARD_V4_VERSIONS = (4, 5, 6, 7, 8)
+STAGNATION_VERSIONS = (7, 8)
 REWARD_V4_COLUMNS = (
     "enemy_damage",
     "room_clear",
@@ -202,17 +203,17 @@ class RewardV4Coefficients:
             raise ValueError("The stagnation grace period must be >= 0")
 
     @classmethod
-    def load(cls, path: Path = DEFAULT_CONFIG_V7) -> Self:
+    def load(cls, path: Path = DEFAULT_CONFIG_V8) -> Self:
         raw: Any = yaml.safe_load(path.read_text(encoding="utf-8"))
         top = {"reward_version", "status", *_V4_SECTIONS}
-        if isinstance(raw, dict) and raw.get("reward_version") == STAGNATION_VERSION:
-            top.add("stagnation")  # required for v7, forbidden for v4-v6
+        if isinstance(raw, dict) and raw.get("reward_version") in STAGNATION_VERSIONS:
+            top.add("stagnation")  # required for v7 and v8, forbidden for v4-v6
         if (
             not isinstance(raw, dict)
             or set(raw) != top
             or raw["reward_version"] not in REWARD_V4_VERSIONS
         ):
-            raise ValueError(f"Reward v4-v7 configuration must define exactly {sorted(top)}")
+            raise ValueError(f"Reward v4-v8 configuration must define exactly {sorted(top)}")
         values: dict[str, float] = {}
         for name, keys in _V4_SECTIONS.items():
             section = raw[name]
@@ -327,6 +328,13 @@ class RewardLedgerV4:
         A dead player was not stalled, so death never pays it.
         """
         return 0.0 if self._dead else self.coefficients.stall_restart
+
+    def __post_init__(self) -> None:
+        c = self.coefficients
+        if self.stall_seconds <= 0:
+            raise ValueError("The stall limit must be positive")
+        if c.stagnation_per_second != 0.0 and c.stagnation_grace_seconds >= self.stall_seconds:
+            raise ValueError("The stagnation grace period must be shorter than the stall limit")
 
     def stagnation(self, before: float, after: float) -> float:
         """Cost of the idle seconds a step added past the grace period.

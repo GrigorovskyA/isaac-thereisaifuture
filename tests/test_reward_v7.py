@@ -1,15 +1,17 @@
-"""Reward v7 = reward v6 + stagnation cost (openspec change stagnation-cost-reward-v7)."""
+"""Reward v7 = reward v6 + stagnation cost (openspec change stagnation-cost-reward-v7).
+
+Reward v8 replaced v7 as the shipped config; these tests pin the archived v7 file and ledger.
+"""
 
 from pathlib import Path
 
 import numpy as np
 import pytest
 import yaml
-from test_reward_v4 import COEF, LIVE_SCENARIO, Script, event, ledger, live
+from test_reward_v4 import LIVE_SCENARIO, Script, event, frame, live
 
 from isaac_threrisaifuture.env import IsaacCombatEnv
 from isaac_threrisaifuture.rewards import (
-    DEFAULT_CONFIG_V7,
     REWARD_V4_COLUMNS,
     RewardLedgerV4,
     RewardV4Coefficients,
@@ -17,10 +19,19 @@ from isaac_threrisaifuture.rewards import (
 
 ROOT = Path(__file__).parents[1]
 ARCHIVED_V6 = ROOT / "archive" / "configs" / "reward-v6.yaml"
+ARCHIVED_V7 = ROOT / "archive" / "configs" / "reward-v7.yaml"
+COEF = RewardV4Coefficients.load(ARCHIVED_V7)
+
+
+def ledger():
+    value = RewardLedgerV4(COEF)
+    value.reset(1)
+    value.begin(frame(), 1)
+    return value
 
 
 def test_v7_differs_from_v6_only_in_stall_hit_and_stagnation():
-    v7 = yaml.safe_load(DEFAULT_CONFIG_V7.read_text("utf-8"))
+    v7 = yaml.safe_load(ARCHIVED_V7.read_text("utf-8"))
     v6 = yaml.safe_load(ARCHIVED_V6.read_text("utf-8"))
     assert v7.pop("reward_version") == 7 and v6.pop("reward_version") == 6
     assert v7.pop("stagnation") == {"per_second": -0.1, "grace_seconds": 20}
@@ -32,7 +43,7 @@ def test_v7_differs_from_v6_only_in_stall_hit_and_stagnation():
 
 
 def test_the_stagnation_section_is_required_for_v7_and_forbidden_for_older(tmp_path):
-    raw = yaml.safe_load(DEFAULT_CONFIG_V7.read_text("utf-8"))
+    raw = yaml.safe_load(ARCHIVED_V7.read_text("utf-8"))
     missing = {k: v for k, v in raw.items() if k != "stagnation"}
     forbidden = {**yaml.safe_load(ARCHIVED_V6.read_text("utf-8")), "stagnation": raw["stagnation"]}
     wrong_keys = {**raw, "stagnation": {"per_second": -0.1}}
@@ -121,11 +132,9 @@ def test_a_backend_without_an_idle_clock_pays_nothing():
     assert stagnation_of(results) == [0.0, 0.0, 0.0]
 
 
-def test_a_full_stall_is_never_cheaper_than_the_death_bound_in_the_shipped_configs():
-    training = yaml.safe_load((ROOT / "configs" / "training-pure-v4.yaml").read_text("utf-8"))
-    stall_seconds = training["watchdog"]["stall_seconds"]
+def test_a_full_stall_is_never_cheaper_than_the_death_bound_for_v7_at_90_s():
     full_stall = COEF.stall_restart + COEF.stagnation_per_second * (
-        stall_seconds - COEF.stagnation_grace_seconds
+        90 - COEF.stagnation_grace_seconds
     )
     assert full_stall >= COEF.death + 6 * COEF.player_damage_half_heart
 

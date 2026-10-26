@@ -1,0 +1,35 @@
+# Outcome-only reward for the pure profile (openspec change short-stall-reward-v8).
+# Terms describe what happened, never how to play. "First" terms and caps are per run.
+# Novelty pays once per (stage, room, cell) per run; stall_restart is paid once on a stall truncation.
+# Reward v8 = reward v7 with a shorter stall limit (training-pure-v4.yaml watchdog 40 s, was 90 s).
+# After 477k steps the v7 policy was still at random level and 82% of all steps were spent in
+# stalled episodes, mostly standing in the start room. A shorter limit wastes fewer samples and
+# puts the stall penalty closer to its cause. Changes against v7: stagnation.per_second -0.25
+# (was -0.1) and stagnation.grace_seconds 12 (was 20). The stagnation cap stays
+# -0.25 * (40 - 12) = -7.0, so a full stall still costs at most -12 and a death from full health
+# (-10 + 6 * -0.5 = -13) never pays better than a full stall.
+# Archived: archive/configs/reward-v4.yaml ... reward-v7.yaml.
+reward_version: 8
+status: pure_v4
+outcome:
+  enemy_hp_fraction_total: 5.0
+  room_clear_first: 10.0
+  room_first_visit: 3.0
+  floor_first_entered: 10.0
+  player_damage_half_heart: -0.5
+  death: -10.0
+  stall_restart: -5.0
+  time_second: -0.005
+pickups:
+  coin: 0.05
+  bomb: 0.1
+  key: 0.1
+  consumable_run_cap: 3.0
+  collectible_new: 2.0
+  heal_half_heart: 0.5
+novelty:
+  coefficient: 0.02
+  cell_size: 40
+stagnation:
+  per_second: -0.25
+  grace_seconds: 12
