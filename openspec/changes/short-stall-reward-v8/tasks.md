@@ -15,7 +15,7 @@
 ## 2. Verification
 
 - [x] 2.1 Full offline gate and strict OpenSpec validation.
-- [ ] 2.2 Windows `scripts/Check.ps1`; rename `runs\pure-v4` to `runs\pure-v4-reward-v7`;
+- [x] 2.2 Windows `scripts/Check.ps1`; rename `runs\pure-v4` to `runs\pure-v4-reward-v7`;
   one-hour native session with `--initialize`; stall rows have `col_stall` -5 and
   `col_stagnation` is nonzero only in episodes that idled past 12 s and at least -7.0.
 - [ ] 2.3 Acceptance: frozen evaluation of the latest checkpoint and of `random-prior`
@@ -23,3 +23,9 @@
   `compare_eval.py --baseline random-prior` shows the 95% interval of the `kills_1k`
   difference above zero and a positive `clears_1k` difference; the share of steps in stalled
   episodes over the first 8 h session is below 50%.
+
+  2026-10-27 t270336, two checkpoint + two random-prior sessions: kills_1k
+  +3.03 [+1.34, +4.80], clears_1k +0.52 [+0.13, +0.91]. These two conditions
+  passed; the share of steps in stalled episodes (<50%) did not pass (~80%),
+  so task 2.3 remains open. See the
+  [frozen evaluation report](../../../reports/2026-10-27-pure-v8-t270336-frozen-eval.md).
