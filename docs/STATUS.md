@@ -1,6 +1,6 @@
 # Project status
 
-Updated 2026-10-26 (Europe/Amsterdam). Current state only; dated evidence is history.
+Updated 2026-10-28 (Europe/Amsterdam). Current state only; dated evidence is history.
 The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Direction
@@ -8,16 +8,17 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 - Pure self-learning since 2026-10-22 ([decision](UPDATE_DECISION.md)). RecurrentPPO
   learns from raw facts and outcome rewards only: no scripted setup, advice features
   or technique rewards. Archive content is history, not runtime authority.
-- Current lineage: `pure-v4`, observation schema 5, reward contract `pure-v8` (offline
-  only; restarts with `--initialize`). The reward-v7 run is to be preserved as
+- Current lineage: `pure-v4`, observation schema 5, reward contract `pure-v8`.
+  Native qualification passed; paused at `fb22b342-s1-t539648`, no initialization on resume.
+  The reward-v7 run is preserved as
   `runs/pure-v4-reward-v7`. The reward-v5 trial is preserved separately as
   `runs/pure-v4-pre`; it is not resumed.
 - Active changes (not archived):
   - `short-stall-reward-v8`: stall limit 40 s (was 90), stagnation -0.25 per idle second
-    past 12 s, cap still -7.0. Offline gate passed; Windows task 2.2 and acceptance 2.3 open.
+    past 12 s, cap still -7.0. Windows task 2.2 passed; acceptance 2.3 remains open.
   - `observer-frame-timing`: the observer logs an `Observer perf` line every ~10 s
-    (callback, capture and encode time); `scripts/lua_perf.py` summarizes log.txt. Needs an
-    observer redeploy; native task 2.2 open.
+    (callback, capture and encode time); `scripts/lua_perf.py` summarizes log.txt.
+    Deployed; native task 2.2 passed ([report](../reports/2026-10-26-pure-v8-one-hour-and-frame-timing.md)).
   - `random-prior-eval-baseline`: Windows gate and native one-hour task 2.2 passed. Move/shoot uniform, use none 0.85, other uses 0.05 each.
   - `stagnation-cost-reward-v7`: Windows gate and one-hour native task 2.2 passed;
     [qualification report](../reports/2026-10-24-pure-v7-one-hour.md). Acceptance 2.3 not
@@ -55,7 +56,7 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
   The generic manifest reward_schema_version=1 is separate from reward_contract.
 - Episode = run. Death terminates; 40 active seconds without run-new progress
   truncates and restarts. Revisited rooms/regained counters do not reset progress.
-- `configs/training-pure-v4.yaml`: gamma 0.998, gae_lambda 0.98, ent_coef 0.005, seed 1;
+- `configs/training-pure-v4.yaml`: gamma 0.998, gae_lambda 0.98, ent_coef 0.01, seed 1;
   contract hash
   `fb22b3429127c22b325c20594d1ab6d2931fae684ceab6eef9af4731136eb938`
   (reward v7: `d62dc21b...`, reward v6: `ed954e0a...`). Observation 5/action 2/reward
@@ -94,7 +95,7 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
   lint/format/pip clean, strict OpenSpec 21/21. Synthetic CPU smoke passed:
   16 steps, 3499 inputs, [5,5,4] actions. Synthetic smoke is not gameplay evidence.
 - Closed-game deployment hashes matched source and user-provided values:
-  Lua 5e9352154a38ea4ad6b6d219d463993493cb676ba432f04fd2f3372853470315,
+  Lua 65fbbca5e4fb57c0325dbd8ecd63e1dd87b1a19c6f630776e2c5ec2800ba88d2,
   metadata 00f46cc452c2a4e7809c14501d94de2db1ac94b1dde12b3c25d163922f34b997.
 - Native narrow shape 3 and L shape 12 exported no wall; rocks/bomb rocks retained.
   Fire observed; both nonlethal damage and kills reset stall clock. Full-HP kill
@@ -106,18 +107,16 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Next
 
-1. Windows: Check.ps1; deploy the changed observer `main.lua` with Isaac closed; rename
-   `runs\pure-v4` to `runs\pure-v4-reward-v7`; start reward v8 with `--initialize` for one
-   hour (v8 task 2.2), then summarize log.txt with `scripts/lua_perf.py` (frame-timing
-   task 2.2) together with the train.csv bridge timing.
-2. Then continuous v8 training. Acceptance 2.3: share of steps in stalled episodes below
-   50% over the first 8 h session, and two frozen sessions against random-prior with the
-   per-1000-step criterion. Rank checkpoints only with two sessions each.
-3. If the observer's capture/encode time is a large share of wall time, a separate change
-   can send snapshots less often; the game currently runs at about half speed.
-4. The 2026-10-25/26 run stopped after its second lease: a recovered floor-transition
-   timeout remained sticky in supervisor fault state, and the timer did not roll over.
-   No restart or bridge-timeout fix is included here.
+1. Training paused by user on October 28 at 12:02 CET. Final t539648, learner exit 0,
+   cleanup empty, stop.forever present; recurring monitor paused. No automatic resume.
+   [Interrupted ent_coef=0.01 continuation](../reports/2026-10-29-pure-v8-ent001-overnight.md).
+2. A bounded two-instance launch probe observed only one persistent game; direct second
+   launch exited 53. Four-instance gameplay and shared-learner training remain untested.
+   [Probe evidence and current architectural limits](../reports/2026-10-28-isaac-parallel-instance-probe.md).
+3. Frozen t270336 evaluation passed kills/clears conditions, but stalled-step share failed;
+   task 2.3 remains open. [Evaluation](../reports/2026-10-27-pure-v8-t270336-frozen-eval.md).
+4. Before parallel training, establish independent game launch, save/profile handling,
+   per-instance bridge ports and process ownership, then a vectorized single learner.
 3. STOP_MARGIN_SECONDS=15 produced clean one-hour deadlines; native eight-hour
    rollover succeeded on 2026-10-25; a later recovered fault blocked the following one. Evaluation display can stay waiting after a long episode
    (record separately). Dashboard views passed the offline gate, interactive
