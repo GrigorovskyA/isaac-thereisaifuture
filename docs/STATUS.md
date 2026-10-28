@@ -9,8 +9,8 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
   learns from raw facts and outcome rewards only: no scripted setup, advice features
   or technique rewards. Archive content is history, not runtime authority.
 - Current lineage: `pure-v4`, observation schema 5, reward contract `pure-v8`.
-  Native qualification passed; resumed from `fb22b342-s1-t539648` without initialization
-  after the October 28 multi-instance probe, until October 29 at 09:00 CET.
+  Native qualification passed; stopped by the user on October 28 at 15:51 CET,
+  last checkpoint `fb22b342-s1-t588288`. No automatic resume is scheduled.
   The reward-v7 run is preserved as
   `runs/pure-v4-reward-v7`. The reward-v5 trial is preserved separately as
   `runs/pure-v4-pre`; it is not resumed.
@@ -108,11 +108,11 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Next
 
-1. The first ent_coef=0.01 leg paused at t539648 on October 28 at 12:02 CET, with exit 0
-   and empty cleanup errors. The user then authorized resuming from t539648 after the probe.
-   Deadline remains October 29 at 09:00 CET; quiet 15-minute monitoring is active again.
-   Stop on mean use_none below 0.40 across the latest 40 rollout rows since t510976;
-   the pause does not reset this window. [First-leg report](../reports/2026-10-29-pure-v8-ent001-overnight.md).
+1. The ent_coef=0.01 trial ended at t588288 on October 28 at the user's request.
+   Both legs exited 0 with empty cleanup errors and no fault. stop.forever remains;
+   recurring monitoring was deleted and the October 29 deadline is superseded.
+   Minimum 40-rollout use_none mean was 0.5313; its 0.40 guard never fired.
+   [Combined final report](../reports/2026-10-29-pure-v8-ent001-overnight.md).
 2. A bounded two-instance launch probe observed only one persistent game; direct second
    launch exited 53. Four-instance gameplay and shared-learner training remain untested.
    [Probe evidence and current architectural limits](../reports/2026-10-28-isaac-parallel-instance-probe.md).
