@@ -27,6 +27,10 @@
   `col_door_shaping` is nonzero only in cleared rooms without enemies, that the sums over loops
   are near zero, that a boss clear pays 20 once on top of the room clear, and that live
   snapshots stay below the 49152-byte cap.
+  October 28: Windows gate 1324 passed; deployment/archive and one-hour native run
+  completed cleanly at t13824. Geometry check blocked continuation: 3790/13568 native
+  1x1 positions outside the expected 13x7 index region. No geometry fix or retry;
+  boss positive case not encountered. [Evidence](../../../reports/2026-10-29-pure-v9-training.md).
 - [ ] 2.3 Acceptance: the training-side comparison of the first 8 h session, the frozen
   evaluation (two 3600 s sessions of the checkpoint and two of `random-prior` under this
   config, `compare_eval.py --baseline random-prior`) and the `rooms_visited` comparison with the

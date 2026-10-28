@@ -8,16 +8,18 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 - Pure self-learning since 2026-10-22 ([decision](UPDATE_DECISION.md)). RecurrentPPO
   learns from raw facts and outcome rewards, plus one potential-based door term since
   reward v9: no scripted setup, advice features or technique rewards. Archive content is history, not runtime authority.
-- Current lineage: `pure-v4`, observation schema 6, reward contract `pure-v9` (offline only;
-  restarts with `--initialize` after an observer redeploy). The reward-v8 run stopped on
-  October 28 at 15:51 CET at `fb22b342-s1-t588288` and is to be preserved as
+- Current lineage: `pure-v4`, observation schema 6, reward contract `pure-v9`.
+  Fresh one-hour qualification ended at `82b1b53e-s1-t13824`; continuation is blocked by
+  the native 1x1 visited-cell geometry check. No retry or reinitialization is scheduled.
+  The reward-v8 run stopped at `fb22b342-s1-t588288` and is preserved as
   `runs/pure-v4-reward-v8`. The reward-v7 run is preserved as `runs/pure-v4-reward-v7`. The reward-v5 trial is preserved separately as
   `runs/pure-v4-pre`; it is not resumed.
 - Active changes (not archived):
   - `dense-exploration-reward-v9`: denser exploration and run-goal rewards (novelty 0.1,
     new room 5, new floor 30, boss clear +20, pickups up), potential-based door shaping
     (coefficient 2, clear rooms only) from new oracle `doors`, and a 27x15 visited-cell map
-    in observation schema 6. Offline gate passed; Windows task 2.2 and acceptance 2.3 open.
+    in observation schema 6. Windows gate passed; native task 2.2 is blocked by geometry;
+    acceptance 2.3 remains open. [Qualification report](../reports/2026-10-29-pure-v9-training.md).
   - `short-stall-reward-v8`: stall limit 40 s (was 90), stagnation -0.25 per idle second
     past 12 s, cap still -7.0. Windows task 2.2 passed; t270336 passed the kills/clears
     conditions, the stalled-step condition did not; superseded by reward v9.
@@ -100,11 +102,11 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Verification
 
-- Current Windows gate: 1271 tests passed with Lua, no skips; mypy 31 files,
-  lint/format/pip clean, strict OpenSpec 21/21. Synthetic CPU smoke passed:
-  16 steps, 3499 inputs, [5,5,4] actions. Synthetic smoke is not gameplay evidence.
+- Current Windows gate: 1324 tests passed with Lua, no skips; mypy 31 files,
+  lint/format/pip clean, strict OpenSpec 22/22. Synthetic CPU smoke passed:
+  16 steps, 3904 inputs, [5,5,4] actions. Synthetic smoke is not gameplay evidence.
 - Closed-game deployment hashes matched source and user-provided values:
-  Lua 65fbbca5e4fb57c0325dbd8ecd63e1dd87b1a19c6f630776e2c5ec2800ba88d2,
+  Lua d73e2c97d6368389543985074e4ab497c469e943c299b28786e86525dff4fd11,
   metadata 00f46cc452c2a4e7809c14501d94de2db1ac94b1dde12b3c25d163922f34b997.
 - Native narrow shape 3 and L shape 12 exported no wall; rocks/bomb rocks retained.
   Fire observed; both nonlethal damage and kills reset stall clock. Full-HP kill
@@ -116,9 +118,10 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Next
 
-1. Windows: Check.ps1; redeploy observer `main.lua` with Isaac closed; rename
-   `runs\pure-v4` to `runs\pure-v4-reward-v8`; one-hour `--initialize` session for v9
-   task 2.2; then continuous training. Compare with the reward-v8 lineage at equal steps.
+1. V9 stopped cleanly at 17:23 CET on October 28, exit 0/fault null/cleanup empty;
+   stop.forever remains. No continuation: 27.9% of native 1x1 samples fall outside
+   the requested 13x7 cell-index region. Reported without changing the encoder.
+   Task 2.2 stays open; geometry needs a decision before any new authorized run.
 2. The ent_coef=0.01 trial ended at t588288 on October 28 at the user's request.
    Both legs exited 0 with empty cleanup errors and no fault. stop.forever remains;
    recurring monitoring was deleted and the October 29 deadline is superseded.
