@@ -9,7 +9,7 @@
   only; ledger: boss clear bonus, potential-based door shaping with `gamma`, terminal handling,
   `door_shaping` column; env passes doors, enemies and the terminal flag.
 - [x] 1.3 Observation schema 7: `VisitedCells` and the 364-float block in `encode`; the env keeps
-  the state per run; `OBSERVATION_SCHEMA_VERSION` 6 with `FRAME_SCHEMA_VERSION` 5 for the wire.
+  the state per run; `OBSERVATION_SCHEMA_VERSION` 7 with `FRAME_SCHEMA_VERSION` 5 for the wire.
 - [x] 1.4 Contract: `training-pure-v4.yaml` (schema 7, reward 9, `ent_coef` 0.005);
   `PURE_REWARD_VERSION = 9`; reward contract `pure-v9`; `make_live_env` pays reward 9 with the
   training gamma.
@@ -31,8 +31,12 @@
   completed cleanly at t13824. Geometry check blocked continuation: 3790/13568 native
   1x1 positions outside the expected 13x7 index region. No geometry fix or retry;
   boss positive case not encountered. [Evidence](../../../reports/2026-10-29-pure-v9-training.md).
-  2026-10-29: schema 7 fixes the grid (40 px tiles from the room corner (60, 140), novelty
-  cells too); the schema 6 hour is not resumed; rerun 2.2 with `--initialize`.
+  2026-10-28: schema 7 fixes the grid (40 px tiles from the room corner (60, 140), novelty
+  cells too); the schema 6 hour is not resumed. The fresh schema 7 hour ended cleanly
+  at t13824: geometry 49/13148 outside (0.373%), all at doorways; door potential,
+  standing residual, visited bits and snapshot checks passed. Conditional continuation
+  is qualified, but 2.2 remains unchecked for the missing native boss positive case.
+  [Schema 7 evidence](../../../reports/2026-10-28-pure-v9-schema7-qualification.md).
 - [ ] 2.3 Acceptance: the training-side comparison of the first 8 h session, the frozen
   evaluation (two 3600 s sessions of the checkpoint and two of `random-prior` under this
   config, `compare_eval.py --baseline random-prior`) and the `rooms_visited` comparison with the

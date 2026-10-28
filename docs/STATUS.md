@@ -9,8 +9,9 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
   learns from raw facts and outcome rewards, plus one potential-based door term since
   reward v9: no scripted setup, advice features or technique rewards. Archive content is history, not runtime authority.
 - Current lineage: `pure-v4`, observation schema 7, reward contract `pure-v9`.
-  Fresh one-hour qualification started October 28 at 18:33 CET; timer stop 19:33 CET.
-  Conditional continuation ends October 30 at 09:00 CET, only after a good native review.
+  One-hour qualification ended cleanly October 28 at 19:33 CET, checkpoint t13824.
+  Measured geometry/door checks passed; qualified continuation ends October 30 at 09:00 CET.
+  [Schema 7 qualification](../reports/2026-10-28-pure-v9-schema7-qualification.md).
   The schema 6 qualification hour (`82b1b53e-s1-t13824`) found
   that its visited-cell grid cut every tile in half; schema 7 counts tiles from the room corner
   (60, 140) and that hour is not resumed.
@@ -22,7 +23,8 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
     new room 5, new floor 30, boss clear +20, pickups up), potential-based door shaping
     (coefficient 2, clear rooms only) from new oracle `doors`, and a 26x14 visited-cell map
     in observation schema 7. Schema 6 passed the Windows gate, door reward and snapshot size
-    natively, but its grid check failed; task 2.2 (grid, boss) and 2.3 remain open. [Qualification report](../reports/2026-10-29-pure-v9-training.md).
+    natively, but its grid check failed; schema 7 now passes geometry (49/13148 doorway samples outside).
+    Task 2.2 remains open for the native boss positive case; 2.3 remains open. [Qualification report](../reports/2026-10-29-pure-v9-training.md).
   - `short-stall-reward-v8`: stall limit 40 s (was 90), stagnation -0.25 per idle second
     past 12 s, cap still -7.0. Windows task 2.2 passed; t270336 passed the kills/clears
     conditions, the stalled-step condition did not; superseded by reward v9.
