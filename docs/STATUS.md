@@ -8,8 +8,10 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 - Pure self-learning since 2026-10-22 ([decision](UPDATE_DECISION.md)). RecurrentPPO
   learns from raw facts and outcome rewards, plus one potential-based door term since
   reward v9: no scripted setup, advice features or technique rewards. Archive content is history, not runtime authority.
-- Current lineage: `pure-v4`, observation schema 7, reward contract `pure-v9` (offline only;
-  restarts with `--initialize`). The schema 6 qualification hour (`82b1b53e-s1-t13824`) found
+- Current lineage: `pure-v4`, observation schema 7, reward contract `pure-v9`.
+  Fresh one-hour qualification started October 28 at 18:33 CET; timer stop 19:33 CET.
+  Conditional continuation ends October 30 at 09:00 CET, only after a good native review.
+  The schema 6 qualification hour (`82b1b53e-s1-t13824`) found
   that its visited-cell grid cut every tile in half; schema 7 counts tiles from the room corner
   (60, 140) and that hour is not resumed.
   The reward-v8 run stopped at `fb22b342-s1-t588288` and is preserved as
@@ -103,9 +105,9 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Verification
 
-- Current Windows gate: 1324 tests passed with Lua, no skips; mypy 31 files,
+- Current Windows gate: 1325 tests passed with Lua, no skips; mypy 31 files,
   lint/format/pip clean, strict OpenSpec 22/22. Synthetic CPU smoke passed:
-  16 steps, 3904 inputs, [5,5,4] actions. Synthetic smoke is not gameplay evidence.
+  16 steps, 3863 inputs, [5,5,4] actions. Synthetic smoke is not gameplay evidence.
 - Closed-game deployment hashes matched source and user-provided values:
   Lua d73e2c97d6368389543985074e4ab497c469e943c299b28786e86525dff4fd11,
   metadata 00f46cc452c2a4e7809c14501d94de2db1ac94b1dde12b3c25d163922f34b997.
@@ -121,8 +123,10 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 1. V9 schema 6 hour stopped cleanly at 17:23 CET on October 28. Its 1x1 cells were
    floor(world / 40), so 27.9% of samples fell outside the 13x7 tile region. Fixed in schema 7
-   (tiles from the room corner; novelty cells too). Next: rename the schema 6 hour's
-   `runs\pure-v4`, `--initialize` one hour of schema 7 and rerun the grid check.
+   (tiles from the room corner; novelty cells too). That lineage is preserved under
+   `runs/pure-v4-reward-v9-schema6` with stop.forever and verified checkpoint hashes.
+   Schema 7 qualification is running; require <=about 1% outside 13x7, at doorways only.
+   Lua was not redeployed; preflight hashes matched. No automatic retry or fix if blocked.
 2. The ent_coef=0.01 trial ended at t588288 on October 28 at the user's request.
    Both legs exited 0 with empty cleanup errors and no fault. stop.forever remains;
    recurring monitoring was deleted and the October 29 deadline is superseded.
