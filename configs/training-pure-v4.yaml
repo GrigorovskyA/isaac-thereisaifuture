@@ -38,8 +38,11 @@ hyperparameters:
   # 0.98 (was 0.95): advantages look about 45 steps ahead, not 20.
   gae_lambda: 0.98
   clip_range: 0.2
-  # 0.005 (was 0.01): the use head drifted from its prior back toward uniform.
-  ent_coef: 0.005
+  # 0.01 again from fb22b342-s1-t510976 (was 0.005; before that 0.01, when the fresh use head
+  # drifted from its prior toward uniform). Under reward v8 kills and clears per 1000 steps
+  # plateaued from about 240k steps while entropy fell (3.44 -> 2.89) and 60% of episodes
+  # still stalled. Watch use_none in train.csv; go back to 0.005 if it falls toward 0.25.
+  ent_coef: 0.01
   n_steps: 512
   batch_size: 128
   n_epochs: 4

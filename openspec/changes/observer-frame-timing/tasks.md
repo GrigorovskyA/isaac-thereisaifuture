@@ -10,5 +10,5 @@
 
 - [x] 2.1 Offline gate: new tests, all `tests/test_lua_*.py`, ruff, mypy and strict
   OpenSpec validation (macOS).
-- [ ] 2.2 Windows native hour: redeploy `main.lua`, run one session, and read
+- [x] 2.2 Windows native hour: redeploy `main.lua`, run one session, and read
   `scripts/lua_perf.py <log.txt>` for updates/s and the capture/encode share.
