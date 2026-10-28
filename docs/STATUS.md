@@ -8,18 +8,19 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 - Pure self-learning since 2026-10-22 ([decision](UPDATE_DECISION.md)). RecurrentPPO
   learns from raw facts and outcome rewards, plus one potential-based door term since
   reward v9: no scripted setup, advice features or technique rewards. Archive content is history, not runtime authority.
-- Current lineage: `pure-v4`, observation schema 6, reward contract `pure-v9`.
-  Fresh one-hour qualification ended at `82b1b53e-s1-t13824`; continuation is blocked by
-  the native 1x1 visited-cell geometry check. No retry or reinitialization is scheduled.
+- Current lineage: `pure-v4`, observation schema 7, reward contract `pure-v9` (offline only;
+  restarts with `--initialize`). The schema 6 qualification hour (`82b1b53e-s1-t13824`) found
+  that its visited-cell grid cut every tile in half; schema 7 counts tiles from the room corner
+  (60, 140) and that hour is not resumed.
   The reward-v8 run stopped at `fb22b342-s1-t588288` and is preserved as
   `runs/pure-v4-reward-v8`. The reward-v7 run is preserved as `runs/pure-v4-reward-v7`. The reward-v5 trial is preserved separately as
   `runs/pure-v4-pre`; it is not resumed.
 - Active changes (not archived):
   - `dense-exploration-reward-v9`: denser exploration and run-goal rewards (novelty 0.1,
     new room 5, new floor 30, boss clear +20, pickups up), potential-based door shaping
-    (coefficient 2, clear rooms only) from new oracle `doors`, and a 27x15 visited-cell map
-    in observation schema 6. Windows gate passed; native task 2.2 is blocked by geometry;
-    acceptance 2.3 remains open. [Qualification report](../reports/2026-10-29-pure-v9-training.md).
+    (coefficient 2, clear rooms only) from new oracle `doors`, and a 26x14 visited-cell map
+    in observation schema 7. Schema 6 passed the Windows gate, door reward and snapshot size
+    natively, but its grid check failed; task 2.2 (grid, boss) and 2.3 remain open. [Qualification report](../reports/2026-10-29-pure-v9-training.md).
   - `short-stall-reward-v8`: stall limit 40 s (was 90), stagnation -0.25 per idle second
     past 12 s, cap still -7.0. Windows task 2.2 passed; t270336 passed the kills/clears
     conditions, the stalled-step condition did not; superseded by reward v9.
@@ -65,13 +66,13 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
   The generic manifest reward_schema_version=1 is separate from reward_contract.
 - Episode = run. Death terminates; 40 active seconds without run-new progress
   truncates and restarts. Revisited rooms/regained counters do not reset progress.
-- Observation 6: schema 5 plus a 27x15 map of the cells visited in the current room this
-  run (3904 floats). Oracle `doors` (slot, position, open, unexplored) is reward-only.
+- Observation 7: schema 5 plus a 26x14 map of the 40 px floor tiles visited in the current
+  room this run, counted from the room corner (60, 140) (3863 floats). Oracle `doors` (slot, position, open, unexplored) is reward-only.
 - `configs/training-pure-v4.yaml`: gamma 0.998, gae_lambda 0.98, ent_coef 0.005, seed 1;
   contract hash
-  `82b1b53e4703d8527eb38605363cc0f5f794ad95c51273433289f5e24c6ffe1b`
-  (reward v8: `fb22b342...`, reward v7: `d62dc21b...`, reward v6: `ed954e0a...`).
-  Observation 6/action 2/reward contract pure-v9 must match. Earlier contracts refused.
+  `3cb9d928e397ec26587bb72d89864ecd1dae04094404c36fb60fa282a9749310`
+  (schema 6 hour: `82b1b53e...`, reward v8: `fb22b342...`, reward v7: `d62dc21b...`, reward v6: `ed954e0a...`).
+  Observation 7/action 2/reward contract pure-v9 must match. Earlier contracts refused.
 - Supervisor: `Start-Pure.cmd`, `runs/pure-v4`, unlimited death/stall New Runs,
   five consecutive faults maximum, disk cap 20,480,000,000 bytes; session lease
   28740 seconds. A timer-owned stop.forever bounds the authorized continuation.
@@ -118,10 +119,10 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Next
 
-1. V9 stopped cleanly at 17:23 CET on October 28, exit 0/fault null/cleanup empty;
-   stop.forever remains. No continuation: 27.9% of native 1x1 samples fall outside
-   the requested 13x7 cell-index region. Reported without changing the encoder.
-   Task 2.2 stays open; geometry needs a decision before any new authorized run.
+1. V9 schema 6 hour stopped cleanly at 17:23 CET on October 28. Its 1x1 cells were
+   floor(world / 40), so 27.9% of samples fell outside the 13x7 tile region. Fixed in schema 7
+   (tiles from the room corner; novelty cells too). Next: rename the schema 6 hour's
+   `runs\pure-v4`, `--initialize` one hour of schema 7 and rerun the grid check.
 2. The ent_coef=0.01 trial ended at t588288 on October 28 at the user's request.
    Both legs exited 0 with empty cleanup errors and no fault. stop.forever remains;
    recurring monitoring was deleted and the October 29 deadline is superseded.

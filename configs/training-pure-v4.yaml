@@ -19,6 +19,9 @@
 # plateaued, 60-70% of episodes still stalled and floor 2 was never reached. v9 pays exploration
 # and run goals more, adds potential-based door shaping, and the policy sees a map of the cells it
 # visited in the room. The reward v8 run is kept as runs/pure-v4-reward-v8. Only ent_coef changes.
+# Observation schema 7 (2026-10-29) replaces schema 6 after its one-hour native check: the
+# visited-cell grid now counts 40 px tiles from the room corner (60, 140), 26 x 14 cells, so a
+# 1x1 room is exactly 13 x 7; schema 6 cut every tile in half. The schema 6 hour is not resumed.
 # Only `contract` binds the lineage; `hyperparameters` may be tuned between sessions
 # and are recorded per checkpoint.
 config_version: 2
@@ -29,7 +32,7 @@ contract:
   seed: 1
   lstm_hidden_size: 256
   action_repeat_game_updates: 6
-  observation_schema_version: 6
+  observation_schema_version: 7
   action_schema_version: 2
   reward_version: 9
   # Initial P(no use press) of the use head, set at fresh model creation only.

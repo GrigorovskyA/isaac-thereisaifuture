@@ -104,7 +104,7 @@ def test_pure_v4_config_pins_the_new_contract_and_refuses_older_lineages(tmp_pat
     config, digest = load_training_config(SHIPPED_PURE_CONFIG)
     assert SHIPPED_PURE_CONFIG.name == "training-pure-v4.yaml" and config.status == "pure_v4"
     contract = config.contract
-    assert contract.observation_schema_version == OBSERVATION_SCHEMA_VERSION == 6
+    assert contract.observation_schema_version == OBSERVATION_SCHEMA_VERSION == 7
     assert contract.reward_version == 9 and contract.action_repeat_game_updates == 6
     assert contract.use_head_initial_none_probability == 0.85
     assert config.retention.keep_every == 100

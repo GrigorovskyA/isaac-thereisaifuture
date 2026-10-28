@@ -92,14 +92,14 @@ def test_layout_is_pinned_to_its_computed_value():
     assert (
         FRAME_SCHEMA_VERSION == 5
         and EntityFrame.model_fields["observation_schema_version"].default == 5
-        and OBSERVATION_SCHEMA_VERSION == 6  # schema 6 adds the visited-cells block, not wire
+        and OBSERVATION_SCHEMA_VERSION == 7  # schemas 6-7 add the visited-cells block, not wire
     )
     assert len(OBSTACLE_CLASSES) == 11 and SLOT_WIDTH["obstacle"] == SLOT_FEATURES + 11
     assert CAPACITY["obstacle"] == 24 and MAX_ENTITIES == 84
     assert ROOM_FEATURES == ROOM_TYPES + 3 + 8 + 12
     assert MAP_OFFSET + 169 * 7 == OFF_GRID_OFFSET and STALL_OFFSET == OFF_GRID_OFFSET + 1
     assert VISITED_OFFSET == STALL_OFFSET + 1
-    assert OBSERVATION_SIZE == VISITED_OFFSET + VISITED_COLS * VISITED_ROWS == 3904
+    assert OBSERVATION_SIZE == VISITED_OFFSET + VISITED_COLS * VISITED_ROWS == 3863
     assert encode(frame()).vector.shape == (OBSERVATION_SIZE,)
     assert COLLECTIBLE_OFFSET > ROOM_OFFSET + ROOM_FEATURES
 

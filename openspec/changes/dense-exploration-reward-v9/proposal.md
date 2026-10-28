@@ -41,13 +41,16 @@ changes the outcome-only reward rule for this one term.
     unless the room is clear with no enemies. A step pays gamma * Phi(s') - Phi(s) with gamma
     from the training hyperparameters; a terminal step ends in Phi(s') = 0; on a room change the
     old room's last Phi and the new room's first. New episode column `col_door_shaping`.
-- Observation schema 6: a visited-cells block (27 x 15 novelty cells of 40 px over the largest
-  room, 1.0 where the player stood in this room during this run) built from player position,
-  stage and the current minimap room only. `OBSERVATION_SIZE` 3904 (was 3499). The wire frame
+- Observation schema 7: a visited-cells block (26 x 14 cells, one per 40 px floor tile counted
+  from the room interior corner (60, 140), so a 1x1 room is exactly 13 x 7; novelty reward cells
+  use the same tiles) over the largest room, 1.0 where the player stood in this room during this run) built from player position,
+  stage and the current minimap room only. `OBSERVATION_SIZE` 3863 (was 3499). The wire frame
   stays at schema 5.
-- `configs/training-pure-v4.yaml`: `observation_schema_version: 6`, `reward_version: 9`,
+- `configs/training-pure-v4.yaml`: `observation_schema_version: 7`, `reward_version: 9`,
   `ent_coef: 0.005` (was 0.01). Everything else is unchanged.
-- Contract: reward contract `pure-v9`; pure-v8 checkpoints (schema 5) are refused. Lineage
+- Contract: reward contract `pure-v9`; pure-v8 checkpoints (schema 5) and the schema 6 one-hour run are refused. Schema 6 used
+  cells of floor(world / 40), which cut every tile in half (native 1x1 rooms touched 14 x 8
+  cells); its one-hour native check (reports/2026-10-29-pure-v9-training.md) found this. Lineage
   `pure-v4` restarts with `--initialize`; the reward v8 run is kept as
   `runs/pure-v4-reward-v8` (done on Windows).
 

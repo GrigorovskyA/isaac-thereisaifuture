@@ -84,16 +84,13 @@ MAP_OFFSET = EXTRA_OFFSET + sum(CAPACITY[k] * SLOT_WIDTH[k] for k in EXTRA_KINDS
 MAP_CHANNELS = 7
 OFF_GRID_OFFSET = MAP_OFFSET + LEVEL_GRID_CELLS * MAP_CHANNELS
 STALL_OFFSET = OFF_GRID_OFFSET + 1  # idle time / stall limit
-# Visited cells of the current room (schema 6): novelty cells of CELL_SIZE px laid over the
-# largest room. A room interior starts at world (60, 140); a 2x2 room is 26 x 14 tiles of 40 px,
-# which touches 27 x 15 cells because the origin is not a multiple of the cell size. Smaller
-# rooms and L-shapes use the same grid from the same origin.
+# Visited cells of the current room (schema 6): one cell per 40 px floor tile, counted from the
+# room interior corner at world (60, 140), so cells line up with the game's tiles. A 2x2 room is
+# 26 x 14 tiles; smaller rooms and L-shapes use the same grid from the same corner. Natively a
+# 1x1 room spans x 60..580 and y 140..420; positions in door frames are clipped to the edge cells.
 CELL_SIZE = 40.0  # the novelty cell size of reward v4-v9
 ROOM_ORIGIN = (60.0, 140.0)
-ROOM_MAX_PIXELS = (26 * 40.0, 14 * 40.0)
-FIRST_CELL = (math.floor(ROOM_ORIGIN[0] / CELL_SIZE), math.floor(ROOM_ORIGIN[1] / CELL_SIZE))
-VISITED_COLS = math.floor((ROOM_ORIGIN[0] + ROOM_MAX_PIXELS[0] - 1) / CELL_SIZE) - FIRST_CELL[0] + 1
-VISITED_ROWS = math.floor((ROOM_ORIGIN[1] + ROOM_MAX_PIXELS[1] - 1) / CELL_SIZE) - FIRST_CELL[1] + 1
+VISITED_COLS, VISITED_ROWS = 26, 14
 VISITED_OFFSET = STALL_OFFSET + 1  # row-major rows x columns; the last block
 OBSERVATION_SIZE = VISITED_OFFSET + VISITED_COLS * VISITED_ROWS
 GRID_WIDTH = 13
@@ -262,8 +259,8 @@ class VisitedCells:
         room = current if current is not None else -1 - frame.room_visit
         cells = self._rooms.setdefault((frame.room.stage, room), set())
         player = frame.player_position
-        col = math.floor(player.x / CELL_SIZE) - FIRST_CELL[0]
-        row = math.floor(player.y / CELL_SIZE) - FIRST_CELL[1]
+        col = math.floor((player.x - ROOM_ORIGIN[0]) / CELL_SIZE)
+        row = math.floor((player.y - ROOM_ORIGIN[1]) / CELL_SIZE)
         cells.add((min(max(col, 0), VISITED_COLS - 1), min(max(row, 0), VISITED_ROWS - 1)))
         grid = np.zeros(VISITED_COLS * VISITED_ROWS, dtype=np.float32)
         for col, row in cells:

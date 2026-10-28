@@ -70,7 +70,7 @@ false when the target cannot be read). The observer needs no new capability: the
 `live_loop_v1` and a Python peer rejects a snapshot without `doors`, so redeploy the mod with the
 code. Messages may reach 49152 bytes (a snapshot with eight doors measured 31 KB in the Lua
 worst-case test). The wire frame stays at schema 5; the encoded policy vector is observation
-schema 6 (3904 floats, the visited-cells block is built in Python, see `docs/RL_DESIGN.md`).
+schema 7 (3863 floats, the visited-cells block is built in Python, see `docs/RL_DESIGN.md`).
 
 The Python encoder retains schema-1 capacities 16/32/24/8 and outputs 649 float32
 values. Presence and optional-field masks distinguish missing objects from

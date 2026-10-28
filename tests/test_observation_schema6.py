@@ -9,7 +9,6 @@ from synthetic import frame, oracle_metrics, room_facts
 from test_entity_transport import entity_snapshot
 
 from isaac_threrisaifuture.encoding import (
-    FIRST_CELL,
     OBSERVATION_SIZE,
     SHAPE_TILES,
     STALL_OFFSET,
@@ -59,15 +58,29 @@ def cell(col, row):
 
 
 def test_the_block_covers_the_largest_room_and_comes_last():
-    assert OBSERVATION_SCHEMA_VERSION == 6 and FRAME_SCHEMA_VERSION == 5
-    assert FIRST_CELL == (1, 3) and (VISITED_COLS, VISITED_ROWS) == (27, 15)
+    assert OBSERVATION_SCHEMA_VERSION == 7 and FRAME_SCHEMA_VERSION == 5
+    assert (VISITED_COLS, VISITED_ROWS) == (26, 14)
     assert VISITED_OFFSET == STALL_OFFSET + 1
-    assert OBSERVATION_SIZE == VISITED_OFFSET + 27 * 15 == 3904
+    assert OBSERVATION_SIZE == VISITED_OFFSET + 26 * 14 == 3863
     assert encode(frame()).vector.shape == (OBSERVATION_SIZE,)
-    # A 2x2 room interior, 1040 x 560 px from (60, 140), has its corners inside the grid.
+    # A 2x2 room interior, 1040 x 560 px from (60, 140), has its corner tiles on the grid corners.
     cells = VisitedCells()
     assert visited(cells.update(at(60, 140))) == {cell(0, 0)}
-    assert visited(cells.update(at(1099, 699))) == {cell(0, 0), cell(26, 14)}
+    assert visited(cells.update(at(1099, 699))) == {cell(0, 0), cell(25, 13)}
+
+
+def test_cells_line_up_with_the_tiles_of_a_native_1x1_room():
+    # Native 1x1 positions span x 60..580 and y 140..420: exactly 13 x 7 tiles from the corner.
+    cells = VisitedCells()
+    assert visited(cells.update(at(60.0, 140.0))) == {cell(0, 0)}
+    assert visited(cells.update(at(99.9, 179.9))) == {cell(0, 0)}  # still the first tile
+    assert cell(1, 1) in visited(cells.update(at(100.0, 180.0)))
+    grid = cells.update(at(579.9, 419.9))
+    assert cell(12, 6) in visited(grid)
+    # The native sample (320, 400.7) is tile (6, 6), not (7, 7).
+    assert cell(6, 6) in visited(VisitedCells().update(at(320.0, 400.746)))
+    # A door-frame position (x 45, y 125) clips to the corner cell.
+    assert visited(VisitedCells().update(at(45.7, 125.4))) == {cell(0, 0)}
 
 
 def test_without_visited_cells_the_block_is_zero_and_the_rest_is_unchanged():
@@ -87,9 +100,9 @@ def test_without_visited_cells_the_block_is_zero_and_the_rest_is_unchanged():
 def test_cells_are_set_on_visit_and_stay_set():
     cells = VisitedCells()
     first = cells.update(at(300, 200))
-    assert visited(first) == {cell(6, 2)}
+    assert visited(first) == {cell(6, 1)}
     second = cells.update(at(100, 200))
-    assert visited(second) == {cell(6, 2), cell(1, 2)}
+    assert visited(second) == {cell(6, 1), cell(1, 1)}
     assert set(np.unique(second)) == {0.0, 1.0} and second.dtype == np.float32
     # The same cell again changes nothing; the player stands still.
     assert visited(cells.update(at(101, 201))) == visited(second)
@@ -98,20 +111,20 @@ def test_cells_are_set_on_visit_and_stay_set():
 def test_a_cell_is_the_novelty_cell_of_the_ledger():
     cells = VisitedCells()
     # Positions 39 px apart in one 40 px cell share it; 41 px apart across a boundary do not.
-    assert len(visited(cells.update(at(121.0, 200.0)))) == 1
-    assert len(visited(cells.update(at(159.0, 200.0)))) == 1
-    assert len(visited(cells.update(at(161.0, 200.0)))) == 2
+    assert len(visited(cells.update(at(101.0, 200.0)))) == 1
+    assert len(visited(cells.update(at(139.0, 200.0)))) == 1
+    assert len(visited(cells.update(at(141.0, 200.0)))) == 2
 
 
 def test_rooms_and_stages_have_separate_maps():
     cells = VisitedCells()
     cells.update(at(300, 200, grid=84))
     other = cells.update(at(500, 300, grid=85))
-    assert visited(other) == {cell(500 // 40 - 1, 300 // 40 - 3)}
+    assert visited(other) == {cell(11, 4)}
     back = cells.update(at(300, 200, grid=84, frame_id=2))  # back in the first room
-    assert visited(back) == {cell(300 // 40 - 1, 200 // 40 - 3)}
+    assert visited(back) == {cell(6, 1)}
     floor_two = cells.update(at(300, 200, grid=84, stage=2))  # same grid index on the next floor
-    assert visited(floor_two) == {cell(300 // 40 - 1, 200 // 40 - 3)}
+    assert visited(floor_two) == {cell(6, 1)}
     cells.update(at(100, 200, grid=84, stage=2))
     assert len(visited(cells.update(at(300, 200, grid=84, stage=1)))) == 1  # floor 1 unchanged
 
@@ -121,7 +134,7 @@ def test_a_room_without_a_grid_position_starts_empty_on_each_visit():
     off_grid = dict(map=[], map_current_off_grid=True)
     cells.update(frame(player_position=Vec(x=300, y=200), room_visit=3, **off_grid))
     again = cells.update(frame(player_position=Vec(x=500, y=300), room_visit=4, **off_grid))
-    assert visited(again) == {cell(500 // 40 - 1, 300 // 40 - 3)}
+    assert visited(again) == {cell(11, 4)}
 
 
 def test_a_new_run_clears_every_map():
@@ -176,11 +189,11 @@ def test_the_env_shows_the_visited_cells_and_forgets_them_on_a_new_run():
         [scenario],
     )
     obs, _ = env.reset()
-    assert visited(obs[VISITED_OFFSET:]) == {cell(6, 2)}
+    assert visited(obs[VISITED_OFFSET:]) == {cell(6, 1)}
     obs, *_ = env.step(np.array([0, 0, 0]))
-    assert visited(obs[VISITED_OFFSET:]) == {cell(6, 2), cell(1, 2)}
+    assert visited(obs[VISITED_OFFSET:]) == {cell(6, 1), cell(1, 1)}
     obs, _ = env.reset()  # a new game epoch is a new run
-    assert visited(obs[VISITED_OFFSET:]) == {cell(6, 2)}
+    assert visited(obs[VISITED_OFFSET:]) == {cell(6, 1)}
 
 
 # --- oracle doors never reach the policy -----------------------------------------------

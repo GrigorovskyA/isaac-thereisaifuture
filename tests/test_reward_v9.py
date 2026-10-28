@@ -117,7 +117,7 @@ def test_the_v9_sections_are_required_and_strict(tmp_path):
 
 
 def test_the_training_config_pins_contract_v9_and_the_entropy_coefficient():
-    assert CONFIG.contract.reward_version == 9 and CONFIG.contract.observation_schema_version == 6
+    assert CONFIG.contract.reward_version == 9 and CONFIG.contract.observation_schema_version == 7
     assert CONFIG.hyperparameters.ent_coef == 0.005 and STALL_SECONDS == 40.0
 
 

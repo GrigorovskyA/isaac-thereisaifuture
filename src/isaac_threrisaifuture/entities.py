@@ -9,7 +9,7 @@ from .observation import Counter, Health, SessionId, Snapshot, WireModel
 # The wire frame stays at schema 5; policy observation schema 6 adds a visited-cells block that
 # the encoder builds from successive frames (see encoding.VisitedCells).
 FRAME_SCHEMA_VERSION = 5
-OBSERVATION_SCHEMA_VERSION = 6
+OBSERVATION_SCHEMA_VERSION = 7
 ORACLE_SCHEMA_VERSION = 1  # oracle events are unchanged by observation schema 6
 MAX_FRAME_BYTES = 65536
 # Observer caps: 12 enemies, 20 projectiles, 24 obstacles, 8 pickups, 16 own attacks, 4 bombs.

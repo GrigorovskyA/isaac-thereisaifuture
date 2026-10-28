@@ -19,7 +19,7 @@ Principles:
 - Every reward term has an exploit test.
 - Training reward, optimizer updates and synthetic smoke do not prove better play.
 
-## Observation schema 6 (3904 floats)
+## Observation schema 7 (3863 floats)
 
 | Block | Features |
 | --- | --- |
@@ -37,13 +37,14 @@ Principles:
 | Bombs | all bombs with age (4 x 9) |
 | Minimap | 13 x 13 level cells x 7 channels (known, visited, current, boss, treasure, shop, other special) plus an off-grid flag for the current room; only rooms the in-game minimap shows or the player visited |
 | Stall clock | seconds without progress / stall limit, from the environment (0 without a watchdog) |
-| Visited cells | 27 x 15 novelty cells (40 px) of the current room, 1.0 where the player stood during this run, row-major (405) |
+| Visited cells | 26 x 14 novelty cells (40 px) of the current room, 1.0 where the player stood during this run, row-major (364) |
 
 Schema 4 had 2038 floats; schema 5 added obstacle classes, room shape, the minimap and the stall
-clock (3499); schema 6 appends the visited-cells block. The grid starts at the room interior
-corner (60, 140) and covers the largest room (2x2: 26 x 14 tiles of 40 px, which touches 27 x 15
-cells because the origin is not a multiple of 40); smaller rooms and L shapes use the same grid
-and positions outside it are clipped to the edge cells. The environment builds it from the
+clock (3499); schema 7 appends the visited-cells block (schema 6 had the same block on a grid
+that cut every tile in half and was replaced after its native check). Cells are the 40 px floor
+tiles counted from the room interior corner (60, 140), so the largest room (2x2) is 26 x 14 cells
+and a 1x1 room exactly 13 x 7; smaller rooms and L shapes use the same grid, and positions in
+door frames are clipped to the edge cells. Novelty reward cells use the same tiles. The environment builds it from the
 player position, the stage and the current minimap room only (never the oracle), keeps it per
 (stage, room) for the run, and clears it when a new session or game epoch starts. A room without
 a grid position starts empty on every visit. The wire frame stays at schema 5. Messages are bounded at 48 KiB (the larger frames need it). Positions are relative to the player and scaled; values are clipped with a
@@ -105,7 +106,7 @@ was replaced and its lineage `pure-v1` retired; its config is in `archive/config
 
 ## Lineages
 
-`pure-v4` restarts with reward v9 and observation schema 6 (OpenSpec change
+`pure-v4` restarts with reward v9 and observation schema 7 (OpenSpec change
 `dense-exploration-reward-v9`); the reward v8 run is kept as `runs/pure-v4-reward-v8`. Its
 checkpoints are refused (reward contract `pure-v8`, schema 5, different contract hash).
 `ent_coef` returns to 0.005: the 0.01 trial did not raise entropy and did not help.

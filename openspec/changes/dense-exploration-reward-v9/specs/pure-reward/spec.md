@@ -70,7 +70,7 @@ value and `Phi(s')` the new room's.
 
 ### Requirement: Old reward contracts refused
 Checkpoints saved with the reward contract `pure-v8` or older, or observation schema 5, SHALL be
-refused when the config expects `pure-v9` and schema 6.
+refused when the config expects `pure-v9` and schema 7.
 
 #### Scenario: pure-v8 checkpoint
 - **WHEN** a pure-v8 checkpoint is resumed with reward contract `pure-v9`

@@ -11,7 +11,7 @@ import yaml
 from synthetic import event, frame, inventory, oracle_metrics, room_facts
 from test_entity_transport import entity_snapshot
 
-from isaac_threrisaifuture.encoding import encode
+from isaac_threrisaifuture.encoding import ROOM_ORIGIN, encode
 from isaac_threrisaifuture.entities import OracleEvent
 from isaac_threrisaifuture.env import IsaacCombatEnv
 from isaac_threrisaifuture.episode_metrics import FIELDS, EpisodeMetricsWriter
@@ -286,7 +286,9 @@ def test_standing_still_pays_novelty_once():
 
 def test_novelty_keys_are_room_and_cell_and_a_new_cell_is_fresh():
     ledger_ = ledger()
-    at = lambda x, room: ledger_.consume([], 0, frame(player_position={"x": x, "y": 0}), room)[1]  # noqa: E731
+    x0, y0 = ROOM_ORIGIN  # cells count from the room interior corner
+    position = lambda x: {"x": x0 + x, "y": y0}  # noqa: E731
+    at = lambda x, room: ledger_.consume([], 0, frame(player_position=position(x)), room)[1]  # noqa: E731
     base = COEF.novelty_coefficient
     cell = COEF.novelty_cell_size
     assert at(1.0, 1)["novelty"] == base

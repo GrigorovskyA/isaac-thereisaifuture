@@ -11,7 +11,7 @@ from typing import Any, Self
 
 import yaml
 
-from .encoding import room_diagonal
+from .encoding import ROOM_ORIGIN, room_diagonal
 from .entities import BOSS_ROOM_TYPE, EntityFrame, OracleDoor, OracleEvent
 from .env import UPDATES_PER_SECOND
 from .stall_watchdog import DEFAULT_STALL_SECONDS
@@ -356,8 +356,9 @@ class RewardLedgerV4:
             cell = (
                 self._stage,
                 room_index,
-                math.floor(frame.player_position.x / c.novelty_cell_size),
-                math.floor(frame.player_position.y / c.novelty_cell_size),
+                # Cells count from the room interior corner, so they match the floor tiles.
+                math.floor((frame.player_position.x - ROOM_ORIGIN[0]) / c.novelty_cell_size),
+                math.floor((frame.player_position.y - ROOM_ORIGIN[1]) / c.novelty_cell_size),
             )
             if cell not in self._novelty:  # first visit of a cell per run; revisits pay nothing
                 self._novelty.add(cell)
