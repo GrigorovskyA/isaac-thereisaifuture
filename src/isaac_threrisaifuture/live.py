@@ -23,7 +23,7 @@ from pydantic import Field
 
 from .actions import Command, Direction, Use
 from .checkpoints import RewardContract
-from .entities import OracleEvent, OracleKind
+from .entities import EntityFrame, OracleEvent, OracleKind
 from .episodes import ACTION_NVEC, DIRECTIONS, USES, Action, EpisodeFault, Scenario, StepResult
 from .live_wire import (
     CommandKind,
@@ -51,7 +51,7 @@ APPROVAL_NAME = "action_authorization.json"
 TRAINING_MAX_SECONDS = 28800  # mirrors Config.training_max_seconds in main.lua
 MAX_RESTARTS = 5000
 MAX_REWARD_IDENTITIES = 4096
-LIVE_REWARD_CONTRACT: Literal["pure-v8"] = "pure-v8"
+LIVE_REWARD_CONTRACT: Literal["pure-v9"] = "pure-v9"
 _CONSUMABLES: tuple[Literal["coin", "bomb", "key"], ...] = ("coin", "bomb", "key")
 SNAPSHOT_BACKLOG = 512
 ACK_TIMEOUT = 1.0
@@ -358,7 +358,7 @@ class EventDeriver:
         self._derive_level(snap, emit)
         health = frame.health.red_half_hearts + frame.health.soul_half_hearts
         if self._health is not None and health < self._health:
-            # Every health loss is charged as "enemy": reward v8 penalises all sources alike.
+            # Every health loss is charged as "enemy": reward v8 and v9 penalise all sources alike.
             # The oracle hits_* counters, not this label, tell the real source.
             emit("player_damaged", amount=float(self._health - health), damage_source="enemy")
         elif self._health is not None and health > self._health:
@@ -414,6 +414,19 @@ def _oracle_counters(oracle: LiveOracle | None) -> dict[str, int]:
         "kills": oracle.kills,
         **{f"hits_{name}": getattr(hits, name) for name in PlayerHits.model_fields},
     }
+
+
+def _step_result(
+    frame: EntityFrame, oracle: LiveOracle, events: tuple[OracleEvent, ...]
+) -> StepResult:
+    """Frame, events and the oracle labels the reward needs: room index, doors and enemies."""
+    return StepResult(
+        frame,
+        events,
+        room_index=oracle.room_index,
+        doors=tuple(oracle.doors),
+        enemies_present=bool(oracle.enemies) or oracle.enemy_overflow > 0,
+    )
 
 
 @dataclass
@@ -497,9 +510,7 @@ class LiveBackend:
             },
             items=frame.collectibles,
         )
-        return StepResult(
-            snap.entity_frame, tuple(self.deriver.begin(snap)), room_index=snap.oracle.room_index
-        )
+        return _step_result(snap.entity_frame, snap.oracle, tuple(self.deriver.begin(snap)))
 
     def _command(self, *args: Any, **kwargs: Any) -> Any:
         """`client.command` with its wall time added to the diagnostics."""
@@ -690,7 +701,7 @@ class LiveBackend:
         current = self._current
         assert current is not None and current.entity_frame is not None
         assert current.oracle is not None
-        return StepResult(current.entity_frame, tuple(events), room_index=current.oracle.room_index)
+        return _step_result(current.entity_frame, current.oracle, tuple(events))
 
 
 class FaultTolerantEnv(gym.Wrapper[Any, Any, Any, Any]):
@@ -819,27 +830,35 @@ def make_live_env(
     oracle_sink: Callable[[OracleEvent], None] | None = None,
     run_deadline: float | None = None,
     stop_file: Path | None = None,
-    reward_version: int = 8,
+    reward_version: int = 9,
+    gamma: float | None = None,
     stall_seconds: float | None = None,
     clock: Callable[[], float] = time.monotonic,
     max_consecutive_faults: int | None = None,
 ) -> FaultTolerantEnv:
-    """Live env; the pure profile pays reward v8 (v1 stays selectable for old comparisons).
+    """Live env; the pure profile pays reward v9 (v1 stays selectable for old comparisons).
 
+    `gamma` is the training discount that door shaping needs (reward v9); without it door shaping
+    is off, which suits attach-only runs that learn nothing. Training and the frozen pure
+    evaluation always pass it.
     With `stall_seconds`, a stall truncates the episode with reason `stall` and sends
     one restart command. Leave it unset for attach-only runs such as evaluation.
     """
     from .env import IsaacCombatEnv, RewardAccountant
     from .rewards import CombatCoefficients, RewardLedger, RewardLedgerV4, RewardV4Coefficients
 
-    if reward_version not in (1, 8):
-        raise ValueError(f"Unsupported reward version {reward_version}; use 1 or 8")
+    if reward_version not in (1, 9):
+        raise ValueError(f"Unsupported reward version {reward_version}; use 1 or 9")
+    coefficients = RewardV4Coefficients.load()
+    if gamma is None:
+        coefficients = replace(coefficients, door_shaping_coefficient=0.0)
     accountant: RewardAccountant = (
         RewardLedgerV4(
-            RewardV4Coefficients.load(),
+            coefficients,
             stall_seconds=DEFAULT_STALL_SECONDS if stall_seconds is None else stall_seconds,
+            gamma=gamma,
         )
-        if reward_version == 8
+        if reward_version == 9
         else RewardLedger(CombatCoefficients.load())
     )
 
@@ -1069,7 +1088,10 @@ def _train_run(
             stop_file=options.stop_file,
             reward_version=config.contract.reward_version
             if isinstance(config, PureTrainingConfig)
-            else 8,
+            else 9,
+            gamma=config.hyperparameters.gamma
+            if isinstance(config, PureTrainingConfig)
+            else config.gamma,
             stall_seconds=config.watchdog.stall_seconds
             if isinstance(config, PureTrainingConfig)
             else None,
@@ -1153,6 +1175,7 @@ def _evaluate_run(
             run_deadline=deadline,
             stop_file=options.stop_file,
             reward_version=config.contract.reward_version,
+            gamma=config.hyperparameters.gamma,
             stall_seconds=config.watchdog.stall_seconds,
             max_consecutive_faults=config.budget.max_consecutive_faults,
         ),

@@ -7,7 +7,7 @@ a character death. See openspec change episode-lifecycle.
 from dataclasses import dataclass, field
 from typing import Literal, NoReturn, Protocol
 
-from .entities import EntityFrame, OracleEvent
+from .entities import EntityFrame, OracleDoor, OracleEvent
 from .observation import BridgeError
 
 Split = Literal["train", "validation", "test"]
@@ -77,6 +77,10 @@ class StepResult:
     terminal_coverage: frozenset[TerminalKind] = frozenset()
     # Oracle level index of the current room (reward key only, never a policy input).
     room_index: int | None = None
+    # Oracle doors of the current room and whether enemies are present (door shaping labels only);
+    # None doors means the backend has no door data.
+    doors: tuple[OracleDoor, ...] | None = None
+    enemies_present: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.terminal_coverage, frozenset) or not (
@@ -147,6 +151,8 @@ class Transition:
     summary: EpisodeSummary
     truncation_reason: str | None = None
     room_index: int | None = None
+    doors: tuple[OracleDoor, ...] | None = None
+    enemies_present: bool = False
 
 
 @dataclass
@@ -339,4 +345,6 @@ class EpisodeController:
             summary=summary,
             truncation_reason=reason,
             room_index=result.room_index,
+            doors=result.doors,
+            enemies_present=result.enemies_present,
         )

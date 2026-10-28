@@ -33,6 +33,39 @@ Game = function()
 end
 """
 
+# Simulated doors and level rooms (not engine evidence): DOOR_TABLE maps a slot to its position,
+# open state and target room index; ROOM_DESCS maps a room index to its descriptor.
+DOOR_STUBS = """
+DOOR_TABLE, ROOM_DESCS = {}, {}
+local door_game = Game
+Game = function()
+ local game = door_game()
+ local base_room, base_level = game.GetRoom, game.GetLevel
+ game.GetRoom = function(self)
+  local room = base_room(self)
+  room.GetDoor = function(_, slot)
+   local d = DOOR_TABLE[slot]
+   if d then return { IsOpen=function() return d.open end, TargetRoomIndex=d.target } end
+  end
+  room.GetDoorSlotPosition = function(_, slot)
+   local d = DOOR_TABLE[slot]
+   if d.x == nil then error("no position") end
+   return { X=d.x, Y=d.y }
+  end
+  return room
+ end
+ game.GetLevel = function(self)
+  local level = base_level(self)
+  level.GetRoomByIdx = function(_, index)
+   if index == 999 then error("simulated level fault") end
+   return ROOM_DESCS[index]
+  end
+  return level
+ end
+ return game
+end
+"""
+
 TRAINING = dict(profile_mode="training", game_epoch=None, max_restarts=3)
 
 
@@ -331,6 +364,77 @@ def test_oracle_carries_room_index_and_the_policy_frame_does_not(live):
     live.execute("ROOM_INDEX=-4")  # special rooms use negative indexes
     tick(live, 5)
     assert live_snapshots(live)[-1].oracle.room_index == -4
+
+
+@pytest.fixture
+def doors():
+    lua = build_live()
+    lua.execute(DOOR_STUBS)
+    hello(lua, LIVE_LOOP_CAPABILITIES)
+    return lua
+
+
+def oracle_doors(lua):
+    tick(lua, 5)
+    snap = live_snapshots(lua)[-1]
+    assert snap.oracle is not None and "unexplored" not in snap.entity_frame.model_dump_json()
+    return [d.model_dump() for d in snap.oracle.doors]
+
+
+def test_oracle_lists_doors_with_positions_and_unexplored_flag(doors):
+    doors.execute("""
+      DOOR_TABLE[0] = { x=20, y=280, open=true, target=83 }
+      DOOR_TABLE[3] = { x=300.5, y=400, open=false, target=85 }
+      DOOR_TABLE[6] = { x=580, y=280, open=true, target=86 }
+      ROOM_DESCS[83] = make_desc(83, 1, 1, 0, 0)  -- never visited
+      ROOM_DESCS[85] = make_desc(85, 1, 1, 2, 0)  -- visited twice
+      ROOM_DESCS[86] = make_desc(86, 1, 1, 1, 0)
+    """)
+    assert oracle_doors(doors) == [
+        dict(slot=0, x=20, y=280, open=True, unexplored=True),
+        dict(slot=3, x=300.5, y=400, open=False, unexplored=False),
+        dict(slot=6, x=580, y=280, open=True, unexplored=False),
+    ]
+
+
+def test_door_with_an_unreadable_target_is_explored_and_without_position_is_skipped(doors):
+    doors.execute("""
+      DOOR_TABLE[0] = { x=20, y=280, open=true, target=70 }   -- no descriptor at all
+      DOOR_TABLE[1] = { x=300, y=20, open=true, target=999 }  -- level lookup fails
+      DOOR_TABLE[2] = { x=580, y=280, open=true, target=71 }  -- descriptor without room data
+      DOOR_TABLE[3] = { open=true, target=72 }                -- position unreadable
+      ROOM_DESCS[71] = { VisitedCount=0 }
+      ROOM_DESCS[72] = make_desc(72, 1, 1, 0, 0)
+    """)
+    found = oracle_doors(doors)
+    assert [(d["slot"], d["unexplored"]) for d in found] == [(0, False), (1, False), (2, False)]
+    assert not doors.globals().CLOSED
+
+
+def test_oracle_without_doors_has_an_empty_list(doors):
+    assert oracle_doors(doors) == []
+
+
+def test_worst_case_live_snapshot_with_eight_doors_fits_the_wire_limit():
+    lua = build_live()
+    fill_worst_case(lua)
+    lua.execute(DOOR_STUBS)
+    lua.execute("""
+      for i=1,70 do
+        ROOM_ENTITIES[#ROOM_ENTITIES+1]=make_enemy(1000+i,-700.123+i,-600.456,123456.789,999999.999)
+      end
+      for slot=0,7 do
+        DOOR_TABLE[slot] = { x=-99999.123456, y=99999.654321, open=true, target=100+slot }
+        ROOM_DESCS[100+slot] = make_desc(100+slot, 1, 1, 0, 0)
+      end
+    """)
+    hello(lua, LIVE_LOOP_CAPABILITIES)
+    tick(lua, 40)
+    snap = live_snapshots(lua)[-1]
+    assert snap.oracle is not None and len(snap.oracle.doors) == 8
+    sizes = [len(line.encode()) for line in records(lua, "snapshot")]
+    print("worst-case live snapshot bytes (with eight doors):", max(sizes))
+    assert max(sizes) < 49152 and not lua.globals().CLOSED
 
 
 def test_live_use_press_triggers_once_and_releases(live):

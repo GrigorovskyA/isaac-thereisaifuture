@@ -19,14 +19,15 @@ from isaac_threrisaifuture.episodes import Scenario, StepResult
 from isaac_threrisaifuture.live import LIVE_SCENARIO, EventDeriver, LiveSnapshot
 from isaac_threrisaifuture.recording import JsonlRecorder, open_replay
 from isaac_threrisaifuture.rewards import (
-    DEFAULT_CONFIG_V8,
     REWARD_V4_COLUMNS,
     RewardLedgerV4,
     RewardV4Coefficients,
 )
 
 SESSION = "a" * 32
-COEF = RewardV4Coefficients.load()
+# Reward v9 replaced v8 as the shipped config; these tests pin the archived v8 file and ledger.
+ARCHIVED_V8 = Path(__file__).parents[1] / "archive" / "configs" / "reward-v8.yaml"
+COEF = RewardV4Coefficients.load(ARCHIVED_V8)
 
 
 def live(seq, *, epoch=1, room=84, stage=1, coins=0, bombs=0, keys=0, items=(), red=6, dead=False):
@@ -58,7 +59,7 @@ def derived(deriver, snap):
 # --- configuration ------------------------------------------------------------------
 
 
-def test_coefficients_load_the_shipped_file():
+def test_coefficients_load_the_archived_v8_file():
     assert COEF.room_clear_first == 10.0 and COEF.consumable_run_cap == 3.0
     assert COEF.novelty_cell_size == 40 and COEF.novelty_coefficient == 0.02
     assert COEF.enemy_hp_fraction_total == 5.0 and COEF.player_damage_half_heart == -0.5
@@ -67,7 +68,7 @@ def test_coefficients_load_the_shipped_file():
 
 
 def test_coefficient_keys_are_strict(tmp_path: Path):
-    raw = yaml.safe_load(DEFAULT_CONFIG_V8.read_text(encoding="utf-8"))
+    raw = yaml.safe_load(ARCHIVED_V8.read_text(encoding="utf-8"))
     for mutate in (
         lambda r: r["outcome"].pop("death"),
         lambda r: r["pickups"].update(extra=1.0),

@@ -19,7 +19,7 @@ Principles:
 - Every reward term has an exploit test.
 - Training reward, optimizer updates and synthetic smoke do not prove better play.
 
-## Observation schema 5 (3499 floats)
+## Observation schema 6 (3904 floats)
 
 | Block | Features |
 | --- | --- |
@@ -37,11 +37,18 @@ Principles:
 | Bombs | all bombs with age (4 x 9) |
 | Minimap | 13 x 13 level cells x 7 channels (known, visited, current, boss, treasure, shop, other special) plus an off-grid flag for the current room; only rooms the in-game minimap shows or the player visited |
 | Stall clock | seconds without progress / stall limit, from the environment (0 without a watchdog) |
+| Visited cells | 27 x 15 novelty cells (40 px) of the current room, 1.0 where the player stood during this run, row-major (405) |
 
-Schema 4 had 2038 floats; schema 5 adds obstacle classes, room shape, the minimap and the stall
-clock. Messages are bounded at 48 KiB (the larger frames need it). Positions are relative to the player and scaled; values are clipped with a
-counter. Oracle data (`room_index`, hidden enemy HP) is used only for reward and
-novelty keys and never enters the policy vector, normalizer or recurrent state.
+Schema 4 had 2038 floats; schema 5 added obstacle classes, room shape, the minimap and the stall
+clock (3499); schema 6 appends the visited-cells block. The grid starts at the room interior
+corner (60, 140) and covers the largest room (2x2: 26 x 14 tiles of 40 px, which touches 27 x 15
+cells because the origin is not a multiple of 40); smaller rooms and L shapes use the same grid
+and positions outside it are clipped to the edge cells. The environment builds it from the
+player position, the stage and the current minimap room only (never the oracle), keeps it per
+(stage, room) for the run, and clears it when a new session or game epoch starts. A room without
+a grid position starts empty on every visit. The wire frame stays at schema 5. Messages are bounded at 48 KiB (the larger frames need it). Positions are relative to the player and scaled; values are clipped with a
+counter. Oracle data (`room_index`, hidden enemy HP, door targets) is used only for reward and
+novelty keys and door labels and never enters the policy vector, normalizer or recurrent state.
 
 ## Actions v2
 
@@ -54,30 +61,54 @@ creation and never on resume; learning may move it anywhere). Commands are bound
 session, epoch, room visit and frame; stale or replayed commands are refused and
 input is released on expiry, disconnect, fault and stop.
 
-## Reward v8 (`configs/reward-v8.yaml`)
+## Reward v9 (`configs/reward-v9.yaml`)
 
 | Term | Value | Rule |
 | --- | --- | --- |
 | Enemy damage | 5.0 per full enemy HP | monotonic per enemy; a reported kill of a listed enemy pays its remaining HP once |
 | First room clear | 10.0 | per (stage, room) per run |
-| First room visit | 3.0 | per (stage, room) per run; start room free |
-| First floor entry | 10.0 | per stage per run; start floor free |
+| First boss room clear | 20.0 | on top of the room clear, on the first clear of a boss room (`room_type` 5) per (stage, room) per run |
+| First room visit | 5.0 | per (stage, room) per run; start room free |
+| First floor entry | 30.0 | per stage per run; start floor free |
 | Health lost | -0.5 per half-heart | |
 | Death | -10.0 | terminal |
 | Stall restart | -5.0 | once, on the final step of an episode truncated by the stall watchdog; never with death |
 | Time | -0.005 per second | active time only |
-| Coin / bomb / key | 0.05 / 0.1 / 0.1 | only above the run's peak count; shared cap 3.0 per run |
-| New collectible | 2.0 | per item ID per run (reward v3 paid 1.0) |
+| Coin / bomb / key | 0.3 / 0.5 / 0.5 | only above the run's peak count; shared cap 10.0 per run |
+| New collectible | 5.0 | per item ID per run (reward v3 paid 1.0) |
 | Healing | 0.5 per half-heart | only up to health lost earlier in the run |
 | Stagnation | -0.25 per second | stall watchdog idle seconds past a 12 s grace, charged in the step that adds them; none after progress resets the clock, for a dead player or without a watchdog (at most -7.0 per episode with the 40 s limit) |
-| Novelty | 0.02 | first visit only, per (stage, room, 40-unit cell) per run (about 1.8 for a full 1x1 room) |
+| Novelty | 0.1 | first visit only, per (stage, room, 40-unit cell) per run (about 9 for a full 1x1 room) |
+| Door shaping | coefficient 2.0 | potential-based, see below; ledger column `door_shaping` |
 
 There is no reward for using items; item value and synergies must show up through
-combat and progress. Ledger columns are logged separately. Reward v8 equals reward v7 except for a shorter stall limit (40 s, was 90 s) with the stagnation rate -0.25 per second (was -0.1) and grace 12 s (was 20 s); the cap stays -7.0, so a full stall costs at most -12. After 477k steps the v7 policy was still at random level and 82% of all steps were spent in stalled episodes. Reward v7 equals reward v6 except for the stagnation cost, stall restart -5 (was -10) and health lost -0.5 (was -1); the frozen evaluation showed pure-v4 policies stalling more than random play. Reward v6 keeps the reward v5 coefficients and adds kill credit: a one-shot kill used to pay nothing, because an enemy that dies between snapshots only leaves the oracle list. The observer reports `killed` identities and the event deriver pays the remaining HP once (never more than max HP per enemy). Reward v5 equalled reward v4 except that a stall restart costs -10 (equal to death; was -5, which paid better than fighting in `pure-v3`). Reward v4 to v7 are archived. Reward v2 paid most
+combat and progress. Ledger columns are logged separately.
+
+Door shaping (the one term that is not an outcome, approved explicitly) follows Ng et al. 1999:
+Phi(s) = -coefficient * d / D, with d the distance from the player to the nearest open door
+whose room behind it has not been visited this run (oracle doors, reward label only) and D the
+diagonal of the room's bounding box (by room shape; the ratio is clipped to 1). Phi is 0 when
+the room is not clear or has enemies, when no such door exists, for a dead player and without
+door data. A step pays gamma * Phi(s') - Phi(s), with gamma from the training config; a
+terminal step (death, truncation) ends in Phi(s') = 0, and the episode start sets the first
+Phi(s). On a room change Phi(s) is the old room's last value and Phi(s') the new room's, as
+the formula says. A loop that returns to its start nets (gamma - 1) times the sum of Phi over
+the loop, at most (1 - gamma) * coefficient per step, and stagnation outweighs that at once.
+Reward v9 equals reward v8 except the denser terms above (room visit 5, floor entry 30, boss
+clear 20, pickups 0.3 / 0.5 / 0.5 with cap 10 and new collectible 5, novelty 0.1) and door
+shaping; stagnation and the 40 s stall limit are unchanged, so a full stall costs at most -12.
+After 580k steps under v8, kills and clears per 1000 steps had plateaued, 60-70% of episodes
+stalled, 1.9 rooms were visited per episode and floor 2 was never reached; the sum of exploration
+terms was small next to damage and penalties. Reward v8 equals reward v7 except for a shorter stall limit (40 s, was 90 s) with the stagnation rate -0.25 per second (was -0.1) and grace 12 s (was 20 s); the cap stays -7.0, so a full stall costs at most -12. After 477k steps the v7 policy was still at random level and 82% of all steps were spent in stalled episodes. Reward v7 equals reward v6 except for the stagnation cost, stall restart -5 (was -10) and health lost -0.5 (was -1); the frozen evaluation showed pure-v4 policies stalling more than random play. Reward v6 keeps the reward v5 coefficients and adds kill credit: a one-shot kill used to pay nothing, because an enemy that dies between snapshots only leaves the oracle list. The observer reports `killed` identities and the event deriver pays the remaining HP once (never more than max HP per enemy). Reward v5 equalled reward v4 except that a stall restart costs -10 (equal to death; was -5, which paid better than fighting in `pure-v3`). Reward v4 to v8 are archived. Reward v2 paid most
 for idling (novelty grew like 2*sqrt(n) and a stall restart was free), so it
 was replaced and its lineage `pure-v1` retired; its config is in `archive/configs/`.
 
 ## Lineages
+
+`pure-v4` restarts with reward v9 and observation schema 6 (OpenSpec change
+`dense-exploration-reward-v9`); the reward v8 run is kept as `runs/pure-v4-reward-v8`. Its
+checkpoints are refused (reward contract `pure-v8`, schema 5, different contract hash).
+`ent_coef` returns to 0.005: the 0.01 trial did not raise entropy and did not help.
 
 `pure-v4` replaces `pure-v3` (OpenSpec change `pure-v4-map-hazards-and-stall`). After 15 hours
 and 243k steps `pure-v3` explored more but cleared 0.1-0.2 rooms per episode: stalling paid

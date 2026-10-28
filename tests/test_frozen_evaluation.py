@@ -119,7 +119,7 @@ def test_random_evaluation_writes_episodes_only_and_stops_on_deadline(tmp_path, 
         )
     # Built like the pure training env.
     assert seen["action_repeat"] == 6 and seen["stall_seconds"] == 45.0
-    assert seen["reward_version"] == 8 and seen["max_consecutive_faults"] >= 1
+    assert seen["reward_version"] == 9 and seen["max_consecutive_faults"] >= 1
     assert seen["max_faults"] > 1000 and seen["run_deadline"] is not None
     names = [name for name, _ in records]
     assert names[0] == "evaluation" and names[-1] == "evaluation_result"

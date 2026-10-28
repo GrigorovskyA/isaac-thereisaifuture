@@ -25,9 +25,13 @@ from isaac_threrisaifuture.encoding import (
     SLOT_FEATURES,
     SLOT_WIDTH,
     STALL_OFFSET,
+    VISITED_COLS,
+    VISITED_OFFSET,
+    VISITED_ROWS,
     encode,
 )
 from isaac_threrisaifuture.entities import (
+    FRAME_SCHEMA_VERSION,
     MAX_ENTITIES,
     MAX_MAP_ROOMS,
     OBSERVATION_SCHEMA_VERSION,
@@ -86,14 +90,16 @@ def cells(vector: np.ndarray) -> dict[tuple[int, int], list[float]]:
 
 def test_layout_is_pinned_to_its_computed_value():
     assert (
-        OBSERVATION_SCHEMA_VERSION == 5
+        FRAME_SCHEMA_VERSION == 5
         and EntityFrame.model_fields["observation_schema_version"].default == 5
+        and OBSERVATION_SCHEMA_VERSION == 6  # schema 6 adds the visited-cells block, not wire
     )
     assert len(OBSTACLE_CLASSES) == 11 and SLOT_WIDTH["obstacle"] == SLOT_FEATURES + 11
     assert CAPACITY["obstacle"] == 24 and MAX_ENTITIES == 84
     assert ROOM_FEATURES == ROOM_TYPES + 3 + 8 + 12
     assert MAP_OFFSET + 169 * 7 == OFF_GRID_OFFSET and STALL_OFFSET == OFF_GRID_OFFSET + 1
-    assert OBSERVATION_SIZE == STALL_OFFSET + 1 == 3499
+    assert VISITED_OFFSET == STALL_OFFSET + 1
+    assert OBSERVATION_SIZE == VISITED_OFFSET + VISITED_COLS * VISITED_ROWS == 3904
     assert encode(frame()).vector.shape == (OBSERVATION_SIZE,)
     assert COLLECTIBLE_OFFSET > ROOM_OFFSET + ROOM_FEATURES
 
@@ -225,14 +231,14 @@ def test_special_room_channels_and_unknown_type():
     assert by_index[16] == [1, 0, 0, 0, 0, 0, 1]  # a non-default type shows as special
 
 
-def test_off_grid_flag_and_stall_clock_are_the_last_elements():
-    assert OFF_GRID_OFFSET == OBSERVATION_SIZE - 2 and STALL_OFFSET == OBSERVATION_SIZE - 1
+def test_off_grid_flag_and_stall_clock_precede_the_visited_block():
+    assert OFF_GRID_OFFSET + 1 == STALL_OFFSET and STALL_OFFSET + 1 == VISITED_OFFSET
     vector = encode(frame(map_current_off_grid=True)).vector
     assert vector[OFF_GRID_OFFSET] == 1.0 and vector[STALL_OFFSET] == 0.0
     assert encode(frame()).vector[OFF_GRID_OFFSET] == 0.0
 
 
-def test_stall_fraction_is_written_last_and_clipped():
+def test_stall_fraction_is_written_and_clipped():
     base = encode(frame()).vector
     for given, written in ((0.0, 0.0), (0.5, 0.5), (1.0, 1.0), (7.0, 1.0), (-0.3, 0.0)):
         vector = encode(frame(), stall_fraction=given).vector
@@ -346,6 +352,11 @@ def test_worst_case_snapshot_fits_the_message_limit():
         "enemy_overflow": 2**53 - 1,
         "room_index": -64,
         "kills": 2**53 - 1,
+        "killed": [2**53 - 1] * 16,
+        "doors": [
+            {"slot": i, "x": -99999.123456, "y": -99999.654321, "open": True, "unexplored": True}
+            for i in range(8)
+        ],
         "player_hits": dict.fromkeys(
             ("enemy", "projectile", "own_bomb", "explosion", "spikes", "fire", "creep", "other"),
             2**53 - 1,

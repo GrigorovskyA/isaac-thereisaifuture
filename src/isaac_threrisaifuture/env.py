@@ -12,8 +12,8 @@ import gymnasium as gym
 import numpy as np
 from numpy.typing import NDArray
 
-from .encoding import OBSERVATION_SIZE, encode
-from .entities import EntityFrame, OracleEvent
+from .encoding import OBSERVATION_SIZE, VisitedCells, encode
+from .entities import EntityFrame, OracleDoor, OracleEvent
 from .episodes import (
     ACTION_NVEC,
     HIT_FIELDS,
@@ -56,7 +56,13 @@ class RewardAccountant(Protocol):
 class StateAwareAccountant(RewardAccountant, Protocol):
     """An accountant that also sees the frame and the oracle room index (reward v4)."""
 
-    def begin(self, frame: EntityFrame, room_index: int | None) -> None: ...
+    def begin(
+        self,
+        frame: EntityFrame,
+        room_index: int | None,
+        doors: Sequence[OracleDoor] | None = None,
+        enemies_present: bool = False,
+    ) -> None: ...
 
     def consume(
         self,
@@ -64,6 +70,9 @@ class StateAwareAccountant(RewardAccountant, Protocol):
         elapsed_updates: int,
         frame: EntityFrame | None = None,
         room_index: int | None = None,
+        doors: Sequence[OracleDoor] | None = None,
+        enemies_present: bool = False,
+        terminal: bool = False,
     ) -> tuple[float, dict[str, float]]: ...
 
     def run_stats(self) -> dict[str, Any]: ...
@@ -99,6 +108,7 @@ class IsaacCombatEnv(gym.Env[NDArray[np.float32], NDArray[np.int64]]):
         self._facts = _new_facts()
         self._start_room: int | None = None
         self._idle_seconds = 0.0  # stall watchdog idle clock at the previous step
+        self._visited = VisitedCells()  # run-long; a new session or game epoch clears it
 
     def _backend_idle_seconds(self) -> float:
         """Idle clock of the stall watchdog; backends without one report 0.0."""
@@ -127,7 +137,12 @@ class IsaacCombatEnv(gym.Env[NDArray[np.float32], NDArray[np.int64]]):
         if self.accountant is not None:
             self.accountant.reset(transition.episode_id)
             if isinstance(self.accountant, StateAwareAccountant):
-                self.accountant.begin(transition.frame, transition.room_index)
+                self.accountant.begin(
+                    transition.frame,
+                    transition.room_index,
+                    transition.doors,
+                    transition.enemies_present,
+                )
             self.accountant.consume(transition.events, 0)  # spawn events; reward is zero
         self._emit(transition)
         info = self._info(transition)
@@ -150,7 +165,13 @@ class IsaacCombatEnv(gym.Env[NDArray[np.float32], NDArray[np.int64]]):
             elapsed = transition.summary.game_updates - before
             if isinstance(self.accountant, StateAwareAccountant):
                 reward, components = self.accountant.consume(
-                    transition.events, elapsed, transition.frame, transition.room_index
+                    transition.events,
+                    elapsed,
+                    transition.frame,
+                    transition.room_index,
+                    transition.doors,
+                    transition.enemies_present,
+                    transition.terminated or transition.truncated,
                 )
             else:
                 reward, components = self.accountant.consume(transition.events, elapsed)
@@ -232,7 +253,7 @@ class IsaacCombatEnv(gym.Env[NDArray[np.float32], NDArray[np.int64]]):
 
     def _observe(self, frame: EntityFrame, info: dict[str, Any]) -> NDArray[np.float32]:
         stall = float(getattr(self.controller.backend, "stall_fraction", 0.0))
-        encoded = encode(frame, stall_fraction=stall)
+        encoded = encode(frame, stall_fraction=stall, visited_cells=self._visited.update(frame))
         info["overflow"] = dict(encoded.overflow)
         info["clipped_values"] = encoded.clipped_values
         return encoded.vector

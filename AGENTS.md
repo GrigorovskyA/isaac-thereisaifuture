@@ -6,8 +6,9 @@ Build a local RL player for Steam The Binding of Isaac: Repentance+ on native
 Windows. Goal: Dead God through gameplay on save file 2.
 Codex develops software; Python/RecurrentPPO learns to play.
 Direction since 2026-10-22: pure self-learning (`docs/UPDATE_DECISION.md`). One
-`pure-v1` RecurrentPPO lineage learns from raw facts and outcome rewards only. No
-scripted setup, advice features or technique rewards. `archive/` is history only.
+`pure-v1` RecurrentPPO lineage learns from raw facts and outcome rewards only, plus one
+potential-based door term since reward v9. No scripted setup, advice features or technique
+rewards. `archive/` is history only.
 Project artifacts must be English; conversation may follow the user.
 Preserve `isaac-threrisaifuture` and package `isaac_threrisaifuture`.
 

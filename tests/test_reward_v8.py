@@ -1,4 +1,7 @@
-"""Reward v8 = reward v7 with a shorter stall limit (openspec change short-stall-reward-v8)."""
+"""Reward v8 = reward v7 with a shorter stall limit (openspec change short-stall-reward-v8).
+
+Reward v9 replaced v8 as the shipped config; these tests pin the archived v8 file.
+"""
 
 from pathlib import Path
 
@@ -9,14 +12,15 @@ from test_reward_v4 import LIVE_SCENARIO, Script
 from test_reward_v7 import IdleScript
 
 from isaac_threrisaifuture.env import IsaacCombatEnv
-from isaac_threrisaifuture.rewards import DEFAULT_CONFIG_V8, RewardLedgerV4, RewardV4Coefficients
+from isaac_threrisaifuture.rewards import RewardLedgerV4, RewardV4Coefficients
 from isaac_threrisaifuture.training import load_training_config
 
 ROOT = Path(__file__).parents[1]
+ARCHIVED_V8 = ROOT / "archive" / "configs" / "reward-v8.yaml"
 ARCHIVED_V7 = ROOT / "archive" / "configs" / "reward-v7.yaml"
 TRAINING = ROOT / "configs" / "training-pure-v4.yaml"
 STALL_SECONDS = float(yaml.safe_load(TRAINING.read_text("utf-8"))["watchdog"]["stall_seconds"])
-COEF = RewardV4Coefficients.load(DEFAULT_CONFIG_V8)
+COEF = RewardV4Coefficients.load(ARCHIVED_V8)
 
 
 def ledger() -> RewardLedgerV4:
@@ -24,7 +28,7 @@ def ledger() -> RewardLedgerV4:
 
 
 def test_v8_differs_from_v7_only_in_the_stagnation_rate_and_grace():
-    v8 = yaml.safe_load(DEFAULT_CONFIG_V8.read_text("utf-8"))
+    v8 = yaml.safe_load(ARCHIVED_V8.read_text("utf-8"))
     v7 = yaml.safe_load(ARCHIVED_V7.read_text("utf-8"))
     assert v8.pop("reward_version") == 8 and v7.pop("reward_version") == 7
     assert v8.pop("stagnation") == {"per_second": -0.25, "grace_seconds": 12}
@@ -32,15 +36,15 @@ def test_v8_differs_from_v7_only_in_the_stagnation_rate_and_grace():
     assert v8 == v7  # stall_restart -5, damage -0.5, death -10 and the rest are unchanged
 
 
-def test_the_training_config_pins_the_short_stall_limit_and_contract_v8():
+def test_the_training_config_keeps_the_short_stall_limit_under_the_current_contract():
     config, digest = load_training_config(TRAINING)
     assert STALL_SECONDS == 40.0 and config.watchdog.stall_seconds == 40.0
-    assert config.contract.reward_version == 8
+    assert config.contract.reward_version == 9
     assert digest != "d62dc21baf19941b0484e857f2124e8fbffb3d564ab9763a2e13619230c63bc4"
 
 
 def test_the_stagnation_section_is_required_for_v8(tmp_path):
-    raw = yaml.safe_load(DEFAULT_CONFIG_V8.read_text("utf-8"))
+    raw = yaml.safe_load(ARCHIVED_V8.read_text("utf-8"))
     path = tmp_path / "missing.yaml"
     path.write_text(yaml.safe_dump({k: v for k, v in raw.items() if k != "stagnation"}), "utf-8")
     with pytest.raises(ValueError):

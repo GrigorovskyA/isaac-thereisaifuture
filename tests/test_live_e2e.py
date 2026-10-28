@@ -140,7 +140,7 @@ COEF = RewardV4Coefficients.load()
 
 def make_env(client):
     backend = LiveBackend(client, restart_timeout=20.0)
-    ledger = RewardLedgerV4(COEF)
+    ledger = RewardLedgerV4(COEF, gamma=0.998)
     events = []
     env = IsaacCombatEnv(backend, [LIVE_SCENARIO], accountant=ledger, oracle_sink=events.append)
     return FaultTolerantEnv(env, max_faults=0), events

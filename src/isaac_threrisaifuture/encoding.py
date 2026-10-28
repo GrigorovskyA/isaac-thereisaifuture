@@ -7,6 +7,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from .entities import (
+    BOSS_ROOM_TYPE,
     COLLECTIBLE_ID_MAX,
     DOOR_SLOTS,
     ENTITY_KINDS,
@@ -20,7 +21,7 @@ from .entities import (
 )
 from .observation import ProtocolError
 
-# Hypotheses fixed by observation schema version 5; changing one needs a new version.
+# Hypotheses fixed by observation schema version 6; changing one needs a new version.
 CAPACITY: dict[EntityKind, int] = {
     "enemy": 16,
     "projectile": 32,
@@ -82,8 +83,19 @@ MAP_OFFSET = EXTRA_OFFSET + sum(CAPACITY[k] * SLOT_WIDTH[k] for k in EXTRA_KINDS
 # Minimap channels per level grid cell: known, visited, current, boss, treasure, shop, other.
 MAP_CHANNELS = 7
 OFF_GRID_OFFSET = MAP_OFFSET + LEVEL_GRID_CELLS * MAP_CHANNELS
-STALL_OFFSET = OFF_GRID_OFFSET + 1  # idle time / stall limit; the last element
-OBSERVATION_SIZE = STALL_OFFSET + 1
+STALL_OFFSET = OFF_GRID_OFFSET + 1  # idle time / stall limit
+# Visited cells of the current room (schema 6): novelty cells of CELL_SIZE px laid over the
+# largest room. A room interior starts at world (60, 140); a 2x2 room is 26 x 14 tiles of 40 px,
+# which touches 27 x 15 cells because the origin is not a multiple of the cell size. Smaller
+# rooms and L-shapes use the same grid from the same origin.
+CELL_SIZE = 40.0  # the novelty cell size of reward v4-v9
+ROOM_ORIGIN = (60.0, 140.0)
+ROOM_MAX_PIXELS = (26 * 40.0, 14 * 40.0)
+FIRST_CELL = (math.floor(ROOM_ORIGIN[0] / CELL_SIZE), math.floor(ROOM_ORIGIN[1] / CELL_SIZE))
+VISITED_COLS = math.floor((ROOM_ORIGIN[0] + ROOM_MAX_PIXELS[0] - 1) / CELL_SIZE) - FIRST_CELL[0] + 1
+VISITED_ROWS = math.floor((ROOM_ORIGIN[1] + ROOM_MAX_PIXELS[1] - 1) / CELL_SIZE) - FIRST_CELL[1] + 1
+VISITED_OFFSET = STALL_OFFSET + 1  # row-major rows x columns; the last block
+OBSERVATION_SIZE = VISITED_OFFSET + VISITED_COLS * VISITED_ROWS
 GRID_WIDTH = 13
 # (row, column) offsets of a room's cells from its anchor, by room shape 1..12.
 SHAPE_CELLS: dict[int, tuple[tuple[int, int], ...]] = {
@@ -101,8 +113,28 @@ SHAPE_CELLS: dict[int, tuple[tuple[int, int], ...]] = {
     12: ((0, 0), (0, 1), (1, 0)),  # LBR
 }
 assert set(SHAPE_CELLS) == set(range(1, ROOM_SHAPES + 1))
-BOSS_ROOM, TREASURE_ROOM, SHOP_ROOM, DEFAULT_ROOM = 5, 4, 2, 1
+# Interior (width, height) in 40 px tiles of a room's bounding box, by room shape 1..12:
+# 1x1, IH, IV, 1x2, IIV, 2x1, IIH, 2x2, then the four L shapes (2x2 bounding box).
+SHAPE_TILES: dict[int, tuple[int, int]] = {
+    1: (13, 7),
+    2: (13, 3),
+    3: (5, 7),
+    4: (13, 14),
+    5: (5, 14),
+    6: (26, 7),
+    7: (26, 3),
+    8: (26, 14),
+    **dict.fromkeys((9, 10, 11, 12), (26, 14)),
+}
+assert set(SHAPE_TILES) == set(SHAPE_CELLS)
+BOSS_ROOM, TREASURE_ROOM, SHOP_ROOM, DEFAULT_ROOM = BOSS_ROOM_TYPE, 4, 2, 1
 assert set(BASE_KINDS + EXTRA_KINDS) == set(ENTITY_KINDS)
+
+
+def room_diagonal(shape: int) -> float:
+    """Diagonal in pixels of the bounding box of a room shape (reward label scale, not an input)."""
+    width, height = SHAPE_TILES[shape]
+    return math.hypot(width * CELL_SIZE, height * CELL_SIZE)
 
 
 @dataclass(frozen=True)
@@ -208,10 +240,47 @@ def _encode_pickup(vector: NDArray[np.float32], base: int, entity: Entity) -> No
     vector[base + len(VARIANT_CLASSES) + 1] = float(entity.price != 0)
 
 
-def encode(frame: EntityFrame, *, stall_fraction: float = 0.0) -> EncodedObservation:
+class VisitedCells:
+    """Cells the player occupied in each room of the current run; built from policy facts only.
+
+    A room is told apart by stage and the current minimap grid index, like the novelty ledger's
+    room key. A room without a grid position (devil, angel...) is keyed by its visit, so each
+    visit starts empty. A new session or game epoch starts a new run and clears everything.
+    """
+
+    def __init__(self) -> None:
+        self._run: tuple[str, int] | None = None
+        self._rooms: dict[tuple[int, int], set[tuple[int, int]]] = {}
+
+    def update(self, frame: EntityFrame) -> NDArray[np.float32]:
+        """Mark the player's cell and return the room's grid (1.0 for visited cells)."""
+        run = (frame.session_id, frame.game_epoch)
+        if run != self._run:
+            self._run = run
+            self._rooms.clear()
+        current = next((room.grid_index for room in frame.map if room.current), None)
+        room = current if current is not None else -1 - frame.room_visit
+        cells = self._rooms.setdefault((frame.room.stage, room), set())
+        player = frame.player_position
+        col = math.floor(player.x / CELL_SIZE) - FIRST_CELL[0]
+        row = math.floor(player.y / CELL_SIZE) - FIRST_CELL[1]
+        cells.add((min(max(col, 0), VISITED_COLS - 1), min(max(row, 0), VISITED_ROWS - 1)))
+        grid = np.zeros(VISITED_COLS * VISITED_ROWS, dtype=np.float32)
+        for col, row in cells:
+            grid[row * VISITED_COLS + col] = 1.0
+        return grid
+
+
+def encode(
+    frame: EntityFrame,
+    *,
+    stall_fraction: float = 0.0,
+    visited_cells: NDArray[np.float32] | None = None,
+) -> EncodedObservation:
     """Nearest-first, fixed capacity; zero slots are told apart by the presence bit.
 
     `stall_fraction` is the stall watchdog's idle time over its limit, clipped to [0, 1].
+    `visited_cells` is the run's visited grid of the current room (`VisitedCells.update`).
     """
     if not isinstance(frame, EntityFrame):
         raise ProtocolError("Only a validated policy EntityFrame can be encoded")
@@ -234,6 +303,10 @@ def encode(frame: EntityFrame, *, stall_fraction: float = 0.0) -> EncodedObserva
     _encode_room(vector, frame)
     _encode_map(vector, frame)
     vector[STALL_OFFSET] = min(max(stall_fraction, 0.0), 1.0)
+    if visited_cells is not None:
+        if visited_cells.shape != (VISITED_COLS * VISITED_ROWS,):
+            raise ProtocolError("The visited cell grid has the wrong size")
+        vector[VISITED_OFFSET:] = visited_cells
     overflow: dict[EntityKind, int] = dict(frame.source_overflow)
     for collectible in frame.collectibles:
         vector[COLLECTIBLE_OFFSET + collectible - 1] = 1.0

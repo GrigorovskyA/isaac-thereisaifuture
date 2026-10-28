@@ -450,6 +450,29 @@ local function minimap()
     return result, current_grid < 0
 end
 
+-- Live-loop reward label only (door shaping): every existing door of the room with its slot
+-- position, open state and whether the room behind it is unvisited. A door whose position
+-- cannot be read is skipped; a target that cannot be read counts as explored.
+local function oracle_doors(room)
+    local level = Game():GetLevel()
+    local doors = {}
+    for slot = 0, 7 do
+        local ok, door = pcall(function()
+            local found = room:GetDoor(slot)
+            if found == nil then return nil end
+            local position = vector(room:GetDoorSlotPosition(slot))
+            local target_ok, unexplored = pcall(function()
+                local target = level:GetRoomByIdx(found.TargetRoomIndex)
+                return target ~= nil and target.Data ~= nil and target.VisitedCount == 0
+            end)
+            return { slot = slot, x = position.x, y = position.y,
+                open = found:IsOpen() == true, unexplored = target_ok and unexplored == true }
+        end)
+        if ok and door then doors[#doors + 1] = door end
+    end
+    return doors
+end
+
 local function capture_entities(room, player, data)
     local list = Isaac.GetRoomEntities()
     assert(type(list) == "table" and #list <= 1024, "Room entity scan exceeds 1024")
@@ -585,7 +608,9 @@ local function capture_entities(room, player, data)
             enemy_overflow = oracle_overflow,
             room_index = clamp_int(Game():GetLevel():GetCurrentRoomIndex(), -64, 255),
             kills = metrics.kills, killed = #metrics.killed > 0 and {} or json.EMPTY_ARRAY,
-            player_hits = {} }
+            player_hits = {}, doors = json.EMPTY_ARRAY }
+        local doors = oracle_doors(room)
+        if #doors > 0 then oracle.doors = doors end
         for i, id in ipairs(metrics.killed) do oracle.killed[i] = id end
         for _, name in ipairs(HIT_CLASSES) do oracle.player_hits[name] = metrics.hits[name] end
     end

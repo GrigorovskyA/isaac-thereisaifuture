@@ -56,7 +56,7 @@ Without `--forever` the runner keeps its explicit finite mode: `--config`,
 ## Frozen evaluation
 
 Compare checkpoints (or a random baseline) under exactly the training protocol: same action
-repeat, reward v8, stall watchdog and restarts, but no learning and no checkpoint
+repeat, reward v9, stall watchdog and restarts, but no learning and no checkpoint
 writes. Stop forever training first; one game runs at a time. One session per
 policy, one folder per session (a root that already has episodes is refused):
 

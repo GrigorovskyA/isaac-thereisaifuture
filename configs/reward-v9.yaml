@@ -1,0 +1,44 @@
+# Outcome-only reward for the pure profile (openspec change dense-exploration-reward-v9).
+# Terms describe what happened, never how to play. "First" terms and caps are per run.
+# Novelty pays once per (stage, room, cell) per run; stall_restart is paid once on a stall truncation.
+# Reward v9 = reward v8 with a denser exploration and run-goal signal. After 580k steps under v8
+# kills and clears per 1000 steps had plateaued, 60-70% of episodes still stalled, about 1.9 rooms
+# were visited per episode and floor 2 was never reached. Exploration paid little next to damage
+# and penalties. Changes against v8: room_first_visit 5 (was 3), floor_first_entered 30 (was 10),
+# new outcome.boss_room_clear_first 20 (paid with room_clear_first on the first clear of a boss
+# room), coin 0.3, bomb 0.5, key 0.5, consumable_run_cap 10, collectible_new 5 (were 0.05, 0.1, 0.1,
+# 3, 2), novelty.coefficient 0.1 (was 0.02) and the new door_shaping section.
+# door_shaping is a potential-based term (Ng et al. 1999): Phi(s) = -coefficient * d / D with d the
+# distance to the nearest open door to an unvisited room and D the room's diagonal. Phi is 0 unless
+# the room is clear with no enemies; a step pays gamma * Phi(s') - Phi(s) (gamma from the training
+# config) and a terminal step ends in Phi = 0. It does not change the optimal policy.
+# Stagnation is unchanged, so a full stall still costs at most -12 and a death from full health
+# (-10 + 6 * -0.5 = -13) never pays better than a full stall.
+# Archived: archive/configs/reward-v4.yaml ... reward-v8.yaml.
+reward_version: 9
+status: pure_v4
+outcome:
+  enemy_hp_fraction_total: 5.0
+  room_clear_first: 10.0
+  boss_room_clear_first: 20.0
+  room_first_visit: 5.0
+  floor_first_entered: 30.0
+  player_damage_half_heart: -0.5
+  death: -10.0
+  stall_restart: -5.0
+  time_second: -0.005
+pickups:
+  coin: 0.3
+  bomb: 0.5
+  key: 0.5
+  consumable_run_cap: 10.0
+  collectible_new: 5.0
+  heal_half_heart: 0.5
+novelty:
+  coefficient: 0.1
+  cell_size: 40
+stagnation:
+  per_second: -0.25
+  grace_seconds: 12
+door_shaping:
+  coefficient: 2.0

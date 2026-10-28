@@ -1,4 +1,4 @@
-"""Event-driven reward ledgers: combat reward-v1 and outcome-only reward-v4/v5.
+"""Event-driven reward ledgers: combat reward-v1 and outcome-only reward-v4 to v9.
 
 Coefficients are hypotheses, not tuned values.
 """
@@ -11,7 +11,8 @@ from typing import Any, Self
 
 import yaml
 
-from .entities import EntityFrame, OracleEvent
+from .encoding import room_diagonal
+from .entities import BOSS_ROOM_TYPE, EntityFrame, OracleDoor, OracleEvent
 from .env import UPDATES_PER_SECOND
 from .stall_watchdog import DEFAULT_STALL_SECONDS
 
@@ -128,12 +129,14 @@ class RewardLedger:
             parts["death"] += c.death
 
 
-DEFAULT_CONFIG_V8 = Path(__file__).resolve().parents[2] / "configs" / "reward-v8.yaml"
-# The same ledger pays v4-v8: v5 changed stall_restart, v6 adds kill credit in the deriver, v7 adds
-# the stagnation cost and v8 shortens the stall limit it is sized for. Only v7 and v8 have a
-# `stagnation` section; the archived v7 config stays loadable like the archived v4-v6 ones.
-REWARD_V4_VERSIONS = (4, 5, 6, 7, 8)
-STAGNATION_VERSIONS = (7, 8)
+DEFAULT_CONFIG_V9 = Path(__file__).resolve().parents[2] / "configs" / "reward-v9.yaml"
+# The same ledger pays v4-v9: v5 changed stall_restart, v6 adds kill credit in the deriver, v7 adds
+# the stagnation cost, v8 shortens the stall limit it is sized for and v9 adds the boss clear
+# bonus and potential-based door shaping. Only v7-v9 have a `stagnation` section and only v9 has
+# `door_shaping` and `outcome.boss_room_clear_first`; the archived v4-v8 configs stay loadable.
+REWARD_V4_VERSIONS = (4, 5, 6, 7, 8, 9)
+STAGNATION_VERSIONS = (7, 8, 9)
+DOOR_SHAPING_VERSIONS = (9,)
 REWARD_V4_COLUMNS = (
     "enemy_damage",
     "room_clear",
@@ -150,6 +153,7 @@ REWARD_V4_COLUMNS = (
     "novelty",
     "stall",
     "stagnation",
+    "door_shaping",
 )
 _V4_SECTIONS: dict[str, tuple[str, ...]] = {
     "outcome": (
@@ -173,6 +177,8 @@ _V4_SECTIONS: dict[str, tuple[str, ...]] = {
     "novelty": ("coefficient", "cell_size"),
 }
 _STAGNATION_KEYS = ("per_second", "grace_seconds")
+_BOSS_KEY = "boss_room_clear_first"
+_DOOR_SHAPING_KEYS = ("coefficient",)
 
 
 @dataclass(frozen=True)
@@ -195,27 +201,32 @@ class RewardV4Coefficients:
     novelty_cell_size: float
     stagnation_per_second: float = 0.0
     stagnation_grace_seconds: float = 0.0
+    boss_room_clear_first: float = 0.0
+    door_shaping_coefficient: float = 0.0
 
     def __post_init__(self) -> None:
         if self.consumable_run_cap < 0 or self.novelty_cell_size <= 0:
             raise ValueError("The consumable cap must be >= 0 and the novelty cell size positive")
         if self.stagnation_grace_seconds < 0:
             raise ValueError("The stagnation grace period must be >= 0")
+        if self.door_shaping_coefficient < 0 or self.boss_room_clear_first < 0:
+            raise ValueError("The door shaping coefficient and boss clear bonus must be >= 0")
 
     @classmethod
-    def load(cls, path: Path = DEFAULT_CONFIG_V8) -> Self:
+    def load(cls, path: Path = DEFAULT_CONFIG_V9) -> Self:
         raw: Any = yaml.safe_load(path.read_text(encoding="utf-8"))
-        top = {"reward_version", "status", *_V4_SECTIONS}
-        if isinstance(raw, dict) and raw.get("reward_version") in STAGNATION_VERSIONS:
-            top.add("stagnation")  # required for v7 and v8, forbidden for v4-v6
-        if (
-            not isinstance(raw, dict)
-            or set(raw) != top
-            or raw["reward_version"] not in REWARD_V4_VERSIONS
-        ):
-            raise ValueError(f"Reward v4-v8 configuration must define exactly {sorted(top)}")
+        version = raw.get("reward_version") if isinstance(raw, dict) else None
+        sections = dict(_V4_SECTIONS)
+        top = {"reward_version", "status", *sections}
+        if version in STAGNATION_VERSIONS:
+            top.add("stagnation")  # required for v7-v9, forbidden for v4-v6
+        if version in DOOR_SHAPING_VERSIONS:
+            top.add("door_shaping")  # v9 only
+            sections["outcome"] = (*sections["outcome"], _BOSS_KEY)
+        if not isinstance(raw, dict) or set(raw) != top or version not in REWARD_V4_VERSIONS:
+            raise ValueError(f"Reward v4-v9 configuration must define exactly {sorted(top)}")
         values: dict[str, float] = {}
-        for name, keys in _V4_SECTIONS.items():
+        for name, keys in sections.items():
             section = raw[name]
             if not isinstance(section, dict) or set(section) != set(keys):
                 raise ValueError(f"The {name} section must define exactly {keys}")
@@ -233,6 +244,16 @@ class RewardV4Coefficients:
                 if isinstance(value, bool) or not isinstance(value, (int, float)):
                     raise ValueError(f"stagnation.{key} must be a number")
                 values[f"stagnation_{key}"] = float(value)
+        if "door_shaping" in raw:
+            section = raw["door_shaping"]
+            if not isinstance(section, dict) or set(section) != set(_DOOR_SHAPING_KEYS):
+                raise ValueError(
+                    f"The door_shaping section must define exactly {_DOOR_SHAPING_KEYS}"
+                )
+            value = section["coefficient"]
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError("door_shaping.coefficient must be a number")
+            values["door_shaping_coefficient"] = float(value)
         return cls(**values)
 
 
@@ -242,11 +263,19 @@ class RewardLedgerV4:
 
     "First" sets, the consumable cap, the heal pool and visited novelty cells belong to a run, so
     they reset only when `begin` sees a new session or game epoch (a new run).
+
+    Door shaping (v9) is potential-based: Phi(s) = -coefficient * d / D with d the distance to the
+    nearest open door to an unvisited room and D the room's diagonal; Phi is 0 unless the room is
+    clear with no enemies and such a door exists. A step pays gamma * Phi(s') - Phi(s) with
+    Phi(s') = 0 after a terminal step. After a room change, Phi(s) is the old room's last value
+    and Phi(s') the new room's, as the formula says. `gamma` is the training discount.
     """
 
     coefficients: RewardV4Coefficients
     stall_seconds: float = DEFAULT_STALL_SECONDS
+    gamma: float | None = None
     _stagnation_paid: float = 0.0
+    _phi: float = 0.0  # door potential of the previous state
     _run: tuple[str, int] | None = None
     # Room indexes repeat on every floor, so rooms are keyed by (stage, room index).
     _visited: set[tuple[int, int]] = field(default_factory=set)
@@ -264,16 +293,25 @@ class RewardLedgerV4:
     _pickups: dict[str, float] = field(default_factory=dict)
     _room: int | None = None
     _stage: int = 0
+    _room_type: int = 0
     _dead: bool = False
 
     def reset(self, episode_id: int) -> None:
         self._dead = False  # run state survives a reset; `begin` decides about a new run
 
-    def begin(self, frame: EntityFrame, room_index: int | None) -> None:
+    def begin(
+        self,
+        frame: EntityFrame,
+        room_index: int | None,
+        doors: Sequence[OracleDoor] | None = None,
+        enemies_present: bool = False,
+    ) -> None:
         """Call after every reset with the first frame; a new epoch starts a fresh run."""
         run = (frame.session_id, frame.game_epoch)
         self._room = room_index
         self._stage = frame.room.stage
+        self._room_type = frame.room.type
+        self._phi = self._potential(frame, doors, enemies_present)  # every episode starts here
         if run == self._run:
             return
         self._run = run
@@ -300,6 +338,9 @@ class RewardLedgerV4:
         elapsed_updates: int,
         frame: EntityFrame | None = None,
         room_index: int | None = None,
+        doors: Sequence[OracleDoor] | None = None,
+        enemies_present: bool = False,
+        terminal: bool = False,
     ) -> tuple[float, dict[str, float]]:
         c = self.coefficients
         parts = dict.fromkeys(REWARD_V4_COLUMNS, 0.0)
@@ -307,6 +348,7 @@ class RewardLedgerV4:
             parts["time"] = c.time_second * elapsed_updates / UPDATES_PER_SECOND
         if frame is not None:
             self._stage = frame.room.stage  # before events, so room keys use the new floor
+            self._room_type = frame.room.type
         for event in events:
             self._apply(event, parts)
         if frame is not None and room_index is not None:
@@ -320,7 +362,39 @@ class RewardLedgerV4:
             if cell not in self._novelty:  # first visit of a cell per run; revisits pay nothing
                 self._novelty.add(cell)
                 parts["novelty"] = c.novelty_coefficient
+        if frame is not None and c.door_shaping_coefficient != 0.0:
+            # A terminal step (death, clear, truncation) ends in the zero potential.
+            phi = 0.0 if terminal else self._potential(frame, doors, enemies_present)
+            parts["door_shaping"] = self._discount() * phi - self._phi
+            self._phi = phi
         return sum(parts.values()), parts
+
+    def _discount(self) -> float:
+        assert self.gamma is not None  # checked in __post_init__ for a shaping config
+        return self.gamma
+
+    def _potential(
+        self, frame: EntityFrame, doors: Sequence[OracleDoor] | None, enemies_present: bool
+    ) -> float:
+        """Phi(s): minus the scaled distance to the nearest open door to an unvisited room.
+
+        Zero without doors data, with a dead player, an unclear room or enemies present, and
+        when no open door leads to an unvisited room.
+        """
+        coefficient = self.coefficients.door_shaping_coefficient
+        if coefficient == 0.0 or self._dead or doors is None:
+            return 0.0
+        if enemies_present or not frame.room.clear:
+            return 0.0
+        position = frame.player_position
+        distances = [
+            math.hypot(door.x - position.x, door.y - position.y)
+            for door in doors
+            if door.open and door.unexplored
+        ]
+        if not distances:
+            return 0.0
+        return -coefficient * min(min(distances) / room_diagonal(frame.room.shape), 1.0)
 
     def stall_restart(self) -> float:
         """Penalty for an episode the watchdog truncated; the env calls it once per episode.
@@ -335,6 +409,8 @@ class RewardLedgerV4:
             raise ValueError("The stall limit must be positive")
         if c.stagnation_per_second != 0.0 and c.stagnation_grace_seconds >= self.stall_seconds:
             raise ValueError("The stagnation grace period must be shorter than the stall limit")
+        if c.door_shaping_coefficient != 0.0 and (self.gamma is None or not 0 < self.gamma <= 1):
+            raise ValueError("Door shaping needs the training discount gamma in (0, 1]")
 
     def stagnation(self, before: float, after: float) -> float:
         """Cost of the idle seconds a step added past the grace period.
@@ -386,6 +462,8 @@ class RewardLedgerV4:
             if room is not None and (self._stage, room) not in self._cleared:
                 self._cleared.add((self._stage, room))
                 parts["room_clear"] += c.room_clear_first
+                if self._room_type == BOSS_ROOM_TYPE:
+                    parts["room_clear"] += c.boss_room_clear_first
         elif kind == "room_entered" and event.room_index is not None:
             self._room = event.room_index
             if (self._stage, event.room_index) not in self._visited:

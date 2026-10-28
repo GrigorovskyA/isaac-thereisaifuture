@@ -19,7 +19,7 @@ from test_lua_observer import tick
 
 from isaac_threrisaifuture.actions import Command
 from isaac_threrisaifuture.checkpoints import config_hash, latest_checkpoint_dir, load_checkpoint
-from isaac_threrisaifuture.encoding import encode
+from isaac_threrisaifuture.encoding import VisitedCells, encode
 from isaac_threrisaifuture.live import LiveClient, make_live_env
 from isaac_threrisaifuture.observation import HelloAck, decode
 from isaac_threrisaifuture.observer_client import LIVE_LOOP_CAPABILITIES, ObserverConfig
@@ -387,10 +387,12 @@ class EncodedOnly(gym.Wrapper):
     def __init__(self, env):
         super().__init__(env)
         self.pairs: list[tuple[np.ndarray, np.ndarray]] = []
+        self.visited = VisitedCells()  # independent of the env's own visited-cell state
 
     def _check(self, obs):
         backend = self.env.env.controller.backend
-        self.pairs.append((obs, encode(backend.latest.entity_frame).vector))
+        frame = backend.latest.entity_frame
+        self.pairs.append((obs, encode(frame, visited_cells=self.visited.update(frame)).vector))
         return obs
 
     def reset(self, **kwargs):

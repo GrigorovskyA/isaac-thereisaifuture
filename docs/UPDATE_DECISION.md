@@ -57,6 +57,10 @@ fresh model, and old lineages stay preserved.
 2. Exploration comes from an intrinsic signal (for example RND or a visit-count
    bonus), not from scripted positioning. At most one potential-based term is
    acceptable, because it does not change the optimal policy.
+   Used since reward v9 (2026-10-28, approved by the user): door shaping, the change in
+   distance to the nearest open door into an unexplored room, paid only in a clear room
+   as gamma * Phi(s') - Phi(s). It is the only potential-based term; the other v9 terms
+   remain outcomes.
 3. The agent must see what it needs to learn about, but the observation should
    carry facts, not advice. Pickup types and item IDs are facts; "good target
    here" is advice.

@@ -6,17 +6,21 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 ## Direction
 
 - Pure self-learning since 2026-10-22 ([decision](UPDATE_DECISION.md)). RecurrentPPO
-  learns from raw facts and outcome rewards only: no scripted setup, advice features
-  or technique rewards. Archive content is history, not runtime authority.
-- Current lineage: `pure-v4`, observation schema 5, reward contract `pure-v8`.
-  Native qualification passed; stopped by the user on October 28 at 15:51 CET,
-  last checkpoint `fb22b342-s1-t588288`. No automatic resume is scheduled.
-  The reward-v7 run is preserved as
-  `runs/pure-v4-reward-v7`. The reward-v5 trial is preserved separately as
+  learns from raw facts and outcome rewards, plus one potential-based door term since
+  reward v9: no scripted setup, advice features or technique rewards. Archive content is history, not runtime authority.
+- Current lineage: `pure-v4`, observation schema 6, reward contract `pure-v9` (offline only;
+  restarts with `--initialize` after an observer redeploy). The reward-v8 run stopped on
+  October 28 at 15:51 CET at `fb22b342-s1-t588288` and is to be preserved as
+  `runs/pure-v4-reward-v8`. The reward-v7 run is preserved as `runs/pure-v4-reward-v7`. The reward-v5 trial is preserved separately as
   `runs/pure-v4-pre`; it is not resumed.
 - Active changes (not archived):
+  - `dense-exploration-reward-v9`: denser exploration and run-goal rewards (novelty 0.1,
+    new room 5, new floor 30, boss clear +20, pickups up), potential-based door shaping
+    (coefficient 2, clear rooms only) from new oracle `doors`, and a 27x15 visited-cell map
+    in observation schema 6. Offline gate passed; Windows task 2.2 and acceptance 2.3 open.
   - `short-stall-reward-v8`: stall limit 40 s (was 90), stagnation -0.25 per idle second
-    past 12 s, cap still -7.0. Windows task 2.2 passed; acceptance 2.3 remains open.
+    past 12 s, cap still -7.0. Windows task 2.2 passed; t270336 passed the kills/clears
+    conditions, the stalled-step condition did not; superseded by reward v9.
   - `observer-frame-timing`: the observer logs an `Observer perf` line every ~10 s
     (callback, capture and encode time); `scripts/lua_perf.py` summarizes log.txt.
     Deployed; native task 2.2 passed ([report](../reports/2026-10-26-pure-v8-one-hour-and-frame-timing.md)).
@@ -50,18 +54,22 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 - Action 2: MultiDiscrete([5,5,4]), held for six updates (0.2 s). Use none/bomb/
   active/pill-card; fresh use-head prior P(none)=0.85. Requested use is not proof
   of a visible effect.
-- Reward: `configs/reward-v8.yaml`, semantic contract `pure-v8`: v6 (v5 coefficients
-  plus kill credit) with lost half-heart -0.5, stall -5 once without death and a
-  stagnation cost -0.25 per idle second past 12 s (episode stagnation cap -7.0 plus stall -5).
-  Enemy damage 5, first clear 10, first room 3, new collectible 2, death -10.
+- Reward: `configs/reward-v9.yaml`, semantic contract `pure-v9`: lost half-heart -0.5,
+  stall -5 once without death, stagnation -0.25 per idle second past 12 s (cap -7.0),
+  death -10; enemy damage 5, first clear 10 (+20 for a boss room), first room 5, first
+  floor 30, novelty 0.1 per new 40 px cell, coin 0.3, bomb/key 0.5 (run cap 10), new
+  collectible 5; door shaping gamma * Phi(s') - Phi(s), Phi = -2 * distance to the nearest
+  open door into an unexplored room / room diagonal, in clear rooms only.
   The generic manifest reward_schema_version=1 is separate from reward_contract.
 - Episode = run. Death terminates; 40 active seconds without run-new progress
   truncates and restarts. Revisited rooms/regained counters do not reset progress.
-- `configs/training-pure-v4.yaml`: gamma 0.998, gae_lambda 0.98, ent_coef 0.01, seed 1;
+- Observation 6: schema 5 plus a 27x15 map of the cells visited in the current room this
+  run (3904 floats). Oracle `doors` (slot, position, open, unexplored) is reward-only.
+- `configs/training-pure-v4.yaml`: gamma 0.998, gae_lambda 0.98, ent_coef 0.005, seed 1;
   contract hash
-  `fb22b3429127c22b325c20594d1ab6d2931fae684ceab6eef9af4731136eb938`
-  (reward v7: `d62dc21b...`, reward v6: `ed954e0a...`). Observation 5/action 2/reward
-  contract pure-v8 must match. Earlier contracts refused.
+  `82b1b53e4703d8527eb38605363cc0f5f794ad95c51273433289f5e24c6ffe1b`
+  (reward v8: `fb22b342...`, reward v7: `d62dc21b...`, reward v6: `ed954e0a...`).
+  Observation 6/action 2/reward contract pure-v9 must match. Earlier contracts refused.
 - Supervisor: `Start-Pure.cmd`, `runs/pure-v4`, unlimited death/stall New Runs,
   five consecutive faults maximum, disk cap 20,480,000,000 bytes; session lease
   28740 seconds. A timer-owned stop.forever bounds the authorized continuation.
@@ -108,23 +116,26 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Next
 
-1. The ent_coef=0.01 trial ended at t588288 on October 28 at the user's request.
+1. Windows: Check.ps1; redeploy observer `main.lua` with Isaac closed; rename
+   `runs\pure-v4` to `runs\pure-v4-reward-v8`; one-hour `--initialize` session for v9
+   task 2.2; then continuous training. Compare with the reward-v8 lineage at equal steps.
+2. The ent_coef=0.01 trial ended at t588288 on October 28 at the user's request.
    Both legs exited 0 with empty cleanup errors and no fault. stop.forever remains;
    recurring monitoring was deleted and the October 29 deadline is superseded.
    Minimum 40-rollout use_none mean was 0.5313; its 0.40 guard never fired.
    [Combined final report](../reports/2026-10-29-pure-v8-ent001-overnight.md).
-2. A bounded two-instance launch probe observed only one persistent game; direct second
+3. A bounded two-instance launch probe observed only one persistent game; direct second
    launch exited 53. Four-instance gameplay and shared-learner training remain untested.
    [Probe evidence and current architectural limits](../reports/2026-10-28-isaac-parallel-instance-probe.md).
-3. Frozen t270336 evaluation passed kills/clears conditions, but stalled-step share failed;
+4. Frozen t270336 evaluation passed kills/clears conditions, but stalled-step share failed;
    task 2.3 remains open. [Evaluation](../reports/2026-10-27-pure-v8-t270336-frozen-eval.md).
-4. Before parallel training, establish independent game launch, save/profile handling,
+5. Before parallel training, establish independent game launch, save/profile handling,
    per-instance bridge ports and process ownership, then a vectorized single learner.
-3. STOP_MARGIN_SECONDS=15 produced clean one-hour deadlines; native eight-hour
+6. STOP_MARGIN_SECONDS=15 produced clean one-hour deadlines; native eight-hour
    rollover succeeded on 2026-10-25; a later recovered fault blocked the following one. Evaluation display can stay waiting after a long episode
    (record separately). Dashboard views passed the offline gate, interactive
    acceptance was not run.
-4. Keep old lineages and pure-v4-pre preserved. Generic player_damaged event sources
+7. Keep old lineages and pure-v4-pre preserved. Generic player_damaged event sources
    are hardcoded enemy; use native hits_* counters for source aggregates.
 
 ## Navigation

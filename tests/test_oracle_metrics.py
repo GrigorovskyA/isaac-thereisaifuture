@@ -60,7 +60,7 @@ def make_env(snapshots):
         backend,
         [LIVE_SCENARIO],
         action_repeat=1,
-        accountant=RewardLedgerV4(RewardV4Coefficients.load()),
+        accountant=RewardLedgerV4(RewardV4Coefficients.load(), gamma=0.998),
     )
 
 

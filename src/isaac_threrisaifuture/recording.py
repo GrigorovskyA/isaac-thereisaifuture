@@ -7,8 +7,8 @@ from typing import Annotated, Any, BinaryIO, Literal, Self
 from pydantic import Field, ValidationError, model_validator
 
 from .entities import (
+    FRAME_SCHEMA_VERSION,
     MAX_FRAME_BYTES,
-    OBSERVATION_SCHEMA_VERSION,
     EntityFrame,
     NativeOracleKind,
     OracleEvent,
@@ -69,7 +69,7 @@ class JsonlRecorder:
             extra = {"native_oracle_kinds": native_oracle_kinds}
         try:
             manifest = RecordingManifest(
-                observation_schema_version=OBSERVATION_SCHEMA_VERSION,
+                observation_schema_version=FRAME_SCHEMA_VERSION,
                 stream=stream,
                 provenance=provenance,
                 **extra,
@@ -121,7 +121,7 @@ def open_replay(path: Path, stream: Stream) -> tuple[RecordingManifest, Iterator
     with path.open("rb") as handle:
         first = _read_record(handle)
     manifest = decode(first, RecordingManifest, MAX_FRAME_BYTES)
-    if manifest.observation_schema_version != OBSERVATION_SCHEMA_VERSION:
+    if manifest.observation_schema_version != FRAME_SCHEMA_VERSION:
         raise ProtocolError(
             f"Unsupported observation schema version {manifest.observation_schema_version}"
         )

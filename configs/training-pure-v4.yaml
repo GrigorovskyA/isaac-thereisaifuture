@@ -14,6 +14,11 @@
 # short-stall-reward-v8) restarts lineage pure-v4 from scratch again: after 477k steps the v7
 # policy was still at random level and 82% of all steps were spent in stalled episodes. The
 # reward v7 run is kept as runs/pure-v4-reward-v7. Hyperparameters are unchanged.
+# Reward v9 and observation schema 6 (openspec change dense-exploration-reward-v9) restart the
+# lineage once more: after 580k steps under reward v8 kills and clears per 1000 steps had
+# plateaued, 60-70% of episodes still stalled and floor 2 was never reached. v9 pays exploration
+# and run goals more, adds potential-based door shaping, and the policy sees a map of the cells it
+# visited in the room. The reward v8 run is kept as runs/pure-v4-reward-v8. Only ent_coef changes.
 # Only `contract` binds the lineage; `hyperparameters` may be tuned between sessions
 # and are recorded per checkpoint.
 config_version: 2
@@ -24,9 +29,9 @@ contract:
   seed: 1
   lstm_hidden_size: 256
   action_repeat_game_updates: 6
-  observation_schema_version: 5
+  observation_schema_version: 6
   action_schema_version: 2
-  reward_version: 8
+  reward_version: 9
   # Initial P(no use press) of the use head, set at fresh model creation only.
   use_head_initial_none_probability: 0.85
 hyperparameters:
@@ -38,11 +43,10 @@ hyperparameters:
   # 0.98 (was 0.95): advantages look about 45 steps ahead, not 20.
   gae_lambda: 0.98
   clip_range: 0.2
-  # 0.01 again from fb22b342-s1-t510976 (was 0.005; before that 0.01, when the fresh use head
-  # drifted from its prior toward uniform). Under reward v8 kills and clears per 1000 steps
-  # plateaued from about 240k steps while entropy fell (3.44 -> 2.89) and 60% of episodes
-  # still stalled. Watch use_none in train.csv; go back to 0.005 if it falls toward 0.25.
-  ent_coef: 0.01
+  # 0.005 again. The 0.01 trial (fb22b342-s1-t510976, about 70k steps) did not raise entropy
+  # and did not help: stalls went 60% -> 70% and kills per 1000 steps 6.7 -> 5.4. Before that
+  # 0.01 was too high for the fresh use head, which drifted from its prior toward uniform.
+  ent_coef: 0.005
   n_steps: 512
   batch_size: 128
   n_epochs: 4

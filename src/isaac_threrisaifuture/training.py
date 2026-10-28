@@ -30,7 +30,7 @@ from .checkpoints import (
 from .entities import OBSERVATION_SCHEMA_VERSION
 
 DEFAULT_CONFIG = Path("configs/training-v1.yaml")  # offline and synthetic runs
-PURE_REWARD_VERSION = 8  # the contract must name the reward version this code pays
+PURE_REWARD_VERSION = 9  # the contract must name the reward version this code pays
 PURE_CONFIG = Path(__file__).resolve().parents[2] / "configs" / "training-pure-v4.yaml"
 TEMPLATE_STATUS = "template_not_executable_yet"
 StopReason = Literal["completed", "wall_time", "disk_limit", "timesteps"]

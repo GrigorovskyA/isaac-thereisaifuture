@@ -6,8 +6,11 @@ from pydantic import Field, model_validator
 
 from .observation import Counter, Health, SessionId, Snapshot, WireModel
 
-OBSERVATION_SCHEMA_VERSION = 5
-ORACLE_SCHEMA_VERSION = 1  # oracle events are unchanged by observation schema 5
+# The wire frame stays at schema 5; policy observation schema 6 adds a visited-cells block that
+# the encoder builds from successive frames (see encoding.VisitedCells).
+FRAME_SCHEMA_VERSION = 5
+OBSERVATION_SCHEMA_VERSION = 6
+ORACLE_SCHEMA_VERSION = 1  # oracle events are unchanged by observation schema 6
 MAX_FRAME_BYTES = 65536
 # Observer caps: 12 enemies, 20 projectiles, 24 obstacles, 8 pickups, 16 own attacks, 4 bombs.
 MAX_ENTITIES = 84
@@ -17,6 +20,7 @@ MAX_PICKUPS = 8
 MAX_COLLECTIBLES = 256
 COLLECTIBLE_ID_MAX = 1024
 DOOR_SLOTS = 8
+BOSS_ROOM_TYPE = 5  # RoomType.ROOM_BOSS in RoomFacts.type and MapRoom.room_type
 Coord = Annotated[float, Field(ge=-1e5, le=1e5)]
 BOMB_AGE_MAX = 10000
 EntityKind = Literal["enemy", "projectile", "obstacle", "pickup", "own_attack", "bomb"]
@@ -208,7 +212,7 @@ class EntityFrame(WireModel):
     """Policy-visible state only. Hidden map data and reward labels do not belong here."""
 
     type: Literal["entity_frame"] = "entity_frame"
-    observation_schema_version: Literal[5] = 5
+    observation_schema_version: Literal[5] = 5  # FRAME_SCHEMA_VERSION
     provenance: Literal["synthetic", "game_api"]
     session_id: SessionId
     game_epoch: Counter
@@ -309,6 +313,20 @@ NativeOracleKind = Literal[
 DerivedOracleKind = Literal["room_entered", "floor_entered", "pickup_gained"]
 OracleKind = NativeOracleKind | DerivedOracleKind
 PickupResource = Literal["coin", "bomb", "key", "collectible"]
+
+
+class OracleDoor(WireModel):
+    """One existing door of the current room. Reward label only, never a policy input.
+
+    `x`, `y` is the world position of the door slot. `unexplored` is True when the room behind
+    the door has never been visited in this run.
+    """
+
+    slot: Annotated[int, Field(ge=0, le=DOOR_SLOTS - 1)]
+    x: Coord
+    y: Coord
+    open: bool
+    unexplored: bool
 
 
 class OracleEvent(WireModel):

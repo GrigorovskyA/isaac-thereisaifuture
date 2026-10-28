@@ -4,7 +4,7 @@ from typing import Annotated, Literal, Self
 
 from pydantic import Field, model_validator
 
-from .entities import EntitySnapshot
+from .entities import DOOR_SLOTS, EntitySnapshot, OracleDoor
 from .observation import Counter, SessionId, WireModel
 
 CommandKind = Literal["action", "heartbeat", "release", "restart"]
@@ -50,6 +50,15 @@ class LiveOracle(WireModel):
     # Identities of the last killed listed enemies, oldest first. Reward label only.
     killed: Annotated[list[Counter], Field(max_length=16)]
     player_hits: PlayerHits
+    # Existing doors of the current room, one per slot. Reward label only (door shaping).
+    doors: Annotated[list[OracleDoor], Field(max_length=DOOR_SLOTS)]
+
+    @model_validator(mode="after")
+    def door_slots_unique(self) -> Self:
+        slots = [door.slot for door in self.doors]
+        if len(set(slots)) != len(slots):
+            raise ValueError("Duplicate oracle door slot")
+        return self
 
 
 class LiveSnapshot(EntitySnapshot):
