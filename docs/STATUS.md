@@ -8,21 +8,19 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 - Pure self-learning since 2026-10-22 ([decision](UPDATE_DECISION.md)). RecurrentPPO
   learns from raw facts and outcome rewards, plus one potential-based door term since
   reward v9: no scripted setup, advice features or technique rewards. Archive content is history, not runtime authority.
-- Schema8 full-hour focus/pause review passed on October29, source `fde8b1f`:
-  15/15 pauses successful, durations6.469-10.593 s, update median7.7735 s (14 samples),
-  update_paused15, no skipped/resume failures or focus refusals. Parentt16384 to t31744.
-  Native exit0, fault null, cleanup[]; actual game/worker/owner/listener/approval cleared,
-  stop.forever retained at review. All67 prior episode/16 train rows preserved;
-  68 new episodes (48 stalls,20 nonstalls) passed context checks. 15583 completed steps.
-  [Full-hour qualification](../reports/2026-10-29-focus-hour-qualification.md).
-  User stopped continuation October29 at16:52:46 CET; final checkpoint remains t31744.
-  No new optimizer update completed after continuation start16:49:44 CET. Actual
-  game/worker/owner/listener/approval are absent; stop.forever remains, monitor deleted.
-  Learner exit0/faultnull; cleanup integrity error records changed training_metrics.py.
-  Uncommitted source/test edits are preserved, not included in the report commit.
-  [Final early-stop report](../reports/2026-10-31-schema8-focus-training.md).
-  Contract b26db425 and observer unchanged. Check1428/Lua/no skips; strict specs25/25.
-  [Finite plan](../reports/2026-10-29-full-hour-focus-plan.md).
+- Train-statistics logger repair at `fc80cd5` is running natively from qualified
+  `b26db425-s1-t31744`, without initialization. Check1428/Lua/no skips; strict25/25.
+  Each update captures SB3 statistics at learn() end before the next logger reset;
+  the CSV row still waits for its matching pause result. Contract/mod unchanged.
+  October29 start16:58:40 CET; fixed stop October30 at09:00 CET (08:00 UTC).
+  Required new-row statistics check at17:10:40 CET (12 min); empty statistics stop.
+  First-hour pause review at17:58:40 CET: below70% disable only live pause between
+  sessions, then resume latest under the same deadline. Pause failure alone never stops.
+  Continue file2 verified, fresh episode progress; monitoring reads files only.
+  Baseline138 episode/31 train rows and parent checkpoint protected locally.
+  [Finite repair/run plan](../reports/2026-10-29-train-statistics-resume-plan.md).
+  Prior pause qualification passed15/15; its early stopped continuation and integrity
+  discrepancy remain historical in the [report](../reports/2026-10-31-schema8-focus-training.md).
 - Previous trained native lineage: `runs/pure-v4-reward-v9-schema7`, observation schema 7, reward contract `pure-v9`.
   One-hour qualification ended cleanly October 28 at 19:33 CET, checkpoint t13824.
   Measured geometry/door checks passed. User stopped continuation October 29 at 10:36 CET
@@ -154,9 +152,10 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Next
 
-1. Keep schema8 stopped at t31744 following the user's early stop. No recurring monitor
-   remains. Review the uncommitted source/test work separately before any new run;
-   the completed native pause/stall hour remains accepted in its measured scope.
+1. Verify newly recorded entropy_loss/explained_variance and the other train statistics
+   after12min; stop/report if empty. Review pause across the first full hour, disable
+   below70% between sessions if needed. Final October30 report: ~30k windows vs schema7,
+   stage2/stalls/deaths, pause share, optimizer-statistic trends and stall context.
 2. Schema 7 training is complete and archived with stop.forever and verified checkpoint hashes.
    Schema 6 remains separately stopped in `runs/pure-v4-reward-v9-schema6`.
 3. The ent_coef=0.01 trial ended at t588288 on October 28 at the user's request.
