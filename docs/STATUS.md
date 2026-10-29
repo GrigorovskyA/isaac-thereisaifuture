@@ -15,8 +15,9 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
   stop.forever retained at review. All67 prior episode/16 train rows preserved;
   68 new episodes (48 stalls,20 nonstalls) passed context checks. 15583 completed steps.
   [Full-hour qualification](../reports/2026-10-29-focus-hour-qualification.md).
-  Pause stays enabled. Authorized no-initialize continuation fromt31744 to October31
-  at09:00 CET/08:00 UTC is next; file-only monitoring never opens/activates windows.
+  Pause stays enabled. No-initialize continuation fromt31744 launched October29
+  at16:49:44 CET, fixed stop October31 at09:00 CET/08:00 UTC; file-only monitoring
+  never opens/activates windows. Session session-20261029-164944-0001 is training.
   Contract b26db425 and observer unchanged. Check1428/Lua/no skips; strict specs25/25.
   [Finite plan](../reports/2026-10-29-full-hour-focus-plan.md).
 - Previous trained native lineage: `runs/pure-v4-reward-v9-schema7`, observation schema 7, reward contract `pure-v9`.

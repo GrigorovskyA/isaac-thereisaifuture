@@ -68,3 +68,9 @@ checkpoint copies and game log. Session events and CSV files remain under
 `runs/pure-v4/`. Raw logs/models/local helpers are excluded from Git.
 The final committed report will include approximately30k-step windows, schema7
 comparison with explicit step-method limits, stall breakdown and overnight pause share.
+
+Continuation receipt: launched once at2026-10-29 15:49:44.041 UTC (16:49 CET),
+without initialization fromt31744, session session-20261029-164944-0001. Native
+file2 Continue verified, state training, no fault; fixed timer receipt retained
+under runs/pure-v4/supervisor/until-20261031-0900-timer.json. Further progress is
+monitored through files only.
