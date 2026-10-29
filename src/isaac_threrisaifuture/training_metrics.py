@@ -142,6 +142,14 @@ class TrainMetricsCallback(BaseCallback):
             self._fail(error)
 
     def _on_training_end(self) -> None:
+        # train() calls learn() once per rollout, so a learn() ends while the game is still
+        # paused; that row waits for the resume and is written at the next rollout start.
+        if self._pause is not None and self._pause.waiting:
+            return
+        self._flush()
+
+    def flush(self) -> None:
+        """Write a row still waiting for its pause result (end of a training run)."""
         self._flush()
 
     def _flush(self) -> None:

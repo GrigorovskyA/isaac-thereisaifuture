@@ -112,6 +112,8 @@ class UpdatePause:
             self._skip("update_resume_failed", f"{type(error).__name__}: {error}")
         seconds = 0.0 if self._since is None else max(self._clock() - self._since, 0.0)
         result = PauseResult(seconds, self._ok and resumed)
+        if result.ok:
+            self.record("update_paused", {"seconds": round(seconds, 3)})
         self._reset()
         return result
 
@@ -136,6 +138,11 @@ class UpdatePauseCallback(BaseCallback):
         except Exception:
             return None
         return backend if hasattr(backend, "wait_game_status") else None  # sim and fakes: no-op
+
+    @property
+    def waiting(self) -> bool:
+        """A pause was attempted and its result comes with the next resume."""
+        return self._armed
 
     def _on_step(self) -> bool:
         return True

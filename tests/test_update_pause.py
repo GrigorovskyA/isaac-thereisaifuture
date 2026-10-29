@@ -78,7 +78,7 @@ def test_pause_then_resume_orders_release_escape_and_waits():
     log.clear()
     result = pause.resume(game)
     assert log == ["press Escape", "wait active"] and game.status == "active"
-    assert result == PauseResult(2.0, True) and events == []
+    assert result == PauseResult(2.0, True) and events == [("update_paused", {"seconds": 2.0})]
 
 
 def test_game_that_ignores_the_key_times_out_without_a_second_press():
@@ -192,6 +192,29 @@ def test_callbacks_pause_at_rollout_end_resume_at_start_and_fill_the_columns(tmp
     metrics._on_training_end()
     rows = list(csv.DictReader((tmp_path / "train.csv").open(encoding="utf-8")))
     assert [(r["pause_seconds"], r["pause_ok"]) for r in rows] == [("2.0", "1"), ("2.0", "1")]
+
+
+def test_columns_are_filled_when_each_rollout_is_its_own_learn_call(tmp_path: Path):
+    # train() calls learn() per rollout: training end comes after the pause, before the resume.
+    pause, game, keyboard, log, events = make()
+    pause_callback = UpdatePauseCallback(pause)
+    metrics = TrainMetricsCallback(tmp_path / "train.csv", pause=pause_callback)
+    for callback in (pause_callback, metrics):
+        callback.model = Model(game)  # type: ignore[assignment]
+    for _ in range(3):
+        for callback in (pause_callback, metrics):
+            callback._on_rollout_start()
+        for callback in (pause_callback, metrics):
+            callback._on_rollout_end()
+        assert game.status == "paused"
+        for callback in (pause_callback, metrics):
+            callback._on_training_end()  # learn() returns; the update and checkpoint ran paused
+    pause_callback.release()  # train() finally: resume, then write the last row
+    metrics.flush()
+    assert game.status == "active"
+    rows = list(csv.DictReader((tmp_path / "train.csv").open(encoding="utf-8")))
+    assert [(r["pause_seconds"], r["pause_ok"]) for r in rows] == [("2.0", "1")] * 3
+    assert [name for name, _ in events].count("update_paused") == 3
 
 
 def test_a_skipped_pause_writes_ok_zero_and_a_sim_backend_leaves_the_columns_empty(tmp_path):

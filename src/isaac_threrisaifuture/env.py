@@ -4,6 +4,7 @@ Faults raise EpisodeFault out of step()/reset(); they are never returned as tran
 Oracle events leave through `oracle_sink`, never through the observation or `info`.
 """
 
+import math
 from collections.abc import Callable, Sequence
 from dataclasses import asdict
 from typing import Any, Protocol, runtime_checkable
@@ -39,6 +40,37 @@ def _new_facts() -> dict[str, Any]:
         "half_hearts_lost": 0.0,
         "steps_to_first_exit": None,
         "steps_to_first_damage": None,
+    }
+
+
+def stall_facts(
+    frame: EntityFrame,
+    doors: Sequence[OracleDoor] | None,
+    oracle_enemies: int | None,
+    seconds_in_room: float,
+) -> dict[str, Any]:
+    """Room context of a stalled episode from its last snapshot. Metrics only."""
+    enemies = [entity for entity in frame.entities if entity.kind == "enemy"]
+    kinds = {(enemy.npc_type, enemy.npc_variant) for enemy in enemies if enemy.npc_type is not None}
+    distances = [math.hypot(enemy.position.x, enemy.position.y) for enemy in enemies]
+    health = frame.health
+    return {
+        "stall_room_clear": int(frame.room.clear),
+        "stall_room_type": frame.room.type,
+        "stall_room_shape": frame.room.shape,
+        "stall_enemies": len(enemies) + frame.source_overflow.get("enemy", 0),
+        "stall_oracle_enemies": oracle_enemies,
+        "stall_enemies_invulnerable": sum(bool(enemy.invulnerable) for enemy in enemies),
+        "stall_enemies_flying": sum(bool(enemy.flying) for enemy in enemies),
+        "stall_enemies_boss": sum(bool(enemy.boss) for enemy in enemies),
+        "stall_enemy_kinds": ";".join(f"{kind}.{variant}" for kind, variant in sorted(kinds)),
+        "stall_nearest_enemy": round(min(distances), 1) if distances else None,
+        "stall_open_unexplored_doors": (
+            None if doors is None else sum(door.open and door.unexplored for door in doors)
+        ),
+        "stall_open_doors": sum(door is not None and door.open for door in frame.room.doors),
+        "stall_half_hearts": health.red_half_hearts + health.soul_half_hearts,
+        "stall_seconds_in_room": round(seconds_in_room, 1),
     }
 
 
@@ -108,6 +140,8 @@ class IsaacCombatEnv(gym.Env[NDArray[np.float32], NDArray[np.int64]]):
         self._facts = _new_facts()
         self._start_room: int | None = None
         self._idle_seconds = 0.0  # stall watchdog idle clock at the previous step
+        self._room_key: tuple[Any, ...] | None = None  # room of the last frame
+        self._room_since = 0  # game updates at the last room change or episode start
         self._visited = VisitedCells()  # run-long; a new session or game epoch clears it
         self._reset_cap_stats()
 
@@ -136,6 +170,7 @@ class IsaacCombatEnv(gym.Env[NDArray[np.float32], NDArray[np.int64]]):
         self._reset_cap_stats()
         self._start_room = transition.room_index
         self._idle_seconds = self._backend_idle_seconds()
+        self._room_key, self._room_since = self._room_of(transition), 0
         if self.accountant is not None:
             self.accountant.reset(transition.episode_id)
             if isinstance(self.accountant, StateAwareAccountant):
@@ -192,6 +227,9 @@ class IsaacCombatEnv(gym.Env[NDArray[np.float32], NDArray[np.int64]]):
                 reward += stall
                 components = {**components, "stall": stall}
         self._note_facts(transition, int(action[2]), components)
+        key = self._room_of(transition)
+        if key != self._room_key:
+            self._room_key, self._room_since = key, transition.summary.game_updates
         self._return += reward
         for name, value in components.items():
             self._columns[name] = self._columns.get(name, 0.0) + value
@@ -202,6 +240,11 @@ class IsaacCombatEnv(gym.Env[NDArray[np.float32], NDArray[np.int64]]):
             info["episode"] = {**asdict(transition.summary), "return": self._return}
             info["episode_summary"] = self._summary(transition)
         return obs, reward, transition.terminated, transition.truncated, info
+
+    @staticmethod
+    def _room_of(transition: Transition) -> tuple[Any, ...]:
+        frame = transition.frame
+        return (frame.session_id, frame.game_epoch, frame.room_visit, transition.room_index)
 
     def _note_facts(self, transition: Transition, use: int, components: dict[str, float]) -> None:
         facts = self._facts
@@ -241,7 +284,19 @@ class IsaacCombatEnv(gym.Env[NDArray[np.float32], NDArray[np.int64]]):
             **stats,
             **self._facts,
             **self._cap_facts(),
+            "last_room_clear": int(transition.frame.room.clear),
+            **self._stall_context(transition),
         }
+
+    def _stall_context(self, transition: Transition) -> dict[str, Any]:
+        """Room context for stall truncations only; empty for every other end."""
+        if not (transition.truncated and transition.truncation_reason == "stall"):
+            return {}
+        count = getattr(self.controller.backend, "oracle_enemy_count", None)
+        seconds = (transition.summary.game_updates - self._room_since) / UPDATES_PER_SECOND
+        return stall_facts(
+            transition.frame, transition.doors, count() if count is not None else None, seconds
+        )
 
     def _reset_cap_stats(self) -> None:
         self._cap_max: dict[EntityKind, int] = dict.fromkeys(ENTITY_KINDS, 0)

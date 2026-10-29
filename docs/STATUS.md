@@ -151,9 +151,10 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Next
 
-1. Keep schema 8 stopped at t15360. The required pause telemetry is missing, so native
-   task 2.2 and conditional continuation are blocked. No automatic fix or retry.
-   Source/config/mod remain frozen; any repair or new run needs a new user instruction.
+1. Schema 8 stopped at t15360. The pauses worked (game-log update rate drops about every
+   3.7 min) but their train.csv cells were lost: the row was written at learn() end, before the
+   resume. Fixed offline (row waits for the resume, `update_paused` event); the contract hash is
+   unchanged, so the next hour resumes t15360 without `--initialize` and reruns task 2.2.
 2. Schema 7 training is complete and archived with stop.forever and verified checkpoint hashes.
    Schema 6 remains separately stopped in `runs/pure-v4-reward-v9-schema6`.
 3. The ent_coef=0.01 trial ended at t588288 on October 28 at the user's request.

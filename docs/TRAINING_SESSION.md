@@ -38,6 +38,16 @@ Results: `runs\pure-v4\supervisor\forever.json` (stop reason and sessions),
 explained variance, KL, clip fraction and the action mix per head),
 `runs\pure-v4\seed-<seed>\checkpoints` (5 newest plus every 200th rollout; ~52 MB each).
 
+`episodes.csv` also has `last_room_clear` (0/1, clear flag of the room the episode ended in)
+and the `stall_*` columns. They are filled only for episodes truncated by the stall watchdog,
+from the last snapshot before the restart, and are empty for deaths. They show why an agent
+stalled: room clear flag, type and shape; alive enemies (observed and oracle counts);
+invulnerable, flying and boss enemies; the `type.variant` kinds present (`stall_enemy_kinds`,
+sorted, `;` separated); the distance in px to the nearest enemy; open doors and open doors into
+unexplored rooms; half hearts; and `stall_seconds_in_room` (game updates since the last room
+change or the episode start, divided by 30). Metrics only, never policy inputs.
+An older `episodes.csv` header is rewritten once with the full header; old rows get empty cells.
+
 Timing columns in `train.csv`: `rollout_seconds` is the wall time of the rollout and
 `update_seconds` the pause before it (optimizer, checkpoint, idle). For live runs
 `game_wait_seconds` is the time spent waiting for game snapshots and `command_seconds`
@@ -52,9 +62,11 @@ The dashboard shows the three shares of the rollout time.
 input, presses Esc through the guarded game keyboard and waits up to 3 s for a `paused`
 snapshot at each rollout end. At the next rollout start it presses Esc again and waits for
 `active`. The game therefore stands still during the optimizer update and checkpoint. The game
-window must stay in the foreground. Failures never stop the session: `update_pause_skipped`
-and `update_resume_failed` events in `events.jsonl` give the reason, and the `train.csv`
-columns `pause_seconds` and `pause_ok` (1 or 0) show each update. Many `pause_ok` 0 rows mean
+window must stay in the foreground. A working pause writes an `update_paused` event with its
+seconds; failures never stop the session: `update_pause_skipped` and `update_resume_failed`
+events in `events.jsonl` give the reason, and the `train.csv` columns `pause_seconds` and
+`pause_ok` (1 or 0) show each update. `Observer perf` windows also show a pause: game updates
+per 10 s drop from about 300 while the game is paused. Many `pause_ok` 0 rows mean
 the keyboard path is not working; check focus first.
 
 The game side is measured by the observer: while streaming it writes an `Observer perf`

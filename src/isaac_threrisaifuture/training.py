@@ -506,6 +506,8 @@ def train(
     finally:
         if pause_callback is not None:
             pause_callback.release()  # never leave the game paused behind a failed update
+        if metrics_callback is not None:
+            metrics_callback.flush()  # the last row waited for that resume
         venv.close()
     return TrainingResult(seed, reason, done, parent_id, time.monotonic() - started)
 

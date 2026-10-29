@@ -29,3 +29,10 @@ remains unchecked: all 15 pause_ok/pause_seconds cells are empty; required pause
 success cannot be verified. Snapshot size, update latency and positive door/minimap/
 enemy identity samples were observed, but continuation was not accepted. No fix/retry.
 See [final qualification report](../../../reports/2026-10-31-pure-v9-schema8-training.md).
+
+Review (2026-10-29): the pauses worked; only their metrics were lost. train() calls learn()
+once per rollout, so the metrics row was written at learn() end, before the resume that
+carries the pause result. The game log shows it: `Observer perf` windows drop from ~300 game
+updates per 10 s to 51-140 (or two windows of ~190) about every 3.7 min, about 14 times, with one
+recorded foreground refusal. Fixed: the row waits for the resume (`waiting`), train() flushes it
+after the final resume, and a working pause records `update_paused` with its seconds. Rerun 2.2.

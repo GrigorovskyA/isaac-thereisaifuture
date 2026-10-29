@@ -640,6 +640,13 @@ class LiveBackend:
             return 0.0
         return min(max(self.watchdog.idle_seconds / self.watchdog.stall_seconds, 0.0), 1.0)
 
+    def oracle_enemy_count(self) -> int | None:
+        """Oracle enemies of the last snapshot, overflow included (metrics only)."""
+        current = self._current
+        if current is None or current.oracle is None:
+            return None
+        return len(current.oracle.enemies) + current.oracle.enemy_overflow
+
     @property
     def stall_idle_seconds(self) -> float:
         """Idle seconds on the stall watchdog's clock; 0 without one."""
