@@ -8,13 +8,16 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 - Pure self-learning since 2026-10-22 ([decision](UPDATE_DECISION.md)). RecurrentPPO
   learns from raw facts and outcome rewards, plus one potential-based door term since
   reward v9: no scripted setup, advice features or technique rewards. Archive content is history, not runtime authority.
-- Schema 8 is committed and deployed, but native qualification is blocked before training.
+- Schema 8 native one-hour qualification is running after explicit user authorization
+  for New Run on file 2 and one repeat. Fresh selected-slot/New evidence was verified,
+  the game closed normally, then the training launcher verified Continue on file 2.
   Contract `b26db425...`, input projection 512, n_steps 1024, paused updates configured.
-  Two automatic startup sessions could not confirm a file-2 Continue; the game log reports
-  no `rep+gamestate2.dat`. No checkpoint or training metrics were produced. Both sessions
-  exited 1 and required worker termination; actual processes/listener/approval are now absent.
-  `runs/pure-v4/supervisor/stop.forever` remains; no continuation is running or scheduled.
-  [Startup blocker and verified gates](../reports/2026-10-29-schema8-startup-blocked.md).
+  Hour: October 29, 11:39:41 to 12:39:41 CET; timer-owned stop.forever ends it for review.
+  First sample: 272 steps, 1200 snapshots, maximum 5960 bytes, no decode errors/rejections.
+  Pause/update/API coverage remains pending; no native acceptance or continuation yet.
+  [Authorized repeat plan](../reports/2026-10-29-schema8-authorized-repeat.md).
+  Previous failed startup root is preserved in `runs/pure-v4-schema8-startup-failed-20261029`.
+  [Original startup blocker](../reports/2026-10-29-schema8-startup-blocked.md).
 - Last trained native lineage: `runs/pure-v4-reward-v9-schema7`, observation schema 7, reward contract `pure-v9`.
   One-hour qualification ended cleanly October 28 at 19:33 CET, checkpoint t13824.
   Measured geometry/door checks passed. User stopped continuation October 29 at 10:36 CET
@@ -146,10 +149,10 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Next
 
-1. Schema 8 native hour is blocked by the missing file-2 Continue. Preserve the stopped
-   failed startup root and archived schema 7 t204800. An explicitly agreed New Run entry
-   is needed before another bounded qualification; no fallback, further manual retry or continuation was started.
-   Native pause/API/overflow/rate checks and both changes' task 2.2 remain open.
+1. Review the authorized schema 8 hour after its stop at 12:39 CET. Require clean exit
+   and cleanup, pause_ok >=90%, update median <12 s, snapshot/API/cap/rate checks.
+   If qualified, resume without initialization until October 31, 09:00 CET (08:00 UTC).
+   Otherwise keep stopped and report, without fixes or further retries.
 2. Schema 7 training is complete and archived with stop.forever and verified checkpoint hashes.
    Schema 6 remains separately stopped in `runs/pure-v4-reward-v9-schema6`.
 3. The ent_coef=0.01 trial ended at t588288 on October 28 at the user's request.

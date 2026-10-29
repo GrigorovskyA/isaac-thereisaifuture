@@ -3,11 +3,11 @@
 `python -m isaac_threrisaifuture.session_runner` supervises native Windows training.
 The pre-refactor finite-session guide is in `archive/docs/TRAINING_SESSION.pre-pure.md`.
 
-Current native qualification is stopped: schema 8 could not enter file-2 Continue
-on 2026-10-29. No training checkpoint was created. See the
-[startup report](../reports/2026-10-29-schema8-startup-blocked.md).
-`--initialize` creates a fresh model; it does not authorize or select a menu New Run
-when Continue is absent. Keep the stop marker until the entry prerequisite is resolved.
+Schema 8 qualification was restarted on 2026-10-29 after the user explicitly
+approved a guarded file-2 New Run and one repeated hour. The prior failed startup
+is preserved separately. See the [repeat plan](../reports/2026-10-29-schema8-authorized-repeat.md).
+`--initialize` creates a fresh model; it does not select a menu New Run when Continue
+is absent. The hour stops for evidence review before any conditional continuation.
 
 ## Forever mode
 
