@@ -3,12 +3,14 @@
 `python -m isaac_threrisaifuture.session_runner` supervises native Windows training.
 The pre-refactor finite-session guide is in `archive/docs/TRAINING_SESSION.pre-pure.md`.
 
-The pause/stall verification resume fromt15360 on2026-10-29 stopped early at15:25CET,
-checkpointt16384: measured pause_ok0/1 after a foreground refusal. Legacy rows were
-preserved and new stall/death contexts were populated correctly in the short sample.
-Training remains stopped, stop.forever retained; conditional continuation not launched.
-See the [early qualification report](../reports/2026-10-31-schema8-pause-stall-training.md).
-No further focus/pause repair or retry was performed.
+The current finite run resumes t16384 at sourcefde8b1f. The user superseded the
+previous first-pause failure stop: measure the entire October29 hour, keep pause
+if its success share is >=70%, otherwise disable only live.pause_during_updates
+before continuing without initialization until October31 at09:00 CET. Pause failures
+alone never stop this run; training faults do. During training monitor files only,
+without opening or activating any PC windows. See the
+[finite focus plan](../reports/2026-10-29-full-hour-focus-plan.md).
+Earlier pause/stall failures remain in their dated reports and do not authorize retries.
 
 ## Forever mode
 
