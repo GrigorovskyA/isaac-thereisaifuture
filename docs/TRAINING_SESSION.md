@@ -3,13 +3,12 @@
 `python -m isaac_threrisaifuture.session_runner` supervises native Windows training.
 The pre-refactor finite-session guide is in `archive/docs/TRAINING_SESSION.pre-pure.md`.
 
-Schema 8's authorized repeated hour ended on 2026-10-29 at 12:39 CET with clean
-shutdown but missing pause telemetry in every train row. Training remains stopped
-at t15360, stop.forever retained; conditional continuation was not launched.
-See the [qualification report](../reports/2026-10-31-pure-v9-schema8-training.md).
-`--initialize` creates a fresh model; it does not select a menu New Run when Continue
-is absent. The user-approved New Run preparation and earlier failed startups remain
-recorded in the [repeat plan](../reports/2026-10-29-schema8-authorized-repeat.md).
+The pause/stall verification resume fromt15360 on2026-10-29 stopped early at15:25CET,
+checkpointt16384: measured pause_ok0/1 after a foreground refusal. Legacy rows were
+preserved and new stall/death contexts were populated correctly in the short sample.
+Training remains stopped, stop.forever retained; conditional continuation not launched.
+See the [early qualification report](../reports/2026-10-31-schema8-pause-stall-training.md).
+No further focus/pause repair or retry was performed.
 
 ## Forever mode
 

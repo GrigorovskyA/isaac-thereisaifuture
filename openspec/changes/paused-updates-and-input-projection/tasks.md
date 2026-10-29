@@ -36,3 +36,10 @@ carries the pause result. The game log shows it: `Observer perf` windows drop fr
 updates per 10 s to 51-140 (or two windows of ~190) about every 3.7 min, about 14 times, with one
 recorded foreground refusal. Fixed: the row waits for the resume (`waiting`), train() flushes it
 after the final resume, and a working pause records `update_paused` with its seconds. Rerun 2.2.
+
+Windows follow-up (2026-10-29): Check1427 includingLua/no skips and strict specs25/25
+passed at bc5e985. Authorized no-initialize resume fromt15360 stopped early att16384:
+pause_ok0/1, foreground refusal; startup also had a faulted automatic attempt.
+All60 old episode/15 train rows preserved; new6 stall/1 death contexts were valid
+in the available sample. Task2.2 remains unchecked: full-hour acceptance not reached.
+No fix or retry. [Report](../../../reports/2026-10-31-schema8-pause-stall-training.md).

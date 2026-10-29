@@ -8,16 +8,17 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 - Pure self-learning since 2026-10-22 ([decision](UPDATE_DECISION.md)). RecurrentPPO
   learns from raw facts and outcome rewards, plus one potential-based door term since
   reward v9: no scripted setup, advice features or technique rewards. Archive content is history, not runtime authority.
-- Schema 8 pause/stall qualification is running from `b26db425-s1-t15360`, without
-  initialization, at source `bc5e985`. Windows Check1427/Lua/no skips, strict specs25/25.
-  Contract b26db425 unchanged; observer unchanged and deployed hashes matched.
-  October 29 hour: 15:18:11 to 16:18:11 CET; timer stops for review. Continue file2 verified.
-  Baseline 60 episode/15 train rows and parent checkpoint were copied before launch;
-  the header upgrade preserved all old-column values. First new stall context is populated.
-  Pause success and hour acceptance are pending. No conditional continuation yet.
-  [Resume plan and offline verification](../reports/2026-10-29-pause-stall-resume-plan.md).
-  Earlier missing-telemetry hour remains historical in the
-  [failed qualification report](../reports/2026-10-31-pure-v9-schema8-training.md).
+- Resumed schema8 pause/stall qualification stopped early October29 at15:25:52 CET:
+  first measured pause_ok0/1 (0%), pause_seconds0; foreground guard refused input.
+  Final checkpoint `b26db425-s1-t16384`, no initialization; source `bc5e985`.
+  Initial automatic startup also faulted on focus (exit1, worker termination required);
+  second attempt stopped cleanly (exit0, fault null, cleanup[]). All processes/listener/
+  owned approval now absent; stop.forever retained. No fix/retry/continuation after review.
+  All60 old episode and15 train rows preserved; new6 stall/1 death contexts verified
+  in this bounded sample. Update median unavailable: only one new train row.
+  [Early failure and stall report](../reports/2026-10-31-schema8-pause-stall-training.md)
+  (actual date October29; planned October31 continuation never launched).
+  [Resume plan](../reports/2026-10-29-pause-stall-resume-plan.md).
 - Previous trained native lineage: `runs/pure-v4-reward-v9-schema7`, observation schema 7, reward contract `pure-v9`.
   One-hour qualification ended cleanly October 28 at 19:33 CET, checkpoint t13824.
   Measured geometry/door checks passed. User stopped continuation October 29 at 10:36 CET
@@ -149,10 +150,9 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Next
 
-1. Review the resumed hour after 16:18 CET. Require new-row pause_ok >=90%, filled
-   pause durations, update_paused event coverage, update median <12 s, stall-context
-   semantics and legacy row preservation. If passed, continue without initialization
-   until October 31 at 09:00 CET (08:00 UTC); otherwise stop/report without fixes.
+1. Keep schema8 stopped at t16384. Pause_ok0/1 failed the user threshold90%; native
+   tasks2.2 remain open. No automatic focus/pause fix or new run. Further work needs
+   a new user instruction; the finite monitor has been removed.
 2. Schema 7 training is complete and archived with stop.forever and verified checkpoint hashes.
    Schema 6 remains separately stopped in `runs/pure-v4-reward-v9-schema6`.
 3. The ent_coef=0.01 trial ended at t588288 on October 28 at the user's request.
