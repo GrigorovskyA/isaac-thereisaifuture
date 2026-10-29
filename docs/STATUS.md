@@ -15,9 +15,12 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
   stop.forever retained at review. All67 prior episode/16 train rows preserved;
   68 new episodes (48 stalls,20 nonstalls) passed context checks. 15583 completed steps.
   [Full-hour qualification](../reports/2026-10-29-focus-hour-qualification.md).
-  Pause stays enabled. No-initialize continuation fromt31744 launched October29
-  at16:49:44 CET, fixed stop October31 at09:00 CET/08:00 UTC; file-only monitoring
-  never opens/activates windows. Session session-20261029-164944-0001 is training.
+  User stopped continuation October29 at16:52:46 CET; final checkpoint remains t31744.
+  No new optimizer update completed after continuation start16:49:44 CET. Actual
+  game/worker/owner/listener/approval are absent; stop.forever remains, monitor deleted.
+  Learner exit0/faultnull; cleanup integrity error records changed training_metrics.py.
+  Uncommitted source/test edits are preserved, not included in the report commit.
+  [Final early-stop report](../reports/2026-10-31-schema8-focus-training.md).
   Contract b26db425 and observer unchanged. Check1428/Lua/no skips; strict specs25/25.
   [Finite plan](../reports/2026-10-29-full-hour-focus-plan.md).
 - Previous trained native lineage: `runs/pure-v4-reward-v9-schema7`, observation schema 7, reward contract `pure-v9`.
@@ -151,10 +154,9 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Next
 
-1. Continue from qualified t31744 without initialization to October31 at09:00 CET,
-   pause enabled. Stop on training failure, deadline or explicit user stop, not pause
-   failure alone. Final report: ~30k-step windows, schema7 comparison, stall context,
-   and overnight pause share. No task2.3 gameplay acceptance from training metrics.
+1. Keep schema8 stopped at t31744 following the user's early stop. No recurring monitor
+   remains. Review the uncommitted source/test work separately before any new run;
+   the completed native pause/stall hour remains accepted in its measured scope.
 2. Schema 7 training is complete and archived with stop.forever and verified checkpoint hashes.
    Schema 6 remains separately stopped in `runs/pure-v4-reward-v9-schema6`.
 3. The ent_coef=0.01 trial ended at t588288 on October 28 at the user's request.
