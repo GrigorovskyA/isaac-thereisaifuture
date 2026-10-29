@@ -1,6 +1,7 @@
 """Behavioral menu evidence/ownership tests; no real window or input."""
 
 import ctypes
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
@@ -236,7 +237,7 @@ def test_run_marker_during_hold_releases_immediately(clock):
     assert clock.value == 0
 
 
-def test_windows_foreground_refusal_has_no_sendinput(monkeypatch, clock):
+def test_windows_foreground_refusal_sends_no_menu_key(monkeypatch, clock):
     adapter = WindowsMenu.__new__(WindowsMenu)
     adapter.window = (123, 456)
     adapter.user = Mock()
@@ -248,9 +249,44 @@ def test_windows_foreground_refusal_has_no_sendinput(monkeypatch, clock):
     from isaac_threrisaifuture import windows_menu
 
     monkeypatch.setattr(windows_menu, "time", clock)
-    with pytest.raises(menu.MenuEntryError, match="no input"):
+    adapter._identity = Mock(return_value=(Path("C:/apps/agent.exe"), 1.0))
+    with pytest.raises(menu.MenuEntryError, match=r"foreground: agent\.exe\); no input"):
         adapter.press("Enter", lambda: False)
-    adapter.user.SendInput.assert_not_called()
+    # Only Alt taps (focus unlock) were sent between the attempts; never the menu key.
+    scans = [call.args[1]._obj.value.key.scan for call in adapter.user.SendInput.call_args_list]
+    assert scans == [windows_menu.ALT_SCAN] * 2 * (windows_menu.FOCUS_ATTEMPTS - 1)
+    assert adapter.user.SetForegroundWindow.call_count == windows_menu.FOCUS_ATTEMPTS
+
+
+def test_windows_focus_is_taken_after_an_alt_tap(monkeypatch, clock):
+    adapter = WindowsMenu.__new__(WindowsMenu)
+    adapter.window = (123, 456)
+    adapter.user = Mock()
+    focused = {"hwnd": 789}
+    adapter.user.GetForegroundWindow.side_effect = lambda: focused["hwnd"]
+    adapter.user.GetWindowThreadProcessId.side_effect = lambda _, ptr: setattr(
+        ptr._obj, "value", 456
+    )
+    sent: list[tuple[int, int]] = []
+
+    def send_input(_count, ptr, _size):
+        key = ptr._obj.value.key
+        sent.append((key.scan, key.flags))
+        return 1
+
+    adapter.user.SendInput.side_effect = send_input
+    # The second SetForegroundWindow (after the Alt tap) succeeds.
+    adapter.user.SetForegroundWindow.side_effect = lambda hwnd: focused.update(
+        hwnd=hwnd if sent else 789
+    )
+    monkeypatch.setattr(adapter, "ready", lambda: True)
+    from isaac_threrisaifuture import windows_menu
+
+    monkeypatch.setattr(windows_menu, "time", clock)
+    monkeypatch.setattr(menu, "time", clock)
+    adapter.press("Escape", lambda: False)
+    assert sent[:2] == [(windows_menu.ALT_SCAN, 8), (windows_menu.ALT_SCAN, 10)]
+    assert sent[2:] == [(0x01, 8), (0x01, 10)]  # then the Esc press and release
 
 
 @pytest.mark.parametrize("fault", ["old", "path", "multiple", "changed"])

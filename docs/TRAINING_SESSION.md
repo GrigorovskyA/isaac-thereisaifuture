@@ -61,7 +61,8 @@ The dashboard shows the three shares of the rollout time.
 input, presses Esc through the guarded game keyboard and waits up to 3 s for a `paused`
 snapshot at each rollout end. At the next rollout start it presses Esc again and waits for
 `active`. The game therefore stands still during the optimizer update and checkpoint. The game
-window must stay in the foreground. A working pause writes an `update_paused` event with its
+window should stay in the foreground; if another window holds the focus, the keyboard taps Alt
+and asks Windows again (up to three tries), and a refusal names the window that kept it. A working pause writes an `update_paused` event with its
 seconds; failures never stop the session: `update_pause_skipped` and `update_resume_failed`
 events in `events.jsonl` give the reason, and the `train.csv` columns `pause_seconds` and
 `pause_ok` (1 or 0) show each update. `Observer perf` windows also show a pause: game updates

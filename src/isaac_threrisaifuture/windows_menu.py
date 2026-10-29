@@ -9,6 +9,9 @@ from typing import Any
 
 from .menu_entry import MenuEntryError, held_key
 
+FOCUS_ATTEMPTS = 3
+ALT_SCAN = 0x38
+
 
 class _Mouse(ctypes.Structure):
     _fields_ = [
@@ -144,13 +147,26 @@ class WindowsMenu:
             raise MenuEntryError("Owned Isaac window is not ready")
         hwnd, pid = self.window
         self.user.ShowWindow(hwnd, 9)
-        self.user.SetForegroundWindow(hwnd)
-        time.sleep(0.2)
 
         def foreground() -> bool:
             actual = wintypes.DWORD()
             self.user.GetWindowThreadProcessId(hwnd, ctypes.byref(actual))
             return bool(self.user.GetForegroundWindow() == hwnd and actual.value == pid)
+
+        for attempt in range(FOCUS_ATTEMPTS):
+            if attempt:
+                # Windows refuses SetForegroundWindow to a process without recent input, such as
+                # the windowless training worker. An Alt tap makes this process the last input
+                # source, so the next request is allowed. No menu key is sent before focus.
+                self._tap(ALT_SCAN)
+            self.user.SetForegroundWindow(hwnd)
+            time.sleep(0.2)
+            if foreground():
+                break
+        else:
+            raise MenuEntryError(
+                f"Isaac is not foreground (foreground: {self._foreground_name()}); no input sent"
+            )
 
         def send(release: bool) -> None:
             scan, extended = codes[key]
@@ -162,3 +178,19 @@ class WindowsMenu:
                 )
 
         held_key(send, foreground, stop)
+
+    def _tap(self, scan: int) -> None:
+        """Press and release one scan code (focus unlock only, never a game key)."""
+        for flags in (8, 8 | 2):
+            event = _Input(type=1, value=_Union(key=_Key(scan=scan, flags=flags)))
+            self.user.SendInput(1, ctypes.byref(event), ctypes.sizeof(_Input))
+
+    def _foreground_name(self) -> str:
+        """Executable name of the window that holds the focus, for the refusal reason."""
+        try:
+            pid = wintypes.DWORD()
+            self.user.GetWindowThreadProcessId(self.user.GetForegroundWindow(), ctypes.byref(pid))
+            identity = self._identity(pid.value)
+            return identity[0].name if identity is not None else "unknown"
+        except Exception:
+            return "unknown"
