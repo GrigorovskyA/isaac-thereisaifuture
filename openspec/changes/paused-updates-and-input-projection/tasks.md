@@ -17,3 +17,9 @@
 - [x] 2.1 Offline gate: `scripts/check.sh` and strict OpenSpec validation (macOS).
 - [ ] 2.2 Native one hour on Windows: `update_seconds` median below 12 s, `pause_ok` share
   above 90%, no fault from pausing, steps per hour not below the schema-7 run.
+
+Windows follow-up (2026-10-29): Check passed (1422 tests including Lua, no skips),
+strict OpenSpec 24/24, synthetic CPU smoke passed. Observer deployment hashes matched;
+schema 7 was archived. Native startup failed before training because file-2 Continue
+was unavailable. Task 2.2 remains unchecked; no native acceptance is claimed.
+See [bounded startup report](../../../reports/2026-10-29-schema8-startup-blocked.md).

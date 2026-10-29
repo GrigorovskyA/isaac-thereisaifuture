@@ -31,3 +31,9 @@
 - [ ] 2.3 Acceptance: the first 8 h session against `runs/pure-v4-reward-v9-schema7` at equal steps
   (`rooms_visited` mean, `max_stage`, boss-room visits), then the frozen evaluation against
   `random-prior` with the per-1k criterion.
+
+Windows follow-up (2026-10-29): Check passed (1422 tests including Lua, no skips),
+strict OpenSpec 24/24, synthetic CPU smoke passed. Observer deployment hashes matched;
+schema 7 was archived. Native startup failed before training because file-2 Continue
+was unavailable. Task 2.2 remains unchecked; no native acceptance is claimed.
+See [bounded startup report](../../../reports/2026-10-29-schema8-startup-blocked.md).

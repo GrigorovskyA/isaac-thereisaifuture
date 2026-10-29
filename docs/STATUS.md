@@ -8,11 +8,14 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 - Pure self-learning since 2026-10-22 ([decision](UPDATE_DECISION.md)). RecurrentPPO
   learns from raw facts and outcome rewards, plus one potential-based door term since
   reward v9: no scripted setup, advice features or technique rewards. Archive content is history, not runtime authority.
-- Next lineage (offline only, not deployed): observation schema 8, reward v9 unchanged,
-  input projection 512, n_steps 1024, game paused during updates; contract
-  `b26db425...`. It restarts with `--initialize` after an observer redeploy; the schema 7 run
-  is to be preserved as `runs/pure-v4-reward-v9-schema7`.
-- Last native lineage: `pure-v4`, observation schema 7, reward contract `pure-v9`.
+- Schema 8 is committed and deployed, but native qualification is blocked before training.
+  Contract `b26db425...`, input projection 512, n_steps 1024, paused updates configured.
+  Two automatic startup sessions could not confirm a file-2 Continue; the game log reports
+  no `rep+gamestate2.dat`. No checkpoint or training metrics were produced. Both sessions
+  exited 1 and required worker termination; actual processes/listener/approval are now absent.
+  `runs/pure-v4/supervisor/stop.forever` remains; no continuation is running or scheduled.
+  [Startup blocker and verified gates](../reports/2026-10-29-schema8-startup-blocked.md).
+- Last trained native lineage: `runs/pure-v4-reward-v9-schema7`, observation schema 7, reward contract `pure-v9`.
   One-hour qualification ended cleanly October 28 at 19:33 CET, checkpoint t13824.
   Measured geometry/door checks passed. User stopped continuation October 29 at 10:36 CET
   at `3cb9d928-s1-t204800`; stop.forever remains, all processes/listener/approval cleared.
@@ -93,9 +96,10 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
   room this run, counted from the room corner (60, 140) (3863 floats). Oracle `doors` (slot, position, open, unexplored) is reward-only.
 - `configs/training-pure-v4.yaml`: gamma 0.998, gae_lambda 0.98, ent_coef 0.005, seed 1;
   contract hash
-  `3cb9d928e397ec26587bb72d89864ecd1dae04094404c36fb60fa282a9749310`
-  (schema 6 hour: `82b1b53e...`, reward v8: `fb22b342...`, reward v7: `d62dc21b...`, reward v6: `ed954e0a...`).
-  Observation 7/action 2/reward contract pure-v9 must match. Earlier contracts refused.
+  `b26db425729a40fa632b66a3967cf403f708bc10f89edb13500e09cd4e47b4de`
+  (archived schema 7: `3cb9d928...`, schema 6 hour: `82b1b53e...`, reward v8: `fb22b342...`, reward v7: `d62dc21b...`, reward v6: `ed954e0a...`).
+  Observation 8 (9762 floats)/action 2/reward contract pure-v9 must match; features_dim 512,
+  n_steps 1024, batch_size 256. Earlier contracts refused.
 - Supervisor: `Start-Pure.cmd`, `runs/pure-v4`, unlimited death/stall New Runs,
   five consecutive faults maximum, disk cap 20,480,000,000 bytes; session lease
   28740 seconds. A timer-owned stop.forever bounds the authorized continuation.
@@ -126,11 +130,11 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Verification
 
-- Current Windows gate: 1325 tests passed with Lua, no skips; mypy 31 files,
-  lint/format/pip clean, strict OpenSpec 22/22. Synthetic CPU smoke passed:
-  16 steps, 3863 inputs, [5,5,4] actions. Synthetic smoke is not gameplay evidence.
-- Closed-game deployment hashes matched source and user-provided values:
-  Lua d73e2c97d6368389543985074e4ab497c469e943c299b28786e86525dff4fd11,
+- Current Windows gate: 1422 tests passed with Lua, no skips; mypy passed,
+  lint/format/pip clean, strict OpenSpec 24/24. Synthetic CPU smoke passed:
+  16 steps, 9762 inputs, [5,5,4] actions. Synthetic smoke is not gameplay evidence.
+- Closed-game deployment hashes matched source:
+  Lua 41b78262d4e8a80634a6d9ce0a04e343195601b2dbcf061fdeca46aac4e58985,
   metadata 00f46cc452c2a4e7809c14501d94de2db1ac94b1dde12b3c25d163922f34b997.
 - Native narrow shape 3 and L shape 12 exported no wall; rocks/bomb rocks retained.
   Fire observed; both nonlethal damage and kills reset stall clock. Full-HP kill
@@ -142,17 +146,12 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Next
 
-1. Windows: Check.ps1; redeploy observer `main.lua` and `metadata.xml`; rename `runs\pure-v4`
-   to `runs\pure-v4-reward-v9-schema7`; one-hour `--initialize` with the schema 8 and pause
-   checks; then continuous training compared with the schema 7 run at equal steps. Schema 7
-   reached kills_1k 10.2, clears_1k 1.36, 94% start-room exits and 2.17 rooms per episode
-   at 180-205k steps; update pauses had a 25 s median with the game running.
-2. V9 schema 6 hour stopped cleanly at 17:23 CET on October 28. Its 1x1 cells were
-   floor(world / 40), so 27.9% of samples fell outside the 13x7 tile region. Fixed in schema 7
-   (tiles from the room corner; novelty cells too). That lineage is preserved under
-   `runs/pure-v4-reward-v9-schema6` with stop.forever and verified checkpoint hashes.
-   Schema 7 qualification is running; require <=about 1% outside 13x7, at doorways only.
-   Lua was not redeployed; preflight hashes matched. No automatic retry or fix if blocked.
+1. Schema 8 native hour is blocked by the missing file-2 Continue. Preserve the stopped
+   failed startup root and archived schema 7 t204800. An explicitly agreed New Run entry
+   is needed before another bounded qualification; no fallback, further manual retry or continuation was started.
+   Native pause/API/overflow/rate checks and both changes' task 2.2 remain open.
+2. Schema 7 training is complete and archived with stop.forever and verified checkpoint hashes.
+   Schema 6 remains separately stopped in `runs/pure-v4-reward-v9-schema6`.
 3. The ent_coef=0.01 trial ended at t588288 on October 28 at the user's request.
    Both legs exited 0 with empty cleanup errors and no fault. stop.forever remains;
    recurring monitoring was deleted and the October 29 deadline is superseded.
