@@ -1,9 +1,10 @@
 """Per-update training statistics: one row per optimizer cycle in `metrics/train.csv`.
 
 SB3 logs the train statistics at the end of `train()` and clears them at the next dump,
-which comes after the next rollout is collected. So the values are read at the start of
-the next rollout (or at the end of training), and pair with the actions captured at the
-end of the rollout that was just optimized. A write failure is logged once and never
+which comes after the next rollout is collected; each `learn()` call also starts a new
+logger. So the values are read at the end of training (or at the start of the next rollout
+within one `learn()`), and pair with the actions captured at the end of the rollout that
+was just optimized. A write failure is logged once and never
 stops training.
 """
 
@@ -144,6 +145,12 @@ class TrainMetricsCallback(BaseCallback):
     def _on_training_end(self) -> None:
         # train() calls learn() once per rollout, so a learn() ends while the game is still
         # paused; that row waits for the resume and is written at the next rollout start.
+        # Each learn() configures a new SB3 logger, so the train statistics are read now.
+        if self._pending is not None:
+            try:
+                self._read_stats(self._pending)
+            except Exception as error:
+                self._fail(error)
         if self._pause is not None and self._pause.waiting:
             return
         self._flush()
@@ -157,10 +164,8 @@ class TrainMetricsCallback(BaseCallback):
         if row is None:
             return
         try:
-            logged = self.model.logger.name_to_value
-            for name in STATS:
-                value = logged.get(f"train/{name}")
-                row[name] = None if value is None else float(value)
+            if "n_updates" not in row:
+                self._read_stats(row)
             if self._pause is not None and self._pause.last is not None:
                 row["pause_seconds"] = self._pause.last.seconds
                 row["pause_ok"] = int(self._pause.last.ok)
@@ -170,6 +175,12 @@ class TrainMetricsCallback(BaseCallback):
             self._index += 1
         except Exception as error:
             self._fail(error)
+
+    def _read_stats(self, row: dict[str, Any]) -> None:
+        logged = self.model.logger.name_to_value
+        for name in STATS:
+            value = logged.get(f"train/{name}")
+            row[name] = None if value is None else float(value)
 
     def _upgrade(self, rows: list[list[str]]) -> None:
         """Rewrite an old-header file with the full header; old rows get empty new cells."""

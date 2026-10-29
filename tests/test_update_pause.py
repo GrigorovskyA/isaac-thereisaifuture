@@ -201,12 +201,14 @@ def test_columns_are_filled_when_each_rollout_is_its_own_learn_call(tmp_path: Pa
     metrics = TrainMetricsCallback(tmp_path / "train.csv", pause=pause_callback)
     for callback in (pause_callback, metrics):
         callback.model = Model(game)  # type: ignore[assignment]
-    for _ in range(3):
+    for update in range(3):
+        metrics.model.logger = types.SimpleNamespace(name_to_value={})  # learn() sets a new logger
         for callback in (pause_callback, metrics):
             callback._on_rollout_start()
         for callback in (pause_callback, metrics):
             callback._on_rollout_end()
         assert game.status == "paused"
+        metrics.model.logger.name_to_value.update({"train/n_updates": update, "train/loss": 0.5})
         for callback in (pause_callback, metrics):
             callback._on_training_end()  # learn() returns; the update and checkpoint ran paused
     pause_callback.release()  # train() finally: resume, then write the last row
@@ -214,6 +216,8 @@ def test_columns_are_filled_when_each_rollout_is_its_own_learn_call(tmp_path: Pa
     assert game.status == "active"
     rows = list(csv.DictReader((tmp_path / "train.csv").open(encoding="utf-8")))
     assert [(r["pause_seconds"], r["pause_ok"]) for r in rows] == [("2.0", "1")] * 3
+    stats = [(r["n_updates"], r["loss"]) for r in rows]
+    assert stats == [("0.0", "0.5"), ("1.0", "0.5"), ("2.0", "0.5")]
     assert [name for name, _ in events].count("update_paused") == 3
 
 
