@@ -1,6 +1,6 @@
 # Project status
 
-Updated 2026-10-28 (Europe/Amsterdam). Current state only; dated evidence is history.
+Updated 2026-10-29 (Europe/Amsterdam). Current state only; dated evidence is history.
 The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Direction
@@ -10,7 +10,10 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
   reward v9: no scripted setup, advice features or technique rewards. Archive content is history, not runtime authority.
 - Current lineage: `pure-v4`, observation schema 7, reward contract `pure-v9`.
   One-hour qualification ended cleanly October 28 at 19:33 CET, checkpoint t13824.
-  Measured geometry/door checks passed; qualified continuation ends October 30 at 09:00 CET.
+  Measured geometry/door checks passed. User stopped continuation October 29 at 10:36 CET
+  at `3cb9d928-s1-t204800`; stop.forever remains, all processes/listener/approval cleared.
+  One recovered command timeout remains in the final fault field; learner exit 0, cleanup empty.
+  [Final report](../reports/2026-10-30-pure-v9-schema7-training.md).
   [Schema 7 qualification](../reports/2026-10-28-pure-v9-schema7-qualification.md).
   The schema 6 qualification hour (`82b1b53e-s1-t13824`) found
   that its visited-cell grid cut every tile in half; schema 7 counts tiles from the room corner
