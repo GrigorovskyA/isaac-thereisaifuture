@@ -11,7 +11,7 @@ Append `entity_observation_v1` to the existing required capabilities. A missing
 capability fails before any snapshot; there is no silent fallback. Only a peer
 that requests this capability receives the extra `entity_frame` key in each
 snapshot. Default clients receive no extra fields and trigger no entity scans.
-Both modes retain UTF-8 newline JSON, loopback TCP, 32768-byte wire records (49152 bytes since schema 5),
+Both modes retain UTF-8 newline JSON, loopback TCP, 32768-byte wire records (49152 bytes since schema 5, 131072 since schema 6),
 nonblocking bounded Lua I/O and the existing 200 ms sampling cadence.
 
 Available snapshots carry an EntityFrame; unavailable snapshots carry null.
@@ -56,7 +56,7 @@ an API read failure produces unavailable state with null entity_frame, never a
 successful partial scan. Native per-kind capacities are 12 enemies, 20
 projectiles, 12 obstacles and 4 pickups (48 total); select nearest first with
 opaque ID ties. Offsets/velocity round to 0.001 game units. Oversized encoded
-messages close the peer under the 32768-byte limit (49152 since schema 5).
+messages close the peer under the byte limit (131072 since frame schema 6).
 
 Schema 5 (current) adds to the frame: `obstacle_class` on every obstacle (rock, marked
 rock, bomb rock, block, pit, spikes, poop, TNT, fire, wall, other; fireplaces are `fire`
@@ -68,9 +68,37 @@ the frame): up to 8 entries, one per existing door slot, each with `slot` 0..7, 
 position of the slot), `open` and `unexplored` (the room behind the door has `VisitedCount` 0;
 false when the target cannot be read). The observer needs no new capability: the block is part of
 `live_loop_v1` and a Python peer rejects a snapshot without `doors`, so redeploy the mod with the
-code. Messages may reach 49152 bytes (a snapshot with eight doors measured 31 KB in the Lua
-worst-case test). The wire frame stays at schema 5; the encoded policy vector is observation
-schema 7 (3863 floats, the visited-cells block is built in Python, see `docs/RL_DESIGN.md`).
+code. Messages may reach 131072 bytes (the Lua worst case with every kind past its cap, eight
+locked doors and 64 map rooms measured 80 KB; with the live oracle block 84 KB).
+
+Frame schema 6 (current, observation schema 8, 9762 floats, see `docs/RL_DESIGN.md`):
+- Caps per kind, nearest first: enemy 32, projectile 64, obstacle 64, pickup 24, own attack 48,
+  bomb 8, interactable 16 (`entity_caps` in `main.lua` = `ENTITY_CAPS`; a test compares them).
+- New obstacle classes `trapdoor`, `crawlspace`, `pressure_plate`, `lock_block`, `teleporter`
+  (GridEntityType names GRID_TRAPDOOR, GRID_STAIRS, GRID_PRESSURE_PLATE, GRID_LOCK,
+  GRID_TELEPORTER). Trapdoor, crawlspace, pressure plate and teleporter have no collision, so the
+  collision filter that drops broken rocks skips them; the outer border ring is still skipped.
+- New kind `interactable` with `interactable_class`: ENTITY_SLOT grouped by variant (slot
+  machine, donation machine and greed donation machine: `slot_machine`; beggar, devil beggar,
+  shell game, key master, bomb bum, battery bum, hell game, rotten beggar: `beggar`;
+  `blood_donation`; `fortune_teller`; `restock_box`; `crane`; any other slot: `other_slot`) and
+  the effect EffectVariant.HEAVEN_LIGHT_DOOR as `heaven_door`. SlotVariant names are used when
+  the enum exists, the Repentance numbers otherwise.
+- `room.doors` is 8 entries, each `null` (no visible door) or `{open, locked, target_type,
+  target_visited}`: `door:IsOpen()`, `door:IsLocked()`, `door.TargetRoomType` (null when
+  unreadable) and `VisitedCount > 0` of the target room descriptor. A closed door to a secret,
+  super secret or ultra secret room is a hidden wall and reads `null`. An unreadable door reads
+  `null`, an unreadable lock false, an unreadable target not visited.
+- Enemies carry seven identity facts, all or none (they are omitted on other kinds):
+  `npc_type` (EntityType, 0..1000), `npc_variant` (Variant, 0..4095), `npc_max_hp` (MaxHitPoints,
+  0..1e6; the current HP stays unknown), and the flags `boss` (`IsBoss()`), `champion`
+  (`ToNPC():IsChampion()`), `flying` (GridCollisionClass is COLLISION_NONE or COLLISION_WALL) and
+  `invulnerable` (`IsVulnerableEnemy()` is false or `IsInvincible()` is true). Every call is
+  wrapped; a missing method reads false, a missing number 0. The encoder hashes (type, variant)
+  with `((type * 4096 + variant) * 2654435761 mod 2^32) >> 26` into 64 buckets (the top bits;
+  never Python's `hash()`), so the policy learns each kind from experience.
+- The map entries are unchanged (raw `room_type`); the encoder groups types into classes.
+Redeploy the mod with the code: Python refuses frames of schema 5.
 
 The Python encoder retains schema-1 capacities 16/32/24/8 and outputs 649 float32
 values. Presence and optional-field masks distinguish missing objects from

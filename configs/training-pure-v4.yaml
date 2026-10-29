@@ -22,6 +22,17 @@
 # Observation schema 7 (2026-10-29) replaces schema 6 after its one-hour native check: the
 # visited-cell grid now counts 40 px tiles from the room corner (60, 140), 26 x 14 cells, so a
 # 1x1 room is exactly 13 x 7; schema 6 cut every tile in half. The schema 6 hour is not resumed.
+# Observation schema 8 (openspec change rich-room-observation-v8) restarts the lineage with reward
+# v9 unchanged: after about 200k steps the agent left the start room but visited only 2.2 rooms
+# per episode and never reached floor 2. The policy now sees door types, locks and what lies
+# behind each door, grouped room types on the minimap, the trapdoor and other floor features,
+# slot machines and beggars, and larger entity caps. The reward v9 schema 7 run is kept as
+# runs/pure-v4-reward-v9-schema7; its checkpoints are refused (new contract hash).
+# Policy shape change (openspec change paused-updates-and-input-projection): a shared
+# Linear(obs, 512) + ReLU in front of the actor and critic LSTMs restarts the lineage (new
+# contract hash). With observation 7522 one optimizer update took 55 s on CPU; the projection
+# cuts it to about 7 s. n_steps 1024 and batch_size 256 give fewer, cheaper updates, and the
+# game is paused while each update runs. The schema 8 reward v9 run is not resumed.
 # Only `contract` binds the lineage; `hyperparameters` may be tuned between sessions
 # and are recorded per checkpoint.
 config_version: 2
@@ -31,8 +42,10 @@ contract:
   device: cpu
   seed: 1
   lstm_hidden_size: 256
+  # Linear + ReLU width in front of the LSTMs, shared by actor and critic.
+  features_dim: 512
   action_repeat_game_updates: 6
-  observation_schema_version: 7
+  observation_schema_version: 8
   action_schema_version: 2
   reward_version: 9
   # Initial P(no use press) of the use head, set at fresh model creation only.
@@ -50,9 +63,14 @@ hyperparameters:
   # and did not help: stalls went 60% -> 70% and kills per 1000 steps 6.7 -> 5.4. Before that
   # 0.01 was too high for the fresh use head, which drifted from its prior toward uniform.
   ent_coef: 0.005
-  n_steps: 512
-  batch_size: 128
+  # 1024 (was 512) and 256 (was 128): fewer, cheaper updates, about one per 4 minutes of play.
+  n_steps: 1024
+  batch_size: 256
   n_epochs: 4
+live:
+  # Press Esc around each optimizer update so the game does not run while the learner is busy.
+  # Best effort: a failed pause is recorded and training goes on.
+  pause_during_updates: true
 budget:
   # Per session; the forever supervisor runs sessions back to back.
   wall_time_minutes: 480
@@ -60,8 +78,8 @@ budget:
   max_consecutive_faults: 5
 retention:
   keep_latest: 5
-  # Periodic checkpoints in addition to the newest five, ~52 MB each: every 100 rollouts
-  # is about every 3.4 h, ~0.4 GB a day. The checkpoint before each hyperparameter
+  # Periodic checkpoints in addition to the newest five, ~65 MB each: every 100 rollouts
+  # (102k steps) is about every 7 h, ~0.25 GB a day. The checkpoint before each hyperparameter
   # change is pinned in checkpoints/pinned.txt and never pruned.
   keep_every: 100
 watchdog:

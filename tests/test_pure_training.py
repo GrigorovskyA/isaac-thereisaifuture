@@ -51,6 +51,7 @@ def write_config(path: Path, **changes: dict[str, Any]) -> Path:
     """Tiny pure profile; `changes` update whole sections by key."""
     raw = yaml.safe_load(yaml.safe_dump(RAW))
     raw["contract"]["lstm_hidden_size"] = 16
+    raw["contract"]["features_dim"] = 24
     raw["hyperparameters"].update(n_steps=32, batch_size=32, n_epochs=1)
     for section, values in changes.items():
         raw[section].update(values)
@@ -104,13 +105,15 @@ def test_pure_v4_config_pins_the_new_contract_and_refuses_older_lineages(tmp_pat
     config, digest = load_training_config(SHIPPED_PURE_CONFIG)
     assert SHIPPED_PURE_CONFIG.name == "training-pure-v4.yaml" and config.status == "pure_v4"
     contract = config.contract
-    assert contract.observation_schema_version == OBSERVATION_SCHEMA_VERSION == 7
+    assert contract.observation_schema_version == OBSERVATION_SCHEMA_VERSION == 8
     assert contract.reward_version == 9 and contract.action_repeat_game_updates == 6
     assert contract.use_head_initial_none_probability == 0.85
     assert config.retention.keep_every == 100
     for name in ("training-pure-v1.yaml", "training-pure-v2.yaml", "training-pure-v3.yaml"):
         old = ARCHIVED / name  # older schemas and rewards are refused by this code
-        with pytest.raises(TrainingConfigError, match="use_head|reward version|schema"):
+        with pytest.raises(
+            TrainingConfigError, match="features_dim|use_head|reward version|schema"
+        ):
             load_training_config(old)
         assert config_hash(yaml.safe_load(old.read_text("utf-8"))["contract"]) != digest
     stale_contracts = (
@@ -119,6 +122,8 @@ def test_pure_v4_config_pins_the_new_contract_and_refuses_older_lineages(tmp_pat
         {"reward_version": 6},
         {"reward_version": 5},
         {"reward_version": 4},
+        {"observation_schema_version": 7},
+        {"observation_schema_version": 6},
         {"observation_schema_version": 5},
         {"observation_schema_version": 4},
     )
@@ -162,6 +167,64 @@ def test_use_head_prior_sets_only_the_use_head_probabilities():
     assert np.allclose(move, 0.2, atol=0.02) and np.allclose(shoot, 0.2, atol=0.02)
     assert torch.equal(reference.policy.action_net.weight[:10], fresh.policy.action_net.weight[:10])
     assert torch.equal(reference.policy.action_net.bias[:10], fresh.policy.action_net.bias[:10])
+
+
+def test_use_head_prior_holds_with_the_input_projection():
+    import numpy as np
+    from sb3_contrib import RecurrentPPO
+    from stable_baselines3.common.vec_env import DummyVecEnv
+
+    from isaac_threrisaifuture.policy import policy_kwargs
+
+    model = RecurrentPPO(
+        "MlpLstmPolicy", DummyVecEnv([synthetic_env]), policy_kwargs=policy_kwargs(16, 24), seed=3
+    )
+    apply_use_head_prior(model, 0.85)
+    obs = np.random.default_rng(0).normal(size=(8, OBSERVATION_SIZE)).astype(np.float32)
+    assert np.allclose(_head_probabilities(model, obs)[2], [0.85, 0.05, 0.05, 0.05], atol=1e-3)
+
+
+def test_fresh_model_has_the_shared_input_projection_and_resume_refuses_another_width(tmp_path):
+    from isaac_threrisaifuture.policy import InputProjection
+
+    out = tmp_path / "run"
+    run(write_config(tmp_path / "one.yaml"), out, 32)
+    model, _, _ = load_latest(out)
+    policy = model.policy
+    assert isinstance(policy.features_extractor, InputProjection)
+    assert policy.features_extractor.features_dim == 24
+    assert policy.features_extractor.net[0].in_features == OBSERVATION_SIZE
+    assert policy.share_features_extractor and policy.lstm_actor.input_size == 24
+    assert policy.lstm_critic is not None and policy.lstm_critic.input_size == 24
+    assert policy.lstm_actor.hidden_size == 16
+    wider = write_config(tmp_path / "wide.yaml", contract={"features_dim": 32})
+    config, digest = load_training_config(wider)
+    with pytest.raises(CheckpointError, match="different training configuration"):
+        train(config, digest, seed=1, env_factory=synthetic_env, out_dir=out, resume=True,
+              reward_contract="pure-v9")  # fmt: skip
+    model_after, _, _ = load_latest(out)
+    assert model_after.policy.features_extractor.features_dim == 24  # nothing was written
+
+
+def test_features_dim_binds_the_lineage_but_the_live_section_does_not(tmp_path):
+    base = load_training_config(write_config(tmp_path / "a.yaml"))[1]
+    wider = load_training_config(write_config(tmp_path / "b.yaml", contract={"features_dim": 32}))[
+        1
+    ]
+    quiet = write_config(tmp_path / "c.yaml", live={"pause_during_updates": False})
+    assert wider != base and load_training_config(quiet)[1] == base
+    with pytest.raises(TrainingConfigError):
+        load_training_config(write_config(tmp_path / "d.yaml", contract={"features_dim": 0}))
+    with pytest.raises(TrainingConfigError):
+        load_training_config(write_config(tmp_path / "e.yaml", live={"pause_during_updates": 1}))
+
+
+def test_shipped_config_projects_to_512_and_pauses_updates_with_longer_rollouts():
+    config, _ = load_training_config(SHIPPED_PURE_CONFIG)
+    assert config.features_dim == 512 and config.lstm_hidden_size == 256
+    assert config.hyperparameters.n_steps == 1024 and config.hyperparameters.batch_size == 256
+    assert config.hyperparameters.n_epochs == 4 and config.hyperparameters.ent_coef == 0.005
+    assert config.live.pause_during_updates is True
 
 
 def test_use_head_prior_applies_to_a_fresh_model_and_never_on_resume(tmp_path, monkeypatch):
@@ -558,6 +621,34 @@ def test_live_train_wires_watchdog_fault_cap_and_metrics(tmp_path, monkeypatch):
     assert manifest.hyperparameters is not None and manifest.reward_contract == "pure-v9"
 
 
+@pytest.mark.parametrize("enabled", [True, False])
+def test_live_train_builds_the_update_pause_only_when_configured(tmp_path, monkeypatch, enabled):
+    from isaac_threrisaifuture.update_pause import UpdatePause
+
+    seen: dict[str, Any] = {}
+    original = training.train
+
+    def spy(*args: Any, **kwargs: Any) -> Any:
+        seen["pause"] = kwargs["update_pause"]
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(live, "make_live_env", lambda _c, **kwargs: synthetic_env())
+    monkeypatch.setattr(training, "train", spy)
+    keyboard = types.SimpleNamespace(ready=lambda: True, press=lambda key, stop: None)
+    config = write_config(tmp_path / "pure.yaml", live={"pause_during_updates": enabled})
+    options = live.LiveRunOptions(
+        mode="train", out_dir=tmp_path / "out", steps=32, minutes=5, config_path=config,
+        keyboard=keyboard,  # type: ignore[arg-type]
+    )  # fmt: skip
+    live._train_run(None, options, lambda *_: None, lambda _: None)  # type: ignore[arg-type]
+    if enabled:
+        assert isinstance(seen["pause"], UpdatePause) and seen["pause"].keyboard is keyboard
+    else:
+        assert seen["pause"] is None
+    rows = list(csv.DictReader((tmp_path / "out/metrics/train.csv").open(encoding="utf-8")))
+    assert rows and (rows[0]["pause_ok"] == "") is True  # the synthetic backend cannot pause
+
+
 # --- forever supervisor ----------------------------------------------------------------------
 
 
@@ -754,12 +845,14 @@ def test_train_csv_bridge_timing_columns_come_from_backend_counters_when_present
     assert row["game_wait_seconds"] == row["command_seconds"] == row["snapshots_per_step"] == ""
 
 
-def test_train_csv_with_the_old_header_is_upgraded_to_the_new_columns(tmp_path):
-    from isaac_threrisaifuture.training_metrics import LEGACY_FIELDS
+@pytest.mark.parametrize("generation", [0, 1])
+def test_train_csv_with_an_old_header_is_upgraded_to_the_new_columns(tmp_path, generation):
+    from isaac_threrisaifuture.training_metrics import LEGACY_HEADERS
 
+    fields = LEGACY_HEADERS[generation]  # 0: before bridge timing, 1: before pause columns
     path = tmp_path / "train.csv"
-    old_row = ["2026-10-24T00:00:00+00:00", "512", "0", "100.0"] + [""] * (len(LEGACY_FIELDS) - 4)
-    path.write_text(",".join(LEGACY_FIELDS) + "\n" + ",".join(old_row) + "\n", "utf-8")
+    old_row = ["2026-10-24T00:00:00+00:00", "512", "0", "100.0"] + [""] * (len(fields) - 4)
+    path.write_text(",".join(fields) + "\n" + ",".join(old_row) + "\n", "utf-8")
     callback = TrainMetricsCallback(path, clock=iter([0.0, 1.0]).__next__)
     callback.model = types.SimpleNamespace(  # type: ignore[assignment]
         num_timesteps=4,
@@ -772,5 +865,6 @@ def test_train_csv_with_the_old_header_is_upgraded_to_the_new_columns(tmp_path):
     rows = list(csv.DictReader(path.open(encoding="utf-8")))
     assert list(rows[0]) == list(TRAIN_FIELDS) and len(rows) == 2
     assert rows[0]["rollout_seconds"] == "100.0" and rows[0]["game_wait_seconds"] == ""
+    assert rows[0]["pause_seconds"] == rows[0]["pause_ok"] == ""
     assert rows[1]["rollout_seconds"] == "1.0" and rows[1]["rollout_index"] == "1"
     assert not (tmp_path / "train.csv.upgrade").exists()

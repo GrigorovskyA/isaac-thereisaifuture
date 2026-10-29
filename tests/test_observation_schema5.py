@@ -7,18 +7,20 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 from pydantic import ValidationError
-from synthetic import SESSION, frame, oracle_metrics, room_facts
+from synthetic import SESSION, door, frame, oracle_metrics, room_facts
 from test_entity_transport import entity_snapshot
 
 from isaac_threrisaifuture.encoding import (
     CAPACITY,
     COLLECTIBLE_OFFSET,
+    DOOR_FEATURES,
     ENEMY_OFFSET,
     GRID_WIDTH,
     MAP_CHANNELS,
     MAP_OFFSET,
     OBSERVATION_SIZE,
     OFF_GRID_OFFSET,
+    ROOM_CLASSES,
     ROOM_FEATURES,
     ROOM_OFFSET,
     ROOM_TYPES,
@@ -31,6 +33,7 @@ from isaac_threrisaifuture.encoding import (
     encode,
 )
 from isaac_threrisaifuture.entities import (
+    ENTITY_CAPS,
     FRAME_SCHEMA_VERSION,
     MAX_ENTITIES,
     MAX_MAP_ROOMS,
@@ -50,7 +53,7 @@ from isaac_threrisaifuture.sim import SyntheticRoomBackend
 from isaac_threrisaifuture.stall_watchdog import StallWatchdog
 
 # Entity blocks follow in the order enemy, projectile, obstacle, pickup.
-OBSTACLE_OFFSET = ENEMY_OFFSET + SLOT_FEATURES * (CAPACITY["enemy"] + CAPACITY["projectile"])
+OBSTACLE_OFFSET = ENEMY_OFFSET + sum(CAPACITY[k] * SLOT_WIDTH[k] for k in ("enemy", "projectile"))
 
 
 def wire(item: EntityFrame) -> dict[str, Any]:
@@ -58,7 +61,7 @@ def wire(item: EntityFrame) -> dict[str, Any]:
 
 
 def decoded(payload: dict[str, Any]) -> EntityFrame:
-    return decode(json.dumps(payload).encode(), EntityFrame, 65536)
+    return decode(json.dumps(payload).encode(), EntityFrame, 131072)
 
 
 def obstacle(entity_id: int, x: float, y: float, cls: str | None = "rock") -> Entity:
@@ -78,7 +81,7 @@ def room(grid_index, shape=1, *, visited=False, current=False, room_type=None) -
 
 
 def cells(vector: np.ndarray) -> dict[tuple[int, int], list[float]]:
-    """Non-empty minimap cells by (row, column) with their seven channels."""
+    """Non-empty minimap cells by (row, column) with their channels."""
     block = vector[MAP_OFFSET:OFF_GRID_OFFSET].reshape(GRID_WIDTH * GRID_WIDTH, MAP_CHANNELS)
     return {
         divmod(i, GRID_WIDTH): [float(v) for v in row] for i, row in enumerate(block) if row.any()
@@ -90,16 +93,17 @@ def cells(vector: np.ndarray) -> dict[tuple[int, int], list[float]]:
 
 def test_layout_is_pinned_to_its_computed_value():
     assert (
-        FRAME_SCHEMA_VERSION == 5
-        and EntityFrame.model_fields["observation_schema_version"].default == 5
-        and OBSERVATION_SCHEMA_VERSION == 7  # schemas 6-7 add the visited-cells block, not wire
+        FRAME_SCHEMA_VERSION == 6
+        and EntityFrame.model_fields["observation_schema_version"].default == 6
+        and OBSERVATION_SCHEMA_VERSION == 8
     )
-    assert len(OBSTACLE_CLASSES) == 11 and SLOT_WIDTH["obstacle"] == SLOT_FEATURES + 11
-    assert CAPACITY["obstacle"] == 24 and MAX_ENTITIES == 84
-    assert ROOM_FEATURES == ROOM_TYPES + 3 + 8 + 12
-    assert MAP_OFFSET + 169 * 7 == OFF_GRID_OFFSET and STALL_OFFSET == OFF_GRID_OFFSET + 1
+    assert len(OBSTACLE_CLASSES) == 16 and SLOT_WIDTH["obstacle"] == SLOT_FEATURES + 16
+    assert CAPACITY["obstacle"] == 64 and MAX_ENTITIES == 256
+    assert ROOM_FEATURES == ROOM_TYPES + 3 + 8 * DOOR_FEATURES + 12
+    assert MAP_OFFSET + 169 * MAP_CHANNELS == OFF_GRID_OFFSET
+    assert STALL_OFFSET == OFF_GRID_OFFSET + 1 and MAP_CHANNELS == 3 + len(ROOM_CLASSES)
     assert VISITED_OFFSET == STALL_OFFSET + 1
-    assert OBSERVATION_SIZE == VISITED_OFFSET + VISITED_COLS * VISITED_ROWS == 3863
+    assert OBSERVATION_SIZE == VISITED_OFFSET + VISITED_COLS * VISITED_ROWS == 9762
     assert encode(frame()).vector.shape == (OBSERVATION_SIZE,)
     assert COLLECTIBLE_OFFSET > ROOM_OFFSET + ROOM_FEATURES
 
@@ -170,10 +174,10 @@ def test_room_shape_one_hot_comes_after_the_existing_room_features():
     for shape in (1, 8, 12):
         vector = encode(frame(room=room_facts(shape=shape))).vector
         block = vector[ROOM_OFFSET : ROOM_OFFSET + ROOM_FEATURES]
-        shape_part = block[ROOM_TYPES + 3 + 8 :]
+        shape_part = block[ROOM_TYPES + 3 + 8 * DOOR_FEATURES :]
         assert len(shape_part) == 12 and shape_part.sum() == 1.0
         assert shape_part[shape - 1] == 1.0
-        assert block[ROOM_TYPES + 3 + 8 - 1] == 0.0  # the last door slot is untouched
+        assert not block[ROOM_TYPES + 3 : ROOM_TYPES + 3 + 8 * DOOR_FEATURES].any()  # no doors
 
 
 def test_map_cells_for_each_shape_and_dropped_overflow():
@@ -196,7 +200,7 @@ def test_map_cells_for_each_shape_and_dropped_overflow():
         vector = encode(frame(map=[room(anchor, shape, visited=True, current=True)])).vector
         found = cells(vector)
         assert sorted(found) == sorted(expected), shape
-        assert all(row[:3] == [1.0, 1.0, 1.0] and not any(row[3:]) for row in found.values())
+        assert all(row == [1.0, 1.0, 1.0] + [0.0] * len(ROOM_CLASSES) for row in found.values())
 
 
 def test_cells_beyond_the_grid_are_dropped_not_wrapped():
@@ -210,7 +214,11 @@ def test_cells_beyond_the_grid_are_dropped_not_wrapped():
     assert sorted(cells(encode(frame(map=[room(bottom, 8)])).vector)) == [(12, 3), (12, 4)]
 
 
-def test_special_room_channels_and_unknown_type():
+def test_room_class_channels_and_unknown_type():
+    def row(*hot: str, visited=False, current=False) -> list[float]:
+        classes = [1.0 if name in hot else 0.0 for name in ROOM_CLASSES]
+        return [1.0, float(visited), float(current), *classes]
+
     rooms = [
         room(10, visited=True, room_type=1),
         room(11, room_type=5),
@@ -219,16 +227,22 @@ def test_special_room_channels_and_unknown_type():
         room(14, room_type=7),
         room(15, visited=True, current=True, room_type=None),
         room(16, room_type=0),
+        room(17, room_type=29),
+        room(18, room_type=14),
+        room(19, room_type=17),
+        room(20, room_type=24),
     ]
     found = cells(encode(frame(map=rooms)).vector)
-    by_index = {r * 13 + c: row for (r, c), row in found.items()}
-    assert by_index[10] == [1, 1, 0, 0, 0, 0, 0]  # default room: no special channel
-    assert by_index[11] == [1, 0, 0, 1, 0, 0, 0]  # boss
-    assert by_index[12] == [1, 0, 0, 0, 1, 0, 0]  # treasure
-    assert by_index[13] == [1, 0, 0, 0, 0, 1, 0]  # shop
-    assert by_index[14] == [1, 0, 0, 0, 0, 0, 1]  # other special
-    assert by_index[15] == [1, 1, 1, 0, 0, 0, 0]  # type hidden: only known/visited/current
-    assert by_index[16] == [1, 0, 0, 0, 0, 0, 1]  # a non-default type shows as special
+    by_index = {r * 13 + c: values for (r, c), values in found.items()}
+    assert by_index[10] == row("normal", visited=True)
+    assert by_index[11] == row("boss")
+    assert by_index[12] == row("treasure")
+    assert by_index[13] == row("shop")
+    assert by_index[14] == by_index[17] == row("secret")  # secret and ultra secret
+    assert by_index[15] == row(visited=True, current=True)  # type hidden: no class channel
+    assert by_index[16] == row("special")  # an unlisted type is "special"
+    assert by_index[18] == row("devil_angel") and by_index[19] == row("challenge")
+    assert by_index[20] == row("special")  # planetarium
 
 
 def test_off_grid_flag_and_stall_clock_precede_the_visited_block():
@@ -309,8 +323,19 @@ def test_oracle_metrics_are_required_and_never_in_the_frame():
 # --- message size ----------------------------------------------------------------------
 
 
+ENEMY_FACT_NAMES = (
+    "npc_type",
+    "npc_variant",
+    "npc_max_hp",
+    "boss",
+    "champion",
+    "flying",
+    "invulnerable",
+)
+
+
 def test_worst_case_snapshot_fits_the_message_limit():
-    caps = {"enemy": 12, "projectile": 20, "obstacle": 24, "pickup": 8, "own_attack": 16, "bomb": 4}
+    caps = dict(ENTITY_CAPS)
     assert sum(caps.values()) == MAX_ENTITIES
     items: list[Entity] = []
     for kind, count in caps.items():
@@ -326,10 +351,22 @@ def test_worst_case_snapshot_fits_the_message_limit():
             )
             if kind == "pickup":
                 fields.update(variant=1023, subtype=1024, price=-1000)
+            if kind == "enemy":
+                fields.update(
+                    npc_type=1000,
+                    npc_variant=4095,
+                    npc_max_hp=999999.999,
+                    boss=True,
+                    champion=True,
+                    flying=True,
+                    invulnerable=True,
+                )
             if kind == "bomb":
                 fields.update(age_frames=10000)
             if kind == "obstacle":
-                fields.update(obstacle_class="marked_rock")
+                fields.update(obstacle_class="pressure_plate")
+            if kind == "interactable":
+                fields.update(interactable_class="blood_donation")
             items.append(Entity(**fields))
     big = frame(
         items,
@@ -337,11 +374,19 @@ def test_worst_case_snapshot_fits_the_message_limit():
         collectible_overflow=768,
         source_overflow={k: 2**53 - 1 for k in caps},
         map=[room(i, 12, visited=True, current=i == 0, room_type=31) for i in range(64)],
-        room=room_facts(shape=12, doors=[True] * 8),
+        room=room_facts(
+            shape=12,
+            doors=[door(target_type=31, visited=True, locked=True)] * 8,
+        ),
     )
     raw = entity_snapshot(SESSION, 1)
     raw["entity_frame"] = wire(big)
     raw["entity_frame"]["session_id"] = SESSION
+    # The observer sends the enemy identity facts on enemies only and omits them elsewhere.
+    for item in raw["entity_frame"]["entities"]:
+        if item["kind"] != "enemy":
+            for name in ENEMY_FACT_NAMES:
+                del item[name]
     raw["oracle"] = {
         "room_clear": True,
         "player_dead": False,
@@ -365,7 +410,8 @@ def test_worst_case_snapshot_fits_the_message_limit():
     message = json.dumps(raw, separators=(",", ":")).encode() + b"\n"
     # Pydantic would validate the whole thing only if the outer snapshot agrees with it;
     # the size is what is pinned here, so also check that the frame itself decodes.
-    assert decoded(raw["entity_frame"]) == big
+    compact = json.dumps(raw["entity_frame"], separators=(",", ":")).encode()
+    assert decode(compact, EntityFrame, MAX_MESSAGE_BYTES) == big
     margin = MAX_MESSAGE_BYTES - len(message)
-    print(f"worst-case message: {len(message)} bytes, margin {margin}")
-    assert margin >= 4096
+    print(f"worst-case python message: {len(message)} bytes, margin {margin}")
+    assert margin >= 16384

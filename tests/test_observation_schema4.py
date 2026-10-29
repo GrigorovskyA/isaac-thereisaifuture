@@ -12,6 +12,7 @@ from isaac_threrisaifuture.encoding import (
     CAPACITY,
     COLLECTIBLE_OFFSET,
     EXTRA_OFFSET,
+    MAP_OFFSET,
     OBSERVATION_SIZE,
     SLOT_FEATURES,
     SLOT_WIDTH,
@@ -36,7 +37,7 @@ def wire(item: EntityFrame) -> dict[str, Any]:
 
 
 def decoded(payload: dict[str, Any]) -> EntityFrame:
-    return decode(json.dumps(payload).encode(), EntityFrame, 65536)
+    return decode(json.dumps(payload).encode(), EntityFrame, 131072)
 
 
 def own(entity_id: int, x: float, y: float) -> Entity:
@@ -57,14 +58,13 @@ def bomb(entity_id: int, x: float, y: float, age: int) -> Entity:
 
 def test_layout_size_is_pinned():
     assert len(TEAR_FLAG_NAMES) == 16 and len(WEAPON_NAMES) == 15
-    assert CAPACITY["own_attack"] == 16 and CAPACITY["bomb"] == 4
+    assert CAPACITY["own_attack"] == 48 and CAPACITY["bomb"] == 8
     assert SLOT_WIDTH["own_attack"] == 8 and SLOT_WIDTH["bomb"] == 9
     assert STATS_OFFSET == COLLECTIBLE_OFFSET + 1024
     assert (TEAR_FLAG_OFFSET, WEAPON_OFFSET) == (STATS_OFFSET + 6, STATS_OFFSET + 22)
     assert EXTRA_OFFSET == STATS_OFFSET + 37
-    # The base vector (schema 5) plus stats, flags, weapons and the extra blocks; the
-    # minimap and stall clock follow (tests/test_observation_schema5.py).
-    assert EXTRA_OFFSET + 16 * 8 + 4 * 9 == 2113 + 6 + 16 + 15 + 16 * 8 + 4 * 9
+    # The minimap and stall clock follow the extra blocks (tests/test_observation_schema5.py).
+    assert MAP_OFFSET == EXTRA_OFFSET + 48 * 8 + 8 * 9 + 16 * SLOT_WIDTH["interactable"]
 
 
 def test_round_trip_and_vector_shape():
@@ -137,15 +137,15 @@ def test_bomb_age_increases_in_the_vector_and_clips_after_the_scale():
 
 
 def test_caps_keep_the_nearest_and_count_overflow():
-    attacks = [own(i, 10.0 * (20 - i), 0) for i in range(20)]
-    bombs = [bomb(100 + i, 10.0 * (6 - i), 0, i) for i in range(6)]
+    attacks = [own(i, 10.0 * (60 - i), 0) for i in range(60)]
+    bombs = [bomb(100 + i, 10.0 * (12 - i), 0, i) for i in range(12)]
     result = encode(frame(attacks + bombs, source_overflow={"bomb": 1}))
-    assert result.overflow == {"own_attack": 4, "bomb": 3}
+    assert result.overflow == {"own_attack": 12, "bomb": 5}
     first = result.vector[EXTRA_OFFSET + 1]
     assert first == pytest.approx(0.010)  # nearest own attack at x=10
-    bomb_base = EXTRA_OFFSET + 16 * 8
+    bomb_base = EXTRA_OFFSET + 48 * 8
     nearest_bomb_age = result.vector[bomb_base + SLOT_FEATURES]
-    assert nearest_bomb_age == pytest.approx(5 / BOMB_AGE_SCALE)
+    assert nearest_bomb_age == pytest.approx(11 / BOMB_AGE_SCALE)
 
 
 def test_own_attacks_and_enemy_shots_use_separate_blocks():
@@ -245,4 +245,4 @@ def test_schema_3_frames_are_refused():
 def test_a_full_message_fits_the_wire_limit():
     from isaac_threrisaifuture.observation import MAX_MESSAGE_BYTES
 
-    assert MAX_MESSAGE_BYTES == 49152
+    assert MAX_MESSAGE_BYTES == 131072

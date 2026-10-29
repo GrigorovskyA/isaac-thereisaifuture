@@ -3,6 +3,7 @@
 from isaac_threrisaifuture.entities import (
     TEAR_FLAG_NAMES,
     WEAPON_NAMES,
+    DoorFacts,
     Entity,
     EntityFrame,
     Inventory,
@@ -52,9 +53,15 @@ def oracle_metrics(**hits: int) -> dict[str, object]:
     return {"kills": 0, "killed": [], "player_hits": sources, "doors": []}
 
 
+def door(
+    *, open: bool = True, locked: bool = False, target_type: int | None = 1, visited: bool = False
+) -> DoorFacts:
+    return DoorFacts(open=open, locked=locked, target_type=target_type, target_visited=visited)
+
+
 def room_facts(**changes: object) -> RoomFacts:
     values: dict[str, object] = dict(
-        type=1, stage=1, stage_type=0, clear=False, doors=[False] * 8, shape=1
+        type=1, stage=1, stage_type=0, clear=False, doors=[None] * 8, shape=1
     )
     values.update(changes)
     return RoomFacts(**values)

@@ -434,7 +434,7 @@ def test_worst_case_live_snapshot_with_eight_doors_fits_the_wire_limit():
     assert snap.oracle is not None and len(snap.oracle.doors) == 8
     sizes = [len(line.encode()) for line in records(lua, "snapshot")]
     print("worst-case live snapshot bytes (with eight doors):", max(sizes))
-    assert max(sizes) < 49152 and not lua.globals().CLOSED
+    assert max(sizes) < 131072 - 16384 and not lua.globals().CLOSED
 
 
 def test_live_use_press_triggers_once_and_releases(live):
@@ -461,10 +461,10 @@ def test_worst_case_live_snapshot_with_oracle_fits_the_wire_limit():
     snap = live_snapshots(lua)[-1]
     assert snap.oracle is not None and len(snap.oracle.enemies) == 64
     assert len(snap.entity_frame.collectibles) == 256
-    assert len(snap.entity_frame.entities) == 84  # every kind at its cap, incl. 16 own, 4 bombs
+    assert len(snap.entity_frame.entities) == 256  # every kind at its cap
     sizes = [len(line.encode()) for line in records(lua, "snapshot")]
     print("worst-case live snapshot bytes:", max(sizes))
-    assert max(sizes) < 49152 and not lua.globals().CLOSED
+    assert max(sizes) < 131072 - 16384 and not lua.globals().CLOSED
 
 
 METRIC_STUBS = """
@@ -628,4 +628,4 @@ def test_worst_case_oracle_metrics_fit_the_wire_limit():
     assert snap.oracle is not None and len(snap.entity_frame.map) == 64
     sizes = [len(line.encode()) for line in records(lua, "snapshot")]
     print("worst-case live snapshot bytes (with map, hits):", max(sizes))
-    assert max(sizes) < 49152 and not lua.globals().CLOSED
+    assert max(sizes) < 131072 - 16384 and not lua.globals().CLOSED

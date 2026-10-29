@@ -1,7 +1,9 @@
 -- Default read-only observer; opt-in lifecycle and explicitly authorized native actions.
 local mod = RegisterMod("Isaac Future Observer", 1)
 local Config = {
-    host = "127.0.0.1", port = 9528, max_bytes = 49152, hello_bytes = 16384, io_bytes = 4096,
+    host = "127.0.0.1", port = 9528, max_bytes = 131072, hello_bytes = 16384, io_bytes = 4096,
+    -- Bytes sent per pump; a full-cap snapshot (schema 6 frames up to ~80 KB) leaves in a few frames.
+    send_bytes = 32768,
     timeout_ms = 3000, retry_ms = 1000, sample_ms = 200,
     -- Operator-supplied metadata is optional; never pretend it is runtime detection.
     game_version = nil, steam_build = nil,
@@ -33,7 +35,11 @@ local diagnostic = nil
 
 -- Opt-in read-only entity export; these tables never contain oracle/reward data.
 local entities = { requested = false, ids = {}, next_id = 0 }
-local entity_caps = { enemy=12, projectile=20, obstacle=24, pickup=8, own_attack=16, bomb=4 }
+-- Caps per kind, nearest first. Same values as ENTITY_CAPS in entities.py (a test compares them).
+local entity_caps = { enemy=32, projectile=64, obstacle=64, pickup=24, own_attack=48, bomb=8,
+    interactable=16 }
+local entity_kinds = { "enemy", "projectile", "obstacle", "pickup", "own_attack", "bomb",
+    "interactable" }
 -- Held collectibles change rarely, so the scan is cached and refreshed on a short cadence.
 local collectible_cap, collectible_max_id, collectible_period = 256, 1024, 30
 -- Oracle metrics: cumulative per game epoch, reset on game start. Never policy input.
@@ -52,11 +58,53 @@ local OBSTACLE_NAMES = {
     GRID_ROCK_GOLD="rock", GRID_ROCKT="marked_rock", GRID_ROCK_SS="marked_rock",
     GRID_ROCK_BOMB="bomb_rock", GRID_ROCKB="block", GRID_PIT="pit", GRID_SPIKES="spikes",
     GRID_SPIKES_ONOFF="spikes", GRID_POOP="poop", GRID_TNT="tnt",
+    GRID_TRAPDOOR="trapdoor", GRID_STAIRS="crawlspace", GRID_PRESSURE_PLATE="pressure_plate",
+    GRID_LOCK="lock_block", GRID_TELEPORTER="teleporter",
 }
+-- Floor features have no collision, so the collision filter that drops broken rocks skips them.
+local FLOOR_CLASSES = { trapdoor=true, crawlspace=true, pressure_plate=true, teleporter=true }
+-- Slot machine variants by SlotVariant name, with the Repentance number used when the enum or
+-- the name is missing. Variants not listed here are "other_slot".
+local SLOT_GROUPS = {
+    { "SLOT_MACHINE", 1, "slot_machine" }, { "BLOOD_DONATION", 2, "blood_donation" },
+    { "FORTUNE_TELLING", 3, "fortune_teller" }, { "BEGGAR", 4, "beggar" },
+    { "DEVIL_BEGGAR", 5, "beggar" }, { "SHELL_GAME", 6, "beggar" },
+    { "KEY_MASTER", 7, "beggar" }, { "DONATION_MACHINE", 8, "slot_machine" },
+    { "BOMB_BUM", 9, "beggar" }, { "RESTOCK_MACHINE", 10, "restock_box" },
+    { "GREED_DONATION_MACHINE", 11, "slot_machine" }, { "BATTERY_BUM", 13, "beggar" },
+    { "HELL_GAME", 15, "beggar" }, { "CRANE_GAME", 16, "crane" },
+    { "ROTTEN_BEGGAR", 18, "beggar" },
+}
+local HEAVEN_DOOR_VARIANT = 39  -- EffectVariant.HEAVEN_LIGHT_DOOR
+local slot_class_cache = nil
 -- GRID_WALL is never exported: wall cells are room boundaries, and narrow or L-shaped
 -- rooms put them inside the rectangular grid. The room shape already describes them.
 local MAX_MAP_ROOMS = 64
 local collectible_cache = { dirty = true, frame = nil, ids = {}, overflow = 0 }
+
+-- Slot variant number to interactable class, built once from the enum when it exists.
+local function slot_classes()
+    if slot_class_cache then return slot_class_cache end
+    local map = {}
+    for _, group in ipairs(SLOT_GROUPS) do
+        local named = type(SlotVariant) == "table" and SlotVariant[group[1]] or nil
+        map[type(named) == "number" and named or group[2]] = group[3]
+    end
+    slot_class_cache = map
+    return map
+end
+
+local function interactable_class(entity)
+    if EntityType.ENTITY_SLOT ~= nil and entity.Type == EntityType.ENTITY_SLOT then
+        return slot_classes()[entity.Variant] or "other_slot"
+    end
+    if EntityType.ENTITY_EFFECT ~= nil and entity.Type == EntityType.ENTITY_EFFECT then
+        local variant = type(EffectVariant) == "table" and EffectVariant.HEAVEN_LIGHT_DOOR
+            or HEAVEN_DOOR_VARIANT
+        if entity.Variant == variant then return "heaven_door" end
+    end
+    return nil
+end
 
 local function entity_capable()
     return type(Isaac.GetRoomEntities) == "function" and type(GetPtrHash) == "function"
@@ -404,13 +452,48 @@ local function inventory_facts(player)
     }
 end
 
+-- Secret, super secret and ultra secret room types (RoomType names, Repentance numbers).
+local function secret_type(room_type)
+    local names = { "ROOM_SECRET", "ROOM_SUPERSECRET", "ROOM_ULTRASECRET" }
+    local numbers = { 7, 8, 29 }
+    for i, name in ipairs(names) do
+        local value = type(RoomType) == "table" and RoomType[name] or numbers[i]
+        if room_type == value then return true end
+    end
+    return false
+end
+
+-- A door the player can see: open state, lock, the room type behind it and whether that room
+-- was entered. A closed door to a secret room is still a hidden wall, so it reads as absent.
+-- Unreadable doors read as absent; an unreadable lock or target reads false or unknown.
+local function door_facts(room, level, slot)
+    local ok, fact = pcall(function()
+        local door = room:GetDoor(slot)
+        if door == nil then return nil end
+        local is_open = door:IsOpen() == true
+        local type_ok, target_type = pcall(function()
+            local value = door.TargetRoomType
+            return type(value) == "number" and clamp_int(value, 0, 31) or nil
+        end)
+        if not type_ok then target_type = nil end
+        if target_type ~= nil and secret_type(target_type) and not is_open then return nil end
+        local lock_ok, locked = pcall(function() return door:IsLocked() == true end)
+        local visit_ok, visited = pcall(function()
+            local target = level:GetRoomByIdx(door.TargetRoomIndex)
+            return target ~= nil and (tonumber(target.VisitedCount) or 0) > 0
+        end)
+        return { open = is_open, locked = lock_ok and locked == true,
+            target_type = target_type == nil and json.null or target_type,
+            target_visited = visit_ok and visited == true }
+    end)
+    if ok and fact ~= nil then return fact end
+    return json.null
+end
+
 local function room_facts(room)
     local level = Game():GetLevel()
     local doors = {}
-    for slot = 0, 7 do
-        local door = room:GetDoor(slot)
-        doors[slot + 1] = door ~= nil and door:IsOpen() == true
-    end
+    for slot = 0, 7 do doors[slot + 1] = door_facts(room, level, slot) end
     return {
         type = clamp_int(room:GetType(), 0, 31), stage = clamp_int(level:GetStage(), 0, 15),
         stage_type = clamp_int(level:GetStageType(), 0, 7),
@@ -473,13 +556,45 @@ local function oracle_doors(room)
     return doors
 end
 
+-- Enemy identity and static facts; every API call is wrapped, a missing method reads false or 0.
+-- flying: GridCollisionClass NONE or WALL (the enemy ignores pits and rocks, only walls stop it).
+-- invulnerable: IsVulnerableEnemy() is false, or IsInvincible() is true.
+-- boss: IsBoss(); champion: ToNPC():IsChampion(); npc_max_hp: MaxHitPoints (current HP stays unknown).
+local function enemy_facts(entity)
+    local function probe(read)
+        local ok, value = pcall(read)
+        if ok then return value end
+        return nil
+    end
+    local function truth(read) return probe(read) == true end
+    local fly_classes = {}
+    if type(GridCollisionClass) == "table" then
+        fly_classes[GridCollisionClass.COLLISION_NONE or false] = true
+        fly_classes[GridCollisionClass.COLLISION_WALL or false] = true
+    end
+    local collision = probe(function() return entity.GridCollisionClass end)
+    local max_hp = tonumber(probe(function() return entity.MaxHitPoints end))
+    if not max_hp or max_hp ~= max_hp then max_hp = 0 end
+    return {
+        npc_type=clamp_int(probe(function() return entity.Type end), 0, 1000),
+        npc_variant=clamp_int(probe(function() return entity.Variant end), 0, 4095),
+        npc_max_hp=math.floor(math.max(0, math.min(max_hp, 1000000)) * 1000 + 0.5) / 1000,
+        boss=truth(function() return entity:IsBoss() end),
+        champion=truth(function() return entity:ToNPC():IsChampion() end),
+        flying=collision ~= nil and fly_classes[collision] == true,
+        invulnerable=probe(function() return entity:IsVulnerableEnemy() end) == false
+            or truth(function() return entity:IsInvincible() end),
+    }
+end
+
 local function capture_entities(room, player, data)
     local list = Isaac.GetRoomEntities()
     assert(type(list) == "table" and #list <= 1024, "Room entity scan exceeds 1024")
     local grid_size = room:GetGridSize()
     assert(type(grid_size) == "number" and grid_size % 1 == 0
         and grid_size >= 0 and grid_size <= 2048, "Room grid scan exceeds 2048")
-    local groups = { enemy={}, projectile={}, obstacle={}, pickup={}, own_attack={}, bomb={} }
+    local groups = {}
+    for _, kind in ipairs(entity_kinds) do groups[kind] = {} end
     local retained = {}
     local oracle_enemies, oracle_overflow = {}, 0
     local function identity(key)
@@ -502,17 +617,21 @@ local function capture_entities(room, player, data)
         local parent = entity.Parent
         return parent ~= nil and GetPtrHash(parent) == player_hash
     end
-    local function add(kind, key, position, velocity, pickup, age, class, hp, max_hp)
+    local function add(kind, key, position, velocity, pickup, age, class, hp, max_hp, enemy)
         local relative = vector({ X=position.X-player.Position.X, Y=position.Y-player.Position.Y })
         local item = { kind=kind, entity_id=identity(key), spawn_generation=0,
             position=relative, velocity=vector(velocity), hp=json.null, max_hp=json.null,
             variant=json.null, subtype=json.null, price=json.null, age_frames=json.null,
-            obstacle_class=class or json.null }
-        if class and type(max_hp) == "number" and type(hp) == "number" and max_hp > 0
+            obstacle_class=kind == "obstacle" and class or json.null,
+            interactable_class=kind == "interactable" and class or json.null }
+        if kind == "obstacle" and class and type(max_hp) == "number" and type(hp) == "number" and max_hp > 0
             and max_hp <= 1000000 and hp == hp then
             hp = math.max(0, math.min(hp, max_hp))
             item.hp = math.floor(hp * 1000 + 0.5) / 1000
             item.max_hp = math.max(0.001, math.floor(max_hp * 1000 + 0.5) / 1000)
+        end
+        if enemy then
+            for name, value in pairs(enemy_facts(enemy)) do item[name] = value end
         end
         if age then item.age_frames = clamp_int(age, 0, 10000) end
         if pickup then
@@ -540,12 +659,16 @@ local function capture_entities(room, player, data)
             elseif (entity.Type == EntityType.ENTITY_TEAR or entity.Type == EntityType.ENTITY_LASER
                 or entity.Type == EntityType.ENTITY_KNIFE) and own_attack(entity) then
                 kind = "own_attack"
+            else
+                class = interactable_class(entity)
+                if class then kind = "interactable" end
             end
             if kind then
                 add(kind, key, entity.Position, entity.Velocity,
                     kind == "pickup" and entity or nil,
                     kind == "bomb" and entity.FrameCount or nil,
-                    class, entity.HitPoints, entity.MaxHitPoints)
+                    class, entity.HitPoints, entity.MaxHitPoints,
+                    kind == "enemy" and entity or nil)
             end
         end
         -- Live-loop reward labels only; leaves through the separate oracle block.
@@ -581,9 +704,9 @@ local function capture_entities(room, player, data)
         -- The outer border ring is walls and door frames, never useful geometry.
         local border = column == 0 or column == width - 1 or index < width
             or index >= (height - 1) * width
-        if grid and not border and grid.CollisionClass ~= 0 then
+        if grid and not border then
             local class = class_by_type[grid:GetType()]
-            if class then
+            if class and (grid.CollisionClass ~= 0 or FLOOR_CLASSES[class]) then
                 add("obstacle", "g:" .. index .. ":" .. grid:GetType(), grid.Position, nil,
                     nil, nil, class)
             end
@@ -591,7 +714,7 @@ local function capture_entities(room, player, data)
     end
     entities.ids = retained
     local result, overflow = {}, {}
-    for _, kind in ipairs({ "enemy", "projectile", "obstacle", "pickup", "own_attack", "bomb" }) do
+    for _, kind in ipairs(entity_kinds) do
         local group = groups[kind]
         table.sort(group, function(a,b)
             local ad = a.position.x*a.position.x + a.position.y*a.position.y
@@ -617,7 +740,7 @@ local function capture_entities(room, player, data)
     local map, off_grid = minimap()
     local held, held_overflow = collectible_list(player, data.frame)
     return {
-        type="entity_frame", observation_schema_version=5, provenance="game_api",
+        type="entity_frame", observation_schema_version=6, provenance="game_api",
         session_id=state.session, game_epoch=state.epoch, room_visit=state.visit,
         frame_id=data.frame, player_position=data.player.position,
         player_velocity=vector(player.Velocity), health=data.player.health,
@@ -841,7 +964,7 @@ local function pump()
         snapshot(now)
     end
     if #state.tx > 0 then
-        local finish = math.min(#state.tx, state.offset + Config.io_bytes - 1)
+        local finish = math.min(#state.tx, state.offset + Config.send_bytes - 1)
         local sent, send_error, last = state.tcp:send(state.tx, state.offset, finish)
         state.offset = (sent or last or (state.offset - 1)) + 1
         if send_error and send_error ~= "timeout" then

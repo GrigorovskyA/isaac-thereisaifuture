@@ -40,6 +40,15 @@ empty for sim backends. A `train.csv` written before these columns is rewritten 
 the new header at the next start; its old rows keep empty timing cells.
 The dashboard shows the three shares of the rollout time.
 
+**Paused updates.** With `live.pause_during_updates: true` (not hashed) the worker releases
+input, presses Esc through the guarded game keyboard and waits up to 3 s for a `paused`
+snapshot at each rollout end. At the next rollout start it presses Esc again and waits for
+`active`. The game therefore stands still during the optimizer update and checkpoint. The game
+window must stay in the foreground. Failures never stop the session: `update_pause_skipped`
+and `update_resume_failed` events in `events.jsonl` give the reason, and the `train.csv`
+columns `pause_seconds` and `pause_ok` (1 or 0) show each update. Many `pause_ok` 0 rows mean
+the keyboard path is not working; check focus first.
+
 The game side is measured by the observer: while streaming it writes an `Observer perf`
 line to Isaac's log.txt about every 10 s (updates, renders, snapshots, and milliseconds
 inside the update and render callbacks, snapshot capture and JSON encoding). Summarize it

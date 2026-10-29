@@ -35,6 +35,9 @@ COMMANDS = {}
 COINS, BOMBS, KEYS, ACTIVE, CHARGE, MAX_CHARGES = 0, 0, 0, 0, 0, nil
 CARD, PILL, TRINKET, HELD, HAS_CALLS, ITEM_SIZE = 0, 0, 0, {}, 0, 733
 ROOM_TYPE, STAGE, STAGE_TYPE, ROOM_INDEX, DOORS = 1, 1, 0, 84, {}
+-- DOORS[slot] is a bool (open) or { open, locked, type, target, lock_fault }; ROOM_DESCS maps a
+-- room index to its descriptor (simulated, not engine evidence).
+ROOM_DESCS = {}
 -- Simulated room geometry and level map (not engine evidence). GetRooms is a RoomsList:
 -- 0-based Get(i) and Size; each descriptor has GridIndex, VisitedCount, DisplayFlags, Data.
 ROOM_SHAPE, GRID_W, GRID_H, MAP_ROOMS = 1, 15, 9, {}
@@ -139,13 +142,19 @@ Game = function() return {
   GetRoomShape=function() return ROOM_SHAPE end,
   GetGridWidth=function() return GRID_W end, GetGridHeight=function() return GRID_H end,
   GetDoor=function(self, slot)
-   if DOORS[slot] ~= nil then return { IsOpen=function() return DOORS[slot] end } end
+   local d = DOORS[slot]
+   if d == nil then return nil end
+   if type(d) ~= "table" then d = { open=d } end
+   return { IsOpen=function() return d.open == true end,
+    IsLocked=function() if d.lock_fault then error("lock fault") end return d.locked == true end,
+    TargetRoomType=d.type, TargetRoomIndex=d.target }
   end
  } end,
  GetLevel=function() return {
   GetStage=function() return STAGE end, GetStageType=function() return STAGE_TYPE end,
   GetCurrentRoomIndex=function() return ROOM_INDEX end,
   GetCurrentRoomDesc=function() return { GridIndex=ROOM_INDEX } end,
+  GetRoomByIdx=function(self, index) return ROOM_DESCS[index] end,
   GetRooms=function() return {
    Size=#MAP_ROOMS, Get=function(self, i) return MAP_ROOMS[i+1] end } end
  } end,
@@ -170,7 +179,7 @@ local tcp = {
  end,
  send=function(self,data,first,last)
   SEND_CALLS=SEND_CALLS+1
-  assert(last-first+1<=4096)
+  assert(last-first+1<=32768)
   if BLOCK_OUTPUT then return nil,"timeout",first-1 end
   local finish=math.min(last,first+SEND_LIMIT-1)
   OUTGOING=OUTGOING..data:sub(first,finish)

@@ -202,6 +202,7 @@ def edit_manifest(directory: Path, **changes: Any) -> None:
         ({"action_schema_version": 99}, {}, "action_schema_version"),
         ({"observation_schema_version": 1}, {}, "observation_schema_version"),
         ({"observation_schema_version": 2}, {}, "observation_schema_version"),
+        ({"observation_schema_version": 7}, {}, "observation_schema_version"),
         ({"action_schema_version": 1}, {}, "action_schema_version"),
         ({"algorithm": "PPO"}, {}, "Unsupported algorithm"),
         ({"checkpoint_id": "other-id"}, {}, "directory"),

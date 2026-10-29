@@ -11,7 +11,7 @@ import time
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -28,6 +28,9 @@ from .checkpoints import (
     save_checkpoint,
 )
 from .entities import OBSERVATION_SCHEMA_VERSION
+
+if TYPE_CHECKING:
+    from .update_pause import UpdatePause
 
 DEFAULT_CONFIG = Path("configs/training-v1.yaml")  # offline and synthetic runs
 PURE_REWARD_VERSION = 9  # the contract must name the reward version this code pays
@@ -89,6 +92,8 @@ class PureContract(BaseModel):
     device: Literal["cpu"]
     seed: int
     lstm_hidden_size: Annotated[int, Field(gt=0)]
+    # Width of the linear input projection in front of the LSTMs (shared by actor and critic).
+    features_dim: Annotated[int, Field(gt=0)]
     action_repeat_game_updates: Annotated[int, Field(gt=0)]
     observation_schema_version: int
     action_schema_version: int
@@ -109,6 +114,15 @@ class Hyperparameters(BaseModel):
     n_steps: Annotated[int, Field(gt=1)]
     batch_size: Annotated[int, Field(gt=0)]
     n_epochs: Annotated[int, Field(gt=0)]
+
+
+class LiveConfig(BaseModel):
+    """Live-loop options; not hashed and never part of the model shape."""
+
+    model_config = ConfigDict(strict=True, frozen=True, extra="forbid")
+
+    # Press Esc around each optimizer update so the game stands still (live backend only).
+    pause_during_updates: bool
 
 
 class PureBudget(BaseModel):
@@ -144,6 +158,7 @@ class PureTrainingConfig(BaseModel):
     budget: PureBudget
     retention: RetentionConfig
     watchdog: WatchdogConfig
+    live: LiveConfig = LiveConfig(pause_during_updates=False)
 
     @property
     def seed(self) -> int:
@@ -160,6 +175,10 @@ class PureTrainingConfig(BaseModel):
     @property
     def lstm_hidden_size(self) -> int:
         return self.contract.lstm_hidden_size
+
+    @property
+    def features_dim(self) -> int:
+        return self.contract.features_dim
 
     @property
     def action_repeat_game_updates(self) -> int:
@@ -333,12 +352,14 @@ def train(
     run_deadline: float | None = None,
     on_progress: Callable[[str, Any], None] | None = None,
     train_metrics_path: Path | None = None,
+    update_pause: "UpdatePause | None" = None,
 ) -> TrainingResult:
     """Train in n_steps chunks; checkpoint after each chunk; stop on any hard budget limit.
 
     With a version 2 config, the hyperparameters are applied to the resumed model (the
     rollout buffer is rebuilt for a new n_steps; weights and Adam state are kept) and
     recorded in each manifest. Old checkpoints are pruned per the retention section.
+    With `update_pause` (live backend), the game is paused while each update and checkpoint run.
     """
     pure = isinstance(config, PureTrainingConfig)
     hyper = _hyperparameters(config)
@@ -367,7 +388,9 @@ def train(
     from stable_baselines3.common.monitor import Monitor
     from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 
+    from .policy import policy_kwargs
     from .training_metrics import TrainMetricsCallback
+    from .update_pause import UpdatePauseCallback
 
     if config.algorithm == "RecurrentPPO":
         from sb3_contrib import RecurrentPPO as Algo
@@ -405,7 +428,10 @@ def train(
             venv = VecNormalize(base_env, norm_obs=True, norm_reward=True, gamma=hyper["gamma"])
             kwargs: dict[str, Any] = {}
             if config.algorithm == "RecurrentPPO":
-                kwargs["policy_kwargs"] = {"lstm_hidden_size": config.lstm_hidden_size}
+                kwargs["policy_kwargs"] = policy_kwargs(
+                    config.lstm_hidden_size,
+                    config.features_dim if isinstance(config, PureTrainingConfig) else None,
+                )
             model = Algo(
                 "MlpLstmPolicy" if config.algorithm == "RecurrentPPO" else "MlpPolicy",
                 venv,
@@ -427,7 +453,14 @@ def train(
         if isinstance(config, PureTrainingConfig)
         else None
     )
-    metrics_callback = TrainMetricsCallback(train_metrics_path) if train_metrics_path else None
+    pause_callback = UpdatePauseCallback(update_pause) if update_pause is not None else None
+    metrics_callback = (
+        TrainMetricsCallback(train_metrics_path, pause=pause_callback)
+        if train_metrics_path
+        else None
+    )
+    # The pause callback goes first: its resume ends before the next rollout is timed.
+    callbacks: list[Any] = [item for item in (pause_callback, metrics_callback) if item is not None]
     started = time.monotonic()
     deadline = started + config.budget.wall_time_minutes * 60
     if run_deadline is not None:
@@ -446,7 +479,7 @@ def train(
             model.learn(
                 total_timesteps=hyper["n_steps"],
                 reset_num_timesteps=False,
-                callback=metrics_callback,
+                callback=callbacks or None,
             )
             done = int(model.num_timesteps)
             rng = capture_rng_state()
@@ -471,6 +504,8 @@ def train(
             if on_progress is not None:
                 on_progress("checkpoint_completed", {"id": parent_id, "steps": done})
     finally:
+        if pause_callback is not None:
+            pause_callback.release()  # never leave the game paused behind a failed update
         venv.close()
     return TrainingResult(seed, reason, done, parent_id, time.monotonic() - started)
 

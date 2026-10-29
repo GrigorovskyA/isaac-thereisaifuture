@@ -7,10 +7,11 @@ import numpy as np
 from numpy.typing import NDArray
 
 from .entities import (
-    BOSS_ROOM_TYPE,
     COLLECTIBLE_ID_MAX,
     DOOR_SLOTS,
+    ENTITY_CAPS,
     ENTITY_KINDS,
+    INTERACTABLE_CLASSES,
     LEVEL_GRID_CELLS,
     OBSTACLE_CLASSES,
     TEAR_FLAG_NAMES,
@@ -21,18 +22,12 @@ from .entities import (
 )
 from .observation import ProtocolError
 
-# Hypotheses fixed by observation schema version 6; changing one needs a new version.
-CAPACITY: dict[EntityKind, int] = {
-    "enemy": 16,
-    "projectile": 32,
-    "obstacle": 24,
-    "pickup": 8,
-    "own_attack": 16,
-    "bomb": 4,
-}
+# Hypotheses fixed by observation schema version 8; changing one needs a new version. The
+# encoder capacity equals the observer cap, so the encoder never drops what the wire carried.
+CAPACITY: dict[EntityKind, int] = dict(ENTITY_CAPS)
 # Blocks before the collectible bitmap keep the schema 3 order; schema 4 appends the rest.
 BASE_KINDS: tuple[EntityKind, ...] = ("enemy", "projectile", "obstacle", "pickup")
-EXTRA_KINDS: tuple[EntityKind, ...] = ("own_attack", "bomb")
+EXTRA_KINDS: tuple[EntityKind, ...] = ("own_attack", "bomb", "interactable")
 STAT_SCALES = (50.0, 30.0, 1000.0, 5.0, 5.0, 10.0)  # damage, tears/s, range, shot, move, luck
 BOMB_AGE_SCALE = 120.0
 POSITION_SCALE = 1000.0
@@ -42,8 +37,38 @@ PLAYER_FEATURES = 9
 INVENTORY_FEATURES = 9
 ROOM_TYPES = 32
 ROOM_SHAPES = 12
+# Room types grouped into classes for doors and the minimap. Types by RoomType value; a type
+# not listed here (miniboss, library, planetarium, dice, error, ...) is in "special".
+ROOM_CLASSES = (
+    "normal",
+    "boss",
+    "treasure",
+    "shop",
+    "secret",
+    "curse",
+    "challenge",
+    "devil_angel",
+    "sacrifice",
+    "arcade",
+    "special",
+)
+_ROOM_CLASS: dict[int, str] = {
+    1: "normal",
+    5: "boss",
+    4: "treasure",
+    2: "shop",
+    **dict.fromkeys((7, 8, 29), "secret"),  # secret, super secret, ultra secret
+    10: "curse",
+    **dict.fromkeys((11, 17), "challenge"),  # challenge (and boss challenge), boss rush
+    **dict.fromkeys((14, 15), "devil_angel"),
+    13: "sacrifice",
+    9: "arcade",
+}
+# Per door slot: exists, open, locked, target visited, then the target room class one-hot
+# (all zero when the target type is unknown).
+DOOR_FEATURES = 4 + len(ROOM_CLASSES)
 # Type one-hot, stage, stage type, clear, doors, then the room shape one-hot.
-ROOM_FEATURES = ROOM_TYPES + 3 + DOOR_SLOTS + ROOM_SHAPES
+ROOM_FEATURES = ROOM_TYPES + 3 + DOOR_SLOTS * DOOR_FEATURES + ROOM_SHAPES
 SLOT_FEATURES = 8  # present, x, y, velocity valid, vx, vy, hp valid, hp fraction
 # Pickup slots add a variant class one-hot, subtype/1024 and a shop flag.
 VARIANT_CLASSES = (
@@ -60,16 +85,24 @@ VARIANT_CLASSES = (
     "trinket",
     "other",
 )
+# Enemy slots add an identity block: identity valid, boss, champion, flying, invulnerable,
+# log1p(max HP) / log1p(ENEMY_HP_SCALE), then a one-hot of the hashed (type, variant) bucket.
+# A one-hot into the first linear layer is a learned embedding per kind. Distinct kinds may share
+# a bucket; a floor shows about 20 kinds, so collisions are rare and accepted.
+IDENTITY_BUCKETS = 64
+ENEMY_HP_SCALE = 10000.0
+ENEMY_IDENTITY_FEATURES = 6 + IDENTITY_BUCKETS
 PICKUP_SLOT_FEATURES = SLOT_FEATURES + len(VARIANT_CLASSES) + 2
 COUNTER_SCALE = 99.0
 SUBTYPE_SCALE = 1024.0
 SLOT_WIDTH: dict[EntityKind, int] = {
-    "enemy": SLOT_FEATURES,
+    "enemy": SLOT_FEATURES + ENEMY_IDENTITY_FEATURES,
     "projectile": SLOT_FEATURES,
     "obstacle": SLOT_FEATURES + len(OBSTACLE_CLASSES),  # plus the class one-hot
     "pickup": PICKUP_SLOT_FEATURES,
     "own_attack": SLOT_FEATURES,
     "bomb": SLOT_FEATURES + 1,  # plus age / BOMB_AGE_SCALE
+    "interactable": SLOT_FEATURES + len(INTERACTABLE_CLASSES),  # plus the class one-hot
 }
 INVENTORY_OFFSET = PLAYER_FEATURES
 ROOM_OFFSET = INVENTORY_OFFSET + INVENTORY_FEATURES
@@ -80,8 +113,9 @@ TEAR_FLAG_OFFSET = STATS_OFFSET + len(STAT_SCALES)
 WEAPON_OFFSET = TEAR_FLAG_OFFSET + len(TEAR_FLAG_NAMES)
 EXTRA_OFFSET = WEAPON_OFFSET + len(WEAPON_NAMES)  # then EXTRA_KINDS blocks
 MAP_OFFSET = EXTRA_OFFSET + sum(CAPACITY[k] * SLOT_WIDTH[k] for k in EXTRA_KINDS)
-# Minimap channels per level grid cell: known, visited, current, boss, treasure, shop, other.
-MAP_CHANNELS = 7
+# Minimap channels per level grid cell: known, visited, current, then the room class one-hot
+# (all zero while the room's type is hidden).
+MAP_CHANNELS = 3 + len(ROOM_CLASSES)
 OFF_GRID_OFFSET = MAP_OFFSET + LEVEL_GRID_CELLS * MAP_CHANNELS
 STALL_OFFSET = OFF_GRID_OFFSET + 1  # idle time / stall limit
 # Visited cells of the current room (schema 6): one cell per 40 px floor tile, counted from the
@@ -124,8 +158,22 @@ SHAPE_TILES: dict[int, tuple[int, int]] = {
     **dict.fromkeys((9, 10, 11, 12), (26, 14)),
 }
 assert set(SHAPE_TILES) == set(SHAPE_CELLS)
-BOSS_ROOM, TREASURE_ROOM, SHOP_ROOM, DEFAULT_ROOM = BOSS_ROOM_TYPE, 4, 2, 1
 assert set(BASE_KINDS + EXTRA_KINDS) == set(ENTITY_KINDS)
+
+
+def room_class(room_type: int) -> int:
+    """Index into ROOM_CLASSES for a RoomType value."""
+    return ROOM_CLASSES.index(_ROOM_CLASS.get(room_type, "special"))
+
+
+def identity_bucket(npc_type: int, npc_variant: int) -> int:
+    """Stable bucket of an enemy (type, variant): Knuth multiplicative hash, never hash().
+
+    The top bits are used: the low bits of the product depend only on the low bits of the key,
+    so they would ignore the type.
+    """
+    product = (npc_type * 4096 + npc_variant) * 2654435761 % 2**32
+    return product >> (32 - IDENTITY_BUCKETS.bit_length() + 1)
 
 
 def room_diagonal(shape: int) -> float:
@@ -139,6 +187,10 @@ class EncodedObservation:
     vector: NDArray[np.float32]
     overflow: dict[EntityKind, int] = field(default_factory=dict)
     clipped_values: int = 0
+    # Entities per kind in the frame, including those the observer cut (metrics only).
+    counts: dict[EntityKind, int] = field(default_factory=dict)
+    # Distinct enemy (type, variant) pairs in the frame (metrics only).
+    enemy_kinds: frozenset[tuple[int, int]] = frozenset()
 
 
 class _Clip:
@@ -201,9 +253,17 @@ def _encode_room(vector: NDArray[np.float32], frame: EntityFrame) -> None:
     vector[base + ROOM_TYPES] = room.stage / 15.0
     vector[base + ROOM_TYPES + 1] = room.stage_type / 7.0
     vector[base + ROOM_TYPES + 2] = float(room.clear)
-    for slot, is_open in enumerate(room.doors):
-        vector[base + ROOM_TYPES + 3 + slot] = float(is_open)
-    vector[base + ROOM_TYPES + 3 + DOOR_SLOTS + room.shape - 1] = 1.0
+    for slot, door in enumerate(room.doors):
+        if door is None:
+            continue
+        at = base + ROOM_TYPES + 3 + slot * DOOR_FEATURES
+        vector[at] = 1.0
+        vector[at + 1] = float(door.open)
+        vector[at + 2] = float(door.locked)
+        vector[at + 3] = float(door.target_visited)
+        if door.target_type is not None:
+            vector[at + 4 + room_class(door.target_type)] = 1.0
+    vector[base + ROOM_TYPES + 3 + DOOR_SLOTS * DOOR_FEATURES + room.shape - 1] = 1.0
 
 
 def _encode_map(vector: NDArray[np.float32], frame: EntityFrame) -> None:
@@ -216,18 +276,21 @@ def _encode_map(vector: NDArray[np.float32], frame: EntityFrame) -> None:
             vector[base] = 1.0
             vector[base + 1] = float(room.visited)
             vector[base + 2] = float(room.current)
-            kind = room.room_type
-            if kind is None or kind == DEFAULT_ROOM:
-                continue
-            if kind == BOSS_ROOM:
-                vector[base + 3] = 1.0
-            elif kind == TREASURE_ROOM:
-                vector[base + 4] = 1.0
-            elif kind == SHOP_ROOM:
-                vector[base + 5] = 1.0
-            else:
-                vector[base + 6] = 1.0
+            if room.room_type is not None:
+                vector[base + 3 + room_class(room.room_type)] = 1.0
     vector[OFF_GRID_OFFSET] = float(frame.map_current_off_grid)
+
+
+def _encode_enemy(vector: NDArray[np.float32], base: int, entity: Entity) -> None:
+    if entity.npc_type is None or entity.npc_variant is None or entity.npc_max_hp is None:
+        return  # identity unknown: all zeros, valid flag stays 0
+    vector[base] = 1.0
+    vector[base + 1] = float(bool(entity.boss))
+    vector[base + 2] = float(bool(entity.champion))
+    vector[base + 3] = float(bool(entity.flying))
+    vector[base + 4] = float(bool(entity.invulnerable))
+    vector[base + 5] = min(math.log1p(entity.npc_max_hp) / math.log1p(ENEMY_HP_SCALE), 1.0)
+    vector[base + 6 + identity_bucket(entity.npc_type, entity.npc_variant)] = 1.0
 
 
 def _encode_pickup(vector: NDArray[np.float32], base: int, entity: Entity) -> None:
@@ -305,6 +368,11 @@ def encode(
             raise ProtocolError("The visited cell grid has the wrong size")
         vector[VISITED_OFFSET:] = visited_cells
     overflow: dict[EntityKind, int] = dict(frame.source_overflow)
+    counts: dict[EntityKind, int] = dict.fromkeys(ENTITY_KINDS, 0)
+    for entity in frame.entities:
+        counts[entity.kind] += 1
+    for kind, dropped in frame.source_overflow.items():
+        counts[kind] += dropped
     for collectible in frame.collectibles:
         vector[COLLECTIBLE_OFFSET + collectible - 1] = 1.0
     stats = frame.stats
@@ -343,6 +411,8 @@ def encode(
             if entity.hp is not None and entity.max_hp is not None:
                 vector[base + 6] = 1.0
                 vector[base + 7] = entity.hp / entity.max_hp
+            if kind == "enemy":
+                _encode_enemy(vector, base + SLOT_FEATURES, entity)
             if kind == "obstacle":
                 assert entity.obstacle_class is not None
                 vector[base + SLOT_FEATURES + OBSTACLE_CLASSES.index(entity.obstacle_class)] = 1.0
@@ -351,5 +421,14 @@ def encode(
             if kind == "bomb":
                 assert entity.age_frames is not None
                 vector[base + SLOT_FEATURES] = clip(entity.age_frames, BOMB_AGE_SCALE)
+            if kind == "interactable":
+                assert entity.interactable_class is not None
+                index = INTERACTABLE_CLASSES.index(entity.interactable_class)
+                vector[base + SLOT_FEATURES + index] = 1.0
         offset += capacity * width
-    return EncodedObservation(vector, overflow, clip.count)
+    kinds = frozenset(
+        (e.npc_type, e.npc_variant)
+        for e in frame.entities
+        if e.npc_type is not None and e.npc_variant is not None
+    )
+    return EncodedObservation(vector, overflow, clip.count, counts, kinds)

@@ -12,6 +12,7 @@ from stable_baselines3.common.env_checker import check_env
 
 from isaac_threrisaifuture.encoding import OBSERVATION_SIZE
 from isaac_threrisaifuture.episodes import ACTION_NVEC
+from isaac_threrisaifuture.policy import policy_kwargs
 
 
 class StackSmokeEnv(gym.Env):
@@ -50,7 +51,7 @@ def main():
             n_steps=8,
             batch_size=8,
             n_epochs=1,
-            policy_kwargs={"lstm_hidden_size": 16, "net_arch": [16]},
+            policy_kwargs=policy_kwargs(16, 16, net_arch=[16]),
             seed=42,
             device="cpu",
             verbose=0,

@@ -72,7 +72,8 @@ Logs: `runs/live/sessions/<stamp>/live.jsonl` (episodes, faults) and `oracle.jso
 
 ## Known limitations
 
-- The game is not paused during PPO updates (n_steps 256 keeps them short).
+- The game is paused during PPO updates only when `live.pause_during_updates` is true and the
+  guarded Esc key works (pure profile, live backend); otherwise it keeps running.
 - Enemy HP labels are uncalibrated: a vanished enemy counts as killed; all player HP
   loss is attributed to enemies. No exploration reward yet (future reward-v2).
 - Real-game unknowns: `HitPoints` semantics, `IsDead`/`IsClear` timing, stability of

@@ -8,6 +8,7 @@ from typing import Any, SupportsFloat
 
 import gymnasium as gym
 
+from .entities import ENTITY_KINDS
 from .episodes import HIT_FIELDS
 from .rewards import REWARD_V4_COLUMNS
 
@@ -26,6 +27,13 @@ BASE_FIELDS = (
     "rooms_cleared",
     "max_stage",
 )
+# Cap tuning, metrics only: per kind the most entities in one snapshot (cut ones included) and
+# the share of observed steps in which the observer or the encoder dropped some.
+CAP_FIELDS = (
+    *(f"max_{kind}" for kind in ENTITY_KINDS),
+    *(f"overflow_{kind}" for kind in ENTITY_KINDS),
+    "enemy_kinds",  # distinct enemy (type, variant) pairs seen in the episode
+)
 EXTRA_FIELDS = (
     "use_bomb",
     "use_active",
@@ -35,6 +43,7 @@ EXTRA_FIELDS = (
     "steps_to_first_damage",
     "enemies_killed",
     *HIT_FIELDS,
+    *CAP_FIELDS,
 )
 FIELDS = (
     *BASE_FIELDS,

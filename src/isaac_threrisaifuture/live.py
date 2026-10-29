@@ -33,6 +33,7 @@ from .live_wire import (
     OracleEnemy,
     PlayerHits,
 )
+from .menu_entry import MenuInput
 from .observation import (
     BridgeError,
     BridgeTimeout,
@@ -400,6 +401,10 @@ def _playable(snap: LiveSnapshot) -> bool:
     )
 
 
+def _status_of(snap: LiveSnapshot) -> str:
+    return "dead" if snap.oracle is not None and snap.oracle.player_dead else snap.status
+
+
 ORACLE_STAT_KEYS = (
     "kills",
     *(f"hits_{name}" for name in PlayerHits.model_fields),
@@ -458,9 +463,12 @@ class LiveBackend:
     _command_seconds: float = 0.0
     _timed_steps: int = 0
     _snapshots: int = 0
+    # Snapshots read while pausing or resuming for an update; the next step absorbs them first.
+    _backlog: list[LiveSnapshot] = field(default_factory=list)
 
     def start_episode(self, scenario: Scenario, seed: int | None) -> StepResult:
         """Continue the run; after a death wait for the autonomous restart to reconnect."""
+        self._backlog.clear()
         deadline = time.monotonic() + self.restart_timeout
         if self.run_deadline is not None:
             deadline = min(deadline, self.run_deadline)
@@ -587,7 +595,8 @@ class LiveBackend:
         events: list[OracleEvent] = []
         before = self._current.frame_id
         assert before is not None
-        for snap in self.client.drain():
+        backlog, self._backlog = self._backlog, []
+        for snap in [*backlog, *self.client.drain()]:
             if self._absorb(snap, events):
                 return self._result(events)
         reference = self._current
@@ -668,6 +677,41 @@ class LiveBackend:
 
     def close(self) -> None:
         self.client.close()
+
+    def cancelled(self) -> bool:
+        return self.stop_file is not None and self.stop_file.exists()
+
+    def game_status(self, timeout: float) -> str | None:
+        """Status of the newest snapshot: active, paused, unavailable or dead; None if none.
+
+        Reads the snapshots into the backlog, so the next step still sees all of them.
+        """
+        self._backlog.extend(self.client.drain())
+        if not self._backlog:
+            try:
+                self._backlog.append(self.client.take(timeout))
+            except BridgeTimeout:
+                return None
+        return _status_of(self._backlog[-1])
+
+    def wait_game_status(self, wanted: str, timeout: float) -> bool:
+        """Wait up to `timeout` seconds for a snapshot with this status (never absorbed here).
+
+        Every snapshot read goes to the backlog in order, so paused ones feed the stall
+        watchdog as inactive and no paused time counts as step time or stagnation.
+        """
+        deadline = time.monotonic() + timeout
+        while True:
+            self._backlog.extend(self.client.drain())
+            if self._backlog and _status_of(self._backlog[-1]) == wanted:
+                return True
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            try:
+                self._backlog.append(self.client.take(remaining))
+            except BridgeTimeout:
+                return False
 
     def _absorb(self, snap: LiveSnapshot, events: list[OracleEvent]) -> bool:
         current = self._current
@@ -901,6 +945,9 @@ class LiveRunOptions:
     # Evaluate mode only: a frozen policy under the training protocol; nothing is learned.
     eval_policy: Literal["checkpoint", "random", "random-prior"] | None = None
     eval_checkpoint: Path | None = None
+    # Train mode: guarded game keyboard used to pause the game during updates (config flag
+    # `live.pause_during_updates`); without one, pausing is skipped and recorded.
+    keyboard: MenuInput | None = None
 
     def __post_init__(self) -> None:
         if self.session_deadline is not None and not math.isfinite(self.session_deadline):
@@ -1061,6 +1108,7 @@ def _train_run(
 ) -> None:
     from .episode_metrics import EpisodeMetricsEnv, EpisodeMetricsWriter
     from .training import PURE_CONFIG, PureTrainingConfig, load_training_config, train
+    from .update_pause import UpdatePause
 
     config, cfg_hash = load_training_config(options.config_path or PURE_CONFIG)
     reward_contract: RewardContract = LIVE_REWARD_CONTRACT
@@ -1075,6 +1123,11 @@ def _train_run(
 
     pure = isinstance(config, PureTrainingConfig)
     writer = EpisodeMetricsWriter(options.out_dir / "metrics" / "episodes.csv") if pure else None
+    pause = (
+        UpdatePause(options.keyboard, record)
+        if isinstance(config, PureTrainingConfig) and config.live.pause_during_updates
+        else None
+    )
 
     def factory(_: int) -> gym.Env[Any, Any]:
         env: gym.Env[Any, Any] = make_live_env(
@@ -1114,6 +1167,7 @@ def _train_run(
             run_deadline=deadline,
             on_progress=record,
             train_metrics_path=options.out_dir / "metrics" / "train.csv" if pure else None,
+            update_pause=pause,
         )
     except LiveBudgetExpired as exc:
         record("budget", f"{exc}; unfinished rollout has no new checkpoint")

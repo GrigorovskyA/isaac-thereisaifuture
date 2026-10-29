@@ -6,7 +6,7 @@ Current since 2026-10-22 (`docs/UPDATE_DECISION.md`, OpenSpec change
 
 ## Problem definition
 
-One RecurrentPPO agent (`MlpLstmPolicy`, CPU) plays Repentance+ on file 2 through
+One RecurrentPPO agent (`MlpLstmPolicy`, CPU; a shared `Linear(obs, 512)` + ReLU feeds the 256-unit actor and critic LSTMs) plays Repentance+ on file 2 through
 the Lua bridge and learns from experience only. It is trained continuously as one
 lineage (`pure-v4`; `pure-v3` and older are preserved, not resumed). The long-term goal is Dead God; the honest near-term goal is
 learning to damage and kill enemies, survive rooms, pick up items and progress.
@@ -19,35 +19,49 @@ Principles:
 - Every reward term has an exploit test.
 - Training reward, optimizer updates and synthetic smoke do not prove better play.
 
-## Observation schema 7 (3863 floats)
+## Observation schema 8 (9762 floats)
 
 | Block | Features |
 | --- | --- |
 | Player | position, velocity, red/max red/soul hearts, bone containers (9) |
 | Inventory | coins, bombs, keys, active item present/ID/charge fraction, card, pill, trinket held (9) |
-| Room | room type one-hot (32), stage, stage type, clear flag, 8 open doors, room shape one-hot (12) (55) |
-| Enemies, projectiles | nearest-first slots: present, position, velocity, HP fraction (16/32 x 8) |
-| Obstacles | nearest-first slots (24 x 19): the 8 slot features plus a class one-hot (rock, marked rock, bomb rock, block, pit, spikes, poop, TNT, fire, wall, other); fireplaces included, wall cells never exported (`wall` unused) |
-| Pickups | base slot plus variant class one-hot (12), subtype, shop flag (8 x 22) |
+| Room | room type one-hot (32), stage, stage type, clear flag, 8 door slots x 15 (exists, open, locked, target visited, class one-hot of the room behind, 11 classes), room shape one-hot (12) (167) |
+| Enemies | nearest-first slots (32 x 78): the 8 slot features plus identity valid, boss, champion, flying, invulnerable, log-scaled max HP and a one-hot of 64 buckets of a stable hash of (entity type, variant); the one-hot into the first linear layer is a learned embedding per kind (a few kinds may share a bucket); current enemy HP stays unknown |
+| Projectiles | nearest-first slots: present, position, velocity, HP fraction (64 x 8) |
+| Obstacles | nearest-first slots (64 x 24): the 8 slot features plus a class one-hot (rock, marked rock, bomb rock, block, pit, spikes, poop, TNT, fire, trapdoor, crawlspace, pressure plate, lock block, teleporter, wall, other); fireplaces included, wall cells never exported (`wall` unused); the trapdoor is the floor exit; a pressure plate's pressed state is not exported |
+| Pickups | base slot plus variant class one-hot (12), subtype, shop flag (24 x 22) |
 | Collectibles | multi-hot of held collectible IDs 1..1024 |
 | Stats | damage, tears per second, range, shot speed, move speed, luck (6, scaled) |
 | Tear flags | 16 booleans: spectral, piercing, homing, slow, poison, freeze, split, growing, boomerang, persistent, wiggle, explosive, charm, confusion, burn, bouncing |
 | Weapons | 15 weapon-type booleans (tears, Brimstone, laser, knife, bombs, rockets, ...) |
-| Own attacks | nearest-first slots for own tears, lasers and knives (16 x 8) |
-| Bombs | all bombs with age (4 x 9) |
-| Minimap | 13 x 13 level cells x 7 channels (known, visited, current, boss, treasure, shop, other special) plus an off-grid flag for the current room; only rooms the in-game minimap shows or the player visited |
+| Own attacks | nearest-first slots for own tears, lasers and knives (48 x 8) |
+| Bombs | nearest bombs with age (8 x 9) |
+| Interactables | nearest-first slots (16 x 16): base features plus a class one-hot (slot machine, beggar, blood donation, fortune teller, restock box, crane, other slot, heaven door) |
+| Minimap | 13 x 13 level cells x 14 channels (known, visited, current, room class one-hot) plus an off-grid flag for the current room; only rooms the in-game minimap shows or the player visited, the class only when visited or its icon is shown |
 | Stall clock | seconds without progress / stall limit, from the environment (0 without a watchdog) |
 | Visited cells | 26 x 14 novelty cells (40 px) of the current room, 1.0 where the player stood during this run, row-major (364) |
 
 Schema 4 had 2038 floats; schema 5 added obstacle classes, room shape, the minimap and the stall
-clock (3499); schema 7 appends the visited-cells block (schema 6 had the same block on a grid
+clock (3499); schema 7 appended the visited-cells block (3863); schema 8 (9762) adds door facts,
+room classes, floor-feature obstacle classes, interactables, enemy identity and larger caps (below) (schema 6 had the same block on a grid
 that cut every tile in half and was replaced after its native check). Cells are the 40 px floor
 tiles counted from the room interior corner (60, 140), so the largest room (2x2) is 26 x 14 cells
 and a 1x1 room exactly 13 x 7; smaller rooms and L shapes use the same grid, and positions in
 door frames are clipped to the edge cells. Novelty reward cells use the same tiles. The environment builds it from the
 player position, the stage and the current minimap room only (never the oracle), keeps it per
 (stage, room) for the run, and clears it when a new session or game epoch starts. A room without
-a grid position starts empty on every visit. The wire frame stays at schema 5. Messages are bounded at 48 KiB (the larger frames need it). Positions are relative to the player and scaled; values are clipped with a
+a grid position starts empty on every visit.
+
+Schema 8 caps equal the observer caps (enemy 32, projectile 64, obstacle 64, pickup 24, own
+attack 48, bomb 8, interactable 16; the encoder capacity is the same table, nearest first, cut
+counts in `source_overflow`). Room classes group `RoomType` values and serve doors and the
+minimap: normal (1), boss (5), treasure (4), shop (2), secret (7, 8, 29), curse (10), challenge
+(11, 17), devil_angel (14, 15), sacrifice (13), arcade (9), special (all others, such as library,
+planetarium, miniboss). A door is a fact the player sees: a door to a secret room that is still
+closed is a hidden wall and reads as absent. The wire frame is schema 6 and messages are bounded
+at 128 KiB (worst case measured: 76 KB Lua entity frame, 80 KB live snapshot, 105 KB Python
+extreme-number case). Episode rows carry `max_<kind>` and `overflow_<kind>` per kind for tuning
+the caps (metrics only). Positions are relative to the player and scaled; values are clipped with a
 counter. Oracle data (`room_index`, hidden enemy HP, door targets) is used only for reward and
 novelty keys and door labels and never enters the policy vector, normalizer or recurrent state.
 
@@ -106,9 +120,10 @@ was replaced and its lineage `pure-v1` retired; its config is in `archive/config
 
 ## Lineages
 
-`pure-v4` restarts with reward v9 and observation schema 7 (OpenSpec change
-`dense-exploration-reward-v9`); the reward v8 run is kept as `runs/pure-v4-reward-v8`. Its
-checkpoints are refused (reward contract `pure-v8`, schema 5, different contract hash).
+`pure-v4` restarts with reward v9 and observation schema 8 (OpenSpec changes
+`dense-exploration-reward-v9` and `rich-room-observation-v8`); the reward v8 run is kept as
+`runs/pure-v4-reward-v8`, the reward v9 schema 7 run as `runs/pure-v4-reward-v9-schema7`. Their
+checkpoints are refused (different contract hash).
 `ent_coef` returns to 0.005: the 0.01 trial did not raise entropy and did not help.
 
 `pure-v4` replaces `pure-v3` (OpenSpec change `pure-v4-map-hazards-and-stall`). After 15 hours
@@ -137,15 +152,21 @@ disconnects are infrastructure faults, never stalls, and are not learning outcom
 ## Continuous training
 
 `configs/training-pure-v4.yaml` (lineage `pure-v4`): the `contract` section (seed, algorithm, LSTM
-size, action repeat, observation/action/reward versions, use-head prior) is the lineage hash;
-`hyperparameters` may be tuned between sessions and are recorded per checkpoint.
+size, input projection width `features_dim`, action repeat, observation/action/reward versions,
+use-head prior) is the lineage hash; `hyperparameters` (n_steps 1024, batch size 256) may be
+tuned between sessions and are recorded per checkpoint. The projection exists because each LSTM
+applied its input matrix to the whole observation for every padded step: at observation size 7522
+one update took 55 s on CPU and takes about 7 s with it (`policy.py`, one helper for training,
+resume, evaluation and the checkpoint policy). The `live` section (`pause_during_updates`, not
+hashed) makes the live backend pause the game with Esc while each update and checkpoint run
+(`update_pause.py`); a failed pause is recorded in `events.jsonl` and never faults the session.
 Weights, optimizer state, normalizer and RNG always resume from `latest`. A
 checkpoint is published after every rollout; retention keeps the 5 newest plus
-every 200th (about one per 3 h; kept for rollback and frozen comparison). Each episode appends a row to `metrics/episodes.csv` (including use presses,
+every 100th (about one per 7 h at n_steps 1024; kept for rollback and frozen comparison). Each episode appends a row to `metrics/episodes.csv` (including use presses,
 half-hearts lost, steps to first room exit and first enemy damage). Each optimizer
 update appends a row to `metrics/train.csv`: SB3 train statistics (entropy,
 policy/value loss, approx KL, clip fraction, explained variance, learning rate,
-`n_updates`), the rollout action share per head and the timing (`rollout_seconds`, and `update_seconds` for the pause since the previous rollout). Episode rows also carry `enemies_killed` and `hits_*` (player hits by source), counted by the observer as metrics only.
+`n_updates`), the rollout action share per head and the timing (`rollout_seconds`, and `update_seconds` for the gap since the previous rollout, optimizer and checkpoint, and `pause_seconds` / `pause_ok` for the game pause around the update). Episode rows also carry `enemies_killed` and `hits_*` (player hits by source), counted by the observer as metrics only.
 
 ## Measuring progress
 

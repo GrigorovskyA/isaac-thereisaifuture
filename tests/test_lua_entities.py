@@ -1,21 +1,35 @@
 """Production Lua in a simulated room, using the installed JSON codec only."""
 
 import json
+import re
+from pathlib import Path
 
 import pytest
 from test_lua_observer import build_lua, handshake, snapshots, tick
 
 from isaac_threrisaifuture.encoding import encode
-from isaac_threrisaifuture.entities import EntitySnapshot
-from isaac_threrisaifuture.observation import CAPABILITIES, decode
+from isaac_threrisaifuture.entities import (
+    ENTITY_CAPS,
+    ENTITY_KINDS,
+    INTERACTABLE_CLASSES,
+    OBSTACLE_CLASSES,
+    EntitySnapshot,
+)
+from isaac_threrisaifuture.observation import CAPABILITIES, MAX_MESSAGE_BYTES, decode
+
+WIRE_LIMIT = 131072  # Config.max_bytes in main.lua and MAX_MESSAGE_BYTES
 
 STUBS = """
 EntityType={ ENTITY_PLAYER=1, ENTITY_TEAR=2, ENTITY_FAMILIAR=3, ENTITY_BOMB=4,
- ENTITY_PICKUP=5, ENTITY_LASER=7, ENTITY_KNIFE=8, ENTITY_PROJECTILE=9, ENTITY_FIREPLACE=33 }
+ ENTITY_PICKUP=5, ENTITY_SLOT=6, ENTITY_LASER=7, ENTITY_KNIFE=8, ENTITY_PROJECTILE=9,
+ ENTITY_FIREPLACE=33, ENTITY_EFFECT=1000 }
 -- GRID_ROCK_GOLD is deliberately absent: a missing enum name must be skipped.
 GridEntityType={ GRID_ROCK=2, GRID_ROCKB=3, GRID_PIT=7, GRID_SPIKES=8, GRID_SPIKES_ONOFF=9,
  GRID_TNT=12, GRID_POOP=14, GRID_WALL=15, GRID_DOOR=16, GRID_ROCKT=17, GRID_ROCK_BOMB=18,
- GRID_ROCK_ALT=19, GRID_ROCK_ALT2=20, GRID_ROCK_SPIKED=21, GRID_ROCK_SS=22 }
+ GRID_ROCK_ALT=19, GRID_ROCK_ALT2=20, GRID_ROCK_SPIKED=21, GRID_ROCK_SS=22,
+ GRID_TRAPDOOR=30, GRID_STAIRS=31, GRID_PRESSURE_PLATE=32, GRID_LOCK=33, GRID_TELEPORTER=34 }
+GridCollisionClass={ COLLISION_NONE=0, COLLISION_PIT=1, COLLISION_OBJECT=2, COLLISION_SOLID=3,
+ COLLISION_WALL=4, COLLISION_WALL_EXCEPT_PLAYER=5 }
 ROOM_ENTITIES, GRID_ENTITIES = {}, {}
 GRID_SIZE, SCANS, GRID_SCANS = 135, 0, 0
 -- Row-major interior cell n (0-based) of the default 15x9 grid; the border ring is skipped.
@@ -105,12 +119,12 @@ def test_default_observation_never_scans_entities(room):
 
 
 def test_source_overflow_selects_nearest_and_counts_dropped_entities(room):
-    room.execute("for i=1,30 do ROOM_ENTITIES[i]=make_entity(i,100+i,200,10) end")
+    room.execute("for i=1,50 do ROOM_ENTITIES[i]=make_entity(i,100+i,200,10) end")
     connect(room)
     state = frames(room)[-1].entity_frame
-    assert len(state.entities) == 12
+    assert len(state.entities) == 32
     assert state.source_overflow == {"enemy": 18}
-    assert [e.position.x for e in state.entities] == list(range(1, 13))
+    assert [e.position.x for e in state.entities] == list(range(1, 33))
     assert encode(state).overflow == {"enemy": 18}
 
 
@@ -174,9 +188,9 @@ def test_empty_arrays_use_codec_array_marker(room):
     assert state.entities == [] and state.source_overflow == {}
 
 
-def test_mixed_capacity_frame_fits_existing_wire_limit(room):
+def test_mixed_capacity_frame_fits_the_wire_limit(room):
     room.execute("""
-      for i=1,30 do
+      for i=1,80 do
         ROOM_ENTITIES[#ROOM_ENTITIES+1]=make_entity(i,100+i,200,10)
         ROOM_ENTITIES[#ROOM_ENTITIES+1]=make_entity(i+30,100+i,200,9)
         ROOM_ENTITIES[#ROOM_ENTITIES+1]=make_entity(i+60,100+i,200,5)
@@ -186,9 +200,16 @@ def test_mixed_capacity_frame_fits_existing_wire_limit(room):
     connect(room)
     tick(room, 20)
     state = frames(room)[-1].entity_frame
-    assert len(state.entities) == 64
-    assert state.source_overflow == {"enemy": 18, "projectile": 10, "obstacle": 6, "pickup": 22}
-    assert max(len(line.encode()) for line in room.globals().OUTGOING.split("\n")[:-1]) <= 49152
+    assert len(state.entities) == 32 + 64 + 64 + 24
+    assert state.source_overflow == {
+        "enemy": 48,
+        "projectile": 16,
+        "obstacle": 16,
+        "pickup": 56,
+    }
+    assert (
+        max(len(line.encode()) for line in room.globals().OUTGOING.split("\n")[:-1]) <= WIRE_LIMIT
+    )
 
 
 @pytest.mark.parametrize("extra", [["death_restart_v1"], ["safe_actions_v1"]])
@@ -223,7 +244,9 @@ def test_inventory_room_and_pickup_facts_are_read_and_clamped(room):
     assert (inv.active_item, inv.active_charge, inv.active_max_charge) == (33, 24, 6)
     assert (inv.card, inv.pill, inv.trinket) == (5, 2, 7)
     assert (state.room.type, state.room.stage, state.room.stage_type) == (5, 3, 1)
-    assert state.room.doors == [True, False, False, False, True, False, False, False]
+    doors = state.room.doors
+    assert [d is not None for d in doors] == [True, True, False, False, True, False, False, False]
+    assert [d.open for d in doors if d is not None] == [True, False, True]
 
 
 def test_missing_item_config_and_no_active_item_read_as_zero_charge(room):
@@ -278,33 +301,49 @@ def test_empty_collectibles_use_the_array_marker(room):
 
 
 def fill_worst_case(lua):
-    """Every capacity full, widest numbers, 256 four-digit collectible IDs."""
+    """Every capacity overfull, widest numbers, 256 four-digit collectible IDs, 8 locked doors."""
     lua.execute("""
       ITEM_SIZE=1025
       for i=769,1024 do HELD[i]=true end
-      for i=1,30 do
-        for n, kind in ipairs({10, 9, 5}) do
-          local e=make_entity(i+30*n,-700.123+i,-600.456,kind)
+      for n, spec in ipairs({ {10, 40}, {9, 80}, {5, 30} }) do   -- enemies, shots, pickups
+        for i=1,spec[2] do
+          local e=make_entity(i+100*n,-700.123+i,-600.456,spec[1])
           e.Velocity, e.Variant, e.SubType, e.Price = {X=-12.345,Y=-12.345}, 1023, 1024, -999
+          if n == 1 then   -- widest enemy identity facts
+            e.Type, e.Variant, e.MaxHitPoints, e.GridCollisionClass = 1000, 4095, 999999.987, 0
+            e.IsBoss=function() return true end
+            e.ToNPC=function(self) return { IsChampion=function() return true end } end
+            e.IsVulnerableEnemy=function() return false end
+          end
           ROOM_ENTITIES[#ROOM_ENTITIES+1]=e
         end
-        GRID_ENTITIES[interior(i-1)]=make_grid(17,-700.123+i,-600.456)
-        local f=make_entity(400+i,-700.123+i,-600.456,33)
+      end
+      for i=1,70 do
+        local f=make_entity(900+i,-700.123+i,-600.456,33)
         f.HitPoints, f.MaxHitPoints = 99999.987, 99999.987
         ROOM_ENTITIES[#ROOM_ENTITIES+1]=f
       end
       COINS, BOMBS, KEYS, ACTIVE, CHARGE, MAX_CHARGES = 999, 999, 999, 1024, 24, 24
       CARD, PILL, TRINKET, ROOM_TYPE, STAGE, STAGE_TYPE = 65535, 65535, 65535, 31, 15, 7
-      -- Own attacks and bombs overfill their caps; every flag and weapon on; widest stats.
-      for i=1,20 do
-        local a=make_entity(200+i,-700.123+i,-600.456,2)
+      -- Own attacks, bombs and interactables overfill their caps; every flag and weapon on.
+      for i=1,60 do
+        local a=make_entity(1200+i,-700.123+i,-600.456,2)
         a.SpawnerType, a.Velocity = 1, {X=-12.345,Y=-12.345}
         ROOM_ENTITIES[#ROOM_ENTITIES+1]=a
       end
-      for i=1,6 do
-        local b=make_entity(300+i,-700.123+i,-600.456,4)
+      for i=1,12 do
+        local b=make_entity(1300+i,-700.123+i,-600.456,4)
         b.FrameCount, b.Velocity = 99999, {X=-12.345,Y=-12.345}
         ROOM_ENTITIES[#ROOM_ENTITIES+1]=b
+      end
+      for i=1,20 do
+        local m=make_entity(1400+i,-700.123+i,-600.456,6)
+        m.Variant, m.Velocity = 2, {X=-12.345,Y=-12.345}
+        ROOM_ENTITIES[#ROOM_ENTITIES+1]=m
+      end
+      for slot=0,7 do
+        DOORS[slot] = { open=true, locked=true, type=31, target=100+slot }
+        ROOM_DESCS[100+slot] = make_desc(100+slot, 1, 1, 9, 0)
       end
       ROOM_SHAPE, ROOM_INDEX = 12, 168
       for g=0,167 do MAP_ROOMS[#MAP_ROOMS+1]=make_desc(g, 12, 31, 99999, 0x7fffffff) end
@@ -320,14 +359,37 @@ def test_maximal_snapshot_stays_below_the_wire_limit(room):
     connect(room)
     tick(room, 20)
     state = latest(room)
-    assert len(state.collectibles) == 256 and len(state.entities) == 84
+    assert len(state.collectibles) == 256 and len(state.entities) == 256
     assert len(state.map) == 64 and state.room.shape == 12
+    assert all(d is not None and d.locked and d.target_visited for d in state.room.doors)
     kinds = [e.kind for e in state.entities]
-    assert (kinds.count("own_attack"), kinds.count("bomb")) == (16, 4)
-    assert state.source_overflow["own_attack"] == 4 and state.source_overflow["bomb"] == 2
+    assert dict.fromkeys(ENTITY_CAPS, 0) | {k: kinds.count(k) for k in ENTITY_CAPS} == ENTITY_CAPS
+    assert state.source_overflow == {
+        "enemy": 8,
+        "projectile": 16,
+        "obstacle": 6,
+        "pickup": 6,
+        "own_attack": 12,
+        "bomb": 4,
+        "interactable": 4,
+    }
     sizes = [len(line.encode()) for line in room.globals().OUTGOING.split("\n")[:-1]]
     print("worst-case lua snapshot bytes:", max(sizes))
-    assert sizes and max(sizes) < 49152
+    assert sizes and max(sizes) < WIRE_LIMIT - 16384  # keeps a margin of 16 KiB
+
+
+def test_lua_limit_and_caps_match_the_python_side():
+    source = (Path(__file__).resolve().parents[1] / "mod/observer/main.lua").read_text("utf-8")
+    assert int(re.search(r"max_bytes = (\d+)", source).group(1)) == MAX_MESSAGE_BYTES == WIRE_LIMIT
+    block = re.search(r"local entity_caps = \{(.*?)\}", source, re.S).group(1)
+    assert {k: int(v) for k, v in re.findall(r"(\w+)=(\d+)", block)} == ENTITY_CAPS
+    kinds = re.search(r"local entity_kinds = \{(.*?)\}", source, re.S).group(1)
+    assert tuple(re.findall(r'"(\w+)"', kinds)) == ENTITY_KINDS
+    grid = re.search(r"local OBSTACLE_NAMES = \{(.*?)\n\}", source, re.S).group(1)
+    assert set(re.findall(r'=\s*"(\w+)"', grid)) <= set(OBSTACLE_CLASSES)
+    slots = re.search(r"local SLOT_GROUPS = \{(.*?)\n\}", source, re.S).group(1)
+    groups = set(re.findall(r'"(\w+)" \}', slots)) | {"other_slot", "heaven_door"}
+    assert groups == set(INTERACTABLE_CLASSES)
 
 
 def test_stats_are_read_derived_and_clamped(room):
@@ -415,11 +477,11 @@ def test_bombs_carry_a_growing_clamped_age_and_are_not_pickups(room):
 
 def test_own_attack_and_bomb_caps_keep_the_nearest_and_count_overflow(room):
     room.execute("""
-      for i=1,20 do
+      for i=1,60 do
         local a = make_entity(i,100+i*10,200,2); a.SpawnerType = 1
         ROOM_ENTITIES[#ROOM_ENTITIES+1] = a
       end
-      for i=1,6 do
+      for i=1,12 do
         local b = make_entity(100+i,100+i*10,200,4)
         ROOM_ENTITIES[#ROOM_ENTITIES+1] = b
       end
@@ -428,8 +490,8 @@ def test_own_attack_and_bomb_caps_keep_the_nearest_and_count_overflow(room):
     state = latest(room)
     own = [e.position.x for e in state.entities if e.kind == "own_attack"]
     bombs = [e.position.x for e in state.entities if e.kind == "bomb"]
-    assert own == [10.0 * i for i in range(1, 17)] and bombs == [10.0, 20.0, 30.0, 40.0]
-    assert state.source_overflow == {"own_attack": 4, "bomb": 2}
+    assert own == [10.0 * i for i in range(1, 49)] and bombs == [10.0 * i for i in range(1, 9)]
+    assert state.source_overflow == {"own_attack": 12, "bomb": 4}
 
 
 def test_lua_frame_encodes_stats_flags_and_weapons_into_the_vector(room):
@@ -505,14 +567,15 @@ def test_fireplace_is_a_fire_obstacle_not_an_enemy(room):
     ]
 
 
-def test_obstacle_cap_is_24_with_overflow(room):
+def test_obstacle_cap_is_64_with_overflow_keeping_the_nearest(room):
     room.execute("""
-      for n=0,29 do GRID_ENTITIES[interior(n)]=make_grid(2,n+1,0) end
+      for n=0,69 do GRID_ENTITIES[interior(n)]=make_grid(2,n+1,0) end
     """)
     connect(room)
     state = latest(room)
-    assert len(state.entities) == 24
+    assert len(state.entities) == 64
     assert state.source_overflow == {"obstacle": 6}
+    assert [e.position.x for e in state.entities] == [float(n + 1 - 100) for n in range(69, 5, -1)]
 
 
 def test_room_shape_is_exported_and_clamped(room):
@@ -569,6 +632,6 @@ def test_minimap_cap_64_and_scan_bound(room):
     assert frames(room)[-1].status == "unavailable"
 
 
-def test_entity_frame_is_schema_5(room):
+def test_entity_frame_is_schema_6(room):
     connect(room)
-    assert latest(room).observation_schema_version == 5
+    assert latest(room).observation_schema_version == 6

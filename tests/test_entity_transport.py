@@ -115,8 +115,8 @@ def test_entity_opt_in_cannot_enable_control(option):
 
 
 def test_source_and_encoder_overflow_are_combined():
-    encoded = encode(frame([enemy(i, i, 0) for i in range(20)], source_overflow={"enemy": 7}))
-    assert encoded.overflow == {"enemy": 11}
+    encoded = encode(frame([enemy(i, i, 0) for i in range(40)], source_overflow={"enemy": 7}))
+    assert encoded.overflow == {"enemy": 15}
 
 
 def test_old_peer_cannot_silently_downgrade_entity_mode(peers):

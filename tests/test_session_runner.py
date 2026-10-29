@@ -605,6 +605,7 @@ def test_worker_stops_learner_before_the_lease_expires(tmp_path, monkeypatch):
     output.mkdir()
     payload = {
         "options": {
+            "game": str(tmp_path / "game"),
             "output": str(output),
             "run_root": str(tmp_path),
             "config": "c.yaml",
@@ -621,6 +622,8 @@ def test_worker_stops_learner_before_the_lease_expires(tmp_path, monkeypatch):
     monkeypatch.setattr(runner, "run_live", lambda options, on_record: received.update(o=options))
     runner.worker(path)
     assert received["o"].session_deadline == 1000.0 - runner.STOP_MARGIN_SECONDS
+    # The worker owns the bridge, so it gets its own guarded keyboard for update pauses.
+    assert isinstance(received["o"].keyboard, runner.LazyWindowsMenu)
 
 
 # --- frozen evaluation sessions ------------------------------------------------------------
@@ -714,7 +717,8 @@ def test_worker_passes_evaluate_mode_and_checkpoint(tmp_path, monkeypatch):
     checkpoint = tmp_path / "train" / "checkpoints" / "t1"
     payload = {
         "options": {
-            "output": str(output), "run_root": str(tmp_path / "eval"), "config": "c.yaml",
+            "game": str(tmp_path / "game"), "output": str(output),
+            "run_root": str(tmp_path / "eval"), "config": "c.yaml",
             "seed": 1, "steps": runner.TIME_ONLY_STEPS, "seconds": 600, "resume": False,
             "evaluation": {"policy": "checkpoint", "checkpoint": str(checkpoint)},
         },

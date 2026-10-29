@@ -20,6 +20,7 @@ import numpy as np
 from stable_baselines3.common.callbacks import BaseCallback
 
 from .episodes import DIRECTIONS, USES
+from .update_pause import UpdatePauseCallback
 
 LOGGER = logging.getLogger(__name__)
 STATS = (
@@ -41,11 +42,17 @@ SHARES = tuple(f"{head}_{name}" for head, names in HEADS for name in names)
 # of a live backend during the rollout; snapshots_per_step: snapshots taken per env step. All
 # three are empty for backends without timing counters.
 BRIDGE_TIMING = ("game_wait_seconds", "command_seconds", "snapshots_per_step")
+# pause_seconds: time the game stood still around the update; pause_ok: 1 when it was paused and
+# resumed cleanly, else 0. Both are empty when pausing is off or the backend cannot pause.
+PAUSE = ("pause_seconds", "pause_ok")
 TIMING = ("rollout_seconds", "update_seconds", *BRIDGE_TIMING)
-TRAIN_FIELDS = ("wall_time", "timesteps", "rollout_index", *TIMING, *STATS, *SHARES)
-# Header of files written before the bridge timing columns; such files are rewritten once with
-# the full header, old rows keeping empty timing cells.
-LEGACY_FIELDS = tuple(name for name in TRAIN_FIELDS if name not in BRIDGE_TIMING)
+TRAIN_FIELDS = ("wall_time", "timesteps", "rollout_index", *TIMING, *PAUSE, *STATS, *SHARES)
+# Headers of older files; such files are rewritten once with the full header, old rows keeping
+# empty cells. The oldest has no bridge timing columns, the next no pause columns.
+LEGACY_HEADERS = (
+    tuple(name for name in TRAIN_FIELDS if name not in BRIDGE_TIMING and name not in PAUSE),
+    tuple(name for name in TRAIN_FIELDS if name not in PAUSE),
+)
 
 
 def action_shares(actions: Any) -> dict[str, float]:
@@ -61,10 +68,16 @@ def action_shares(actions: Any) -> dict[str, float]:
 
 
 class TrainMetricsCallback(BaseCallback):
-    def __init__(self, path: Path, clock: Callable[[], float] = time.monotonic) -> None:
+    def __init__(
+        self,
+        path: Path,
+        clock: Callable[[], float] = time.monotonic,
+        pause: UpdatePauseCallback | None = None,
+    ) -> None:
         super().__init__()
         self.path = path
         self._clock = clock
+        self._pause = pause
         self._rollout_start: float | None = None
         self._last_end: float | None = None
         self._update_seconds: float | None = None
@@ -75,7 +88,7 @@ class TrainMetricsCallback(BaseCallback):
             if path.exists() and path.stat().st_size > 0:
                 with path.open(encoding="utf-8", newline="") as handle:
                     rows = list(csv.reader(handle))
-                if rows[0] == list(LEGACY_FIELDS):
+                if tuple(rows[0]) in LEGACY_HEADERS:
                     self._upgrade(rows)
                 elif rows[0] != list(TRAIN_FIELDS):
                     raise ValueError(f"Existing metrics file has a different header: {path}")
@@ -140,6 +153,10 @@ class TrainMetricsCallback(BaseCallback):
             for name in STATS:
                 value = logged.get(f"train/{name}")
                 row[name] = None if value is None else float(value)
+            if self._pause is not None and self._pause.last is not None:
+                row["pause_seconds"] = self._pause.last.seconds
+                row["pause_ok"] = int(self._pause.last.ok)
+                self._pause.last = None
             row["wall_time"] = datetime.now(UTC).isoformat(timespec="seconds")
             self._append(row)
             self._index += 1
@@ -147,14 +164,14 @@ class TrainMetricsCallback(BaseCallback):
             self._fail(error)
 
     def _upgrade(self, rows: list[list[str]]) -> None:
-        """Rewrite an old-header file with the full header; old rows get empty timing cells."""
+        """Rewrite an old-header file with the full header; old rows get empty new cells."""
         temporary = self.path.with_name(self.path.name + ".upgrade")
         with temporary.open("w", encoding="utf-8", newline="") as handle:
             writer = csv.DictWriter(
                 handle, fieldnames=TRAIN_FIELDS, restval="", lineterminator="\n"
             )
             writer.writeheader()
-            writer.writerows(dict(zip(LEGACY_FIELDS, row, strict=True)) for row in rows[1:])
+            writer.writerows(dict(zip(rows[0], row, strict=True)) for row in rows[1:])
         os.replace(temporary, self.path)
 
     def _append(self, row: dict[str, Any]) -> None:

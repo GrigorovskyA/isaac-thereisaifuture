@@ -276,7 +276,7 @@ class SyntheticRoomBackend:
                 stage=1,
                 stage_type=0,
                 clear=not self._enemies,
-                doors=[False] * 8,
+                doors=[None] * 8,
                 shape=1,
             ),
             map=[MapRoom(grid_index=84, shape=1, visited=True, current=True, room_type=1)],

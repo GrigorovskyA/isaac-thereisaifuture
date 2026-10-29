@@ -1,38 +1,50 @@
 """Versioned policy-visible entity frames and the separate oracle event type."""
 
-from typing import Annotated, Literal, Self
+from typing import Annotated, Literal, Self, get_args
 
 from pydantic import Field, model_validator
 
 from .observation import Counter, Health, SessionId, Snapshot, WireModel
 
-# The wire frame stays at schema 5; policy observation schema 6 adds a visited-cells block that
-# the encoder builds from successive frames (see encoding.VisitedCells).
-FRAME_SCHEMA_VERSION = 5
-OBSERVATION_SCHEMA_VERSION = 7
-ORACLE_SCHEMA_VERSION = 1  # oracle events are unchanged by observation schema 6
-MAX_FRAME_BYTES = 65536
-# Observer caps: 12 enemies, 20 projectiles, 24 obstacles, 8 pickups, 16 own attacks, 4 bombs.
-MAX_ENTITIES = 84
+# Wire frame schema 6 (observation schema 8) adds the `interactable` kind, door facts and the
+# trapdoor, crawlspace, pressure plate, lock block and teleporter obstacle classes, and enemy
+# identity facts (type, variant, max HP, boss, champion, flying, invulnerable). Policy
+# observation schemas 6-8 also add encoder-side blocks built from successive frames or from
+# grouped room types (see encoding.py).
+FRAME_SCHEMA_VERSION = 6
+OBSERVATION_SCHEMA_VERSION = 8
+ORACLE_SCHEMA_VERSION = 1  # oracle events are unchanged by observation schema 8
+MAX_FRAME_BYTES = 131072
 MAX_MAP_ROOMS = 64
 LEVEL_GRID_CELLS = 169  # 13 x 13 level grid
-MAX_PICKUPS = 8
 MAX_COLLECTIBLES = 256
 COLLECTIBLE_ID_MAX = 1024
 DOOR_SLOTS = 8
 BOSS_ROOM_TYPE = 5  # RoomType.ROOM_BOSS in RoomFacts.type and MapRoom.room_type
 Coord = Annotated[float, Field(ge=-1e5, le=1e5)]
 BOMB_AGE_MAX = 10000
-EntityKind = Literal["enemy", "projectile", "obstacle", "pickup", "own_attack", "bomb"]
-ENTITY_KINDS: tuple[EntityKind, ...] = (
-    "enemy",
-    "projectile",
-    "obstacle",
-    "pickup",
-    "own_attack",
-    "bomb",
-)
-# Obstacle classes in wire and encoding order; the observer maps grid types by name.
+NPC_TYPE_MAX = 1000  # EntityType of an enemy
+NPC_VARIANT_MAX = 4095
+EntityKind = Literal[
+    "enemy", "projectile", "obstacle", "pickup", "own_attack", "bomb", "interactable"
+]
+ENTITY_KINDS: tuple[EntityKind, ...] = get_args(EntityKind)
+# Observer caps per kind, nearest first. mod/observer/main.lua `entity_caps` repeats them and
+# the encoder capacity is this table; a test compares the Lua caps.
+ENTITY_CAPS: dict[EntityKind, int] = {
+    "enemy": 32,
+    "projectile": 64,
+    "obstacle": 64,
+    "pickup": 24,
+    "own_attack": 48,
+    "bomb": 8,
+    "interactable": 16,
+}
+MAX_ENTITIES = sum(ENTITY_CAPS.values())
+MAX_PICKUPS = ENTITY_CAPS["pickup"]
+# Obstacle classes in wire and encoding order; the observer maps grid types by name. The last
+# five before `wall` are floor features and exits: trapdoor (next floor), crawlspace stairs,
+# pressure plate, key lock block and teleporter.
 OBSTACLE_CLASSES = (
     "rock",
     "marked_rock",
@@ -43,6 +55,11 @@ OBSTACLE_CLASSES = (
     "poop",
     "tnt",
     "fire",
+    "trapdoor",
+    "crawlspace",
+    "pressure_plate",
+    "lock_block",
+    "teleporter",
     "wall",
     "other",
 )
@@ -56,9 +73,39 @@ ObstacleClass = Literal[
     "poop",
     "tnt",
     "fire",
+    "trapdoor",
+    "crawlspace",
+    "pressure_plate",
+    "lock_block",
+    "teleporter",
     "wall",
     "other",
 ]
+# Interactable classes: slot machines and beggars by SlotVariant group, plus the light door
+# that opens after a boss (heaven_door).
+INTERACTABLE_CLASSES = (
+    "slot_machine",
+    "beggar",
+    "blood_donation",
+    "fortune_teller",
+    "restock_box",
+    "crane",
+    "other_slot",
+    "heaven_door",
+)
+InteractableClass = Literal[
+    "slot_machine",
+    "beggar",
+    "blood_donation",
+    "fortune_teller",
+    "restock_box",
+    "crane",
+    "other_slot",
+    "heaven_door",
+]
+assert get_args(ObstacleClass) == OBSTACLE_CLASSES
+assert get_args(InteractableClass) == INTERACTABLE_CLASSES
+assert tuple(ENTITY_CAPS) == ENTITY_KINDS
 # Fixed wire order of the boolean lists; the Lua observer uses the same order.
 TEAR_FLAG_NAMES = (
     "spectral",
@@ -129,11 +176,47 @@ class Entity(WireModel):
     age_frames: Annotated[int, Field(ge=0, le=BOMB_AGE_MAX)] | None = None
     # Obstacles only: what the obstacle is.
     obstacle_class: ObstacleClass | None = None
+    # Interactables only: what the machine, beggar or door is.
+    interactable_class: InteractableClass | None = None
+    # Enemies only: identity and static facts, all seven together or none (identity unknown).
+    # `npc_type` and `npc_variant` are EntityType and Variant; `npc_max_hp` is the full health
+    # (current enemy HP stays unknown). The flags are rules of the observer, see the protocol doc.
+    npc_type: Annotated[int, Field(ge=0, le=NPC_TYPE_MAX)] | None = None
+    npc_variant: Annotated[int, Field(ge=0, le=NPC_VARIANT_MAX)] | None = None
+    npc_max_hp: Annotated[float, Field(ge=0, le=1e6)] | None = None
+    boss: bool | None = None
+    champion: bool | None = None
+    flying: bool | None = None
+    invulnerable: bool | None = None
 
     @model_validator(mode="after")
     def obstacle_typed(self) -> Self:
         if (self.kind == "obstacle") != (self.obstacle_class is not None):
             raise ValueError("Exactly obstacles carry obstacle_class")
+        return self
+
+    @model_validator(mode="after")
+    def interactable_typed(self) -> Self:
+        if (self.kind == "interactable") != (self.interactable_class is not None):
+            raise ValueError("Exactly interactables carry interactable_class")
+        return self
+
+    @model_validator(mode="after")
+    def enemy_identity(self) -> Self:
+        facts = (
+            self.npc_type,
+            self.npc_variant,
+            self.npc_max_hp,
+            self.boss,
+            self.champion,
+            self.flying,
+            self.invulnerable,
+        )
+        if any(value is not None for value in facts):
+            if self.kind != "enemy":
+                raise ValueError("Only enemies carry identity facts")
+            if any(value is None for value in facts):
+                raise ValueError("Enemy identity facts go together")
         return self
 
     @model_validator(mode="after")
@@ -186,14 +269,27 @@ class Stats(WireModel):
     luck: Annotated[float, Field(ge=-100, le=100)]
 
 
+class DoorFacts(WireModel):
+    """One door the player can see. `target_type` is the RoomType behind it (None if unread).
+
+    A door to a secret, super secret or ultra secret room that is still closed is hidden in the
+    game and is not reported at all (its slot is None in `RoomFacts.doors`).
+    """
+
+    open: bool
+    locked: bool  # needs a key
+    target_type: Annotated[int, Field(ge=0, le=31)] | None
+    target_visited: bool  # the room behind the door has been entered
+
+
 class RoomFacts(WireModel):
-    """Observed room facts: type, floor, clear flag and open doors by slot."""
+    """Observed room facts: type, floor, clear flag and the visible doors by slot (or None)."""
 
     type: Annotated[int, Field(ge=0, le=31)]
     stage: Annotated[int, Field(ge=0, le=15)]
     stage_type: Annotated[int, Field(ge=0, le=7)]
     clear: bool
-    doors: Annotated[list[bool], Field(min_length=DOOR_SLOTS, max_length=DOOR_SLOTS)]
+    doors: Annotated[list[DoorFacts | None], Field(min_length=DOOR_SLOTS, max_length=DOOR_SLOTS)]
     shape: Annotated[int, Field(ge=1, le=12)]  # room:GetRoomShape()
 
 
@@ -212,7 +308,7 @@ class EntityFrame(WireModel):
     """Policy-visible state only. Hidden map data and reward labels do not belong here."""
 
     type: Literal["entity_frame"] = "entity_frame"
-    observation_schema_version: Literal[5] = 5  # FRAME_SCHEMA_VERSION
+    observation_schema_version: Literal[6] = 6  # FRAME_SCHEMA_VERSION
     provenance: Literal["synthetic", "game_api"]
     session_id: SessionId
     game_epoch: Counter

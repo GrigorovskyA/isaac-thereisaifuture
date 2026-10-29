@@ -8,7 +8,11 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 - Pure self-learning since 2026-10-22 ([decision](UPDATE_DECISION.md)). RecurrentPPO
   learns from raw facts and outcome rewards, plus one potential-based door term since
   reward v9: no scripted setup, advice features or technique rewards. Archive content is history, not runtime authority.
-- Current lineage: `pure-v4`, observation schema 7, reward contract `pure-v9`.
+- Next lineage (offline only, not deployed): observation schema 8, reward v9 unchanged,
+  input projection 512, n_steps 1024, game paused during updates; contract
+  `b26db425...`. It restarts with `--initialize` after an observer redeploy; the schema 7 run
+  is to be preserved as `runs/pure-v4-reward-v9-schema7`.
+- Last native lineage: `pure-v4`, observation schema 7, reward contract `pure-v9`.
   One-hour qualification ended cleanly October 28 at 19:33 CET, checkpoint t13824.
   Measured geometry/door checks passed. User stopped continuation October 29 at 10:36 CET
   at `3cb9d928-s1-t204800`; stop.forever remains, all processes/listener/approval cleared.
@@ -22,6 +26,18 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
   `runs/pure-v4-reward-v8`. The reward-v7 run is preserved as `runs/pure-v4-reward-v7`. The reward-v5 trial is preserved separately as
   `runs/pure-v4-pre`; it is not resumed.
 - Active changes (not archived):
+  - `rich-room-observation-v8`: door facts per slot (exists, open, locked, target room class,
+    target visited), 11 room classes on doors and minimap, trapdoor/crawlspace/pressure
+    plate/lock block/teleporter grid classes, `interactable` kind (slot machines, beggars,
+    blood donation, fortune teller, restock box, crane, heaven door), enemy identity (64-bucket
+    type/variant one-hot, boss, champion, flying, invulnerable, max HP), caps enemy 32,
+    projectile 64, obstacle 64, pickup 24, own attack 48, bomb 8, interactable 16, transport
+    cap 128 KiB, per-kind `max_*`/`overflow_*` and `enemy_kinds` episode metrics. 9762 floats.
+    Offline gate passed; several Isaac API names are unverified natively (task 2.2).
+  - `paused-updates-and-input-projection`: shared Linear(obs, 512) + ReLU before the LSTMs
+    (one update 55 s -> 7 s at 9762 inputs and 1024 steps, local benchmark), n_steps 1024,
+    batch 256, Esc pause around each update (`live.pause_during_updates`), `pause_seconds`
+    and `pause_ok` in train.csv. Offline gate passed; native hour open.
   - `dense-exploration-reward-v9`: denser exploration and run-goal rewards (novelty 0.1,
     new room 5, new floor 30, boss clear +20, pickups up), potential-based door shaping
     (coefficient 2, clear rooms only) from new oracle `doors`, and a 26x14 visited-cell map
@@ -126,29 +142,34 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Next
 
-1. V9 schema 6 hour stopped cleanly at 17:23 CET on October 28. Its 1x1 cells were
+1. Windows: Check.ps1; redeploy observer `main.lua` and `metadata.xml`; rename `runs\pure-v4`
+   to `runs\pure-v4-reward-v9-schema7`; one-hour `--initialize` with the schema 8 and pause
+   checks; then continuous training compared with the schema 7 run at equal steps. Schema 7
+   reached kills_1k 10.2, clears_1k 1.36, 94% start-room exits and 2.17 rooms per episode
+   at 180-205k steps; update pauses had a 25 s median with the game running.
+2. V9 schema 6 hour stopped cleanly at 17:23 CET on October 28. Its 1x1 cells were
    floor(world / 40), so 27.9% of samples fell outside the 13x7 tile region. Fixed in schema 7
    (tiles from the room corner; novelty cells too). That lineage is preserved under
    `runs/pure-v4-reward-v9-schema6` with stop.forever and verified checkpoint hashes.
    Schema 7 qualification is running; require <=about 1% outside 13x7, at doorways only.
    Lua was not redeployed; preflight hashes matched. No automatic retry or fix if blocked.
-2. The ent_coef=0.01 trial ended at t588288 on October 28 at the user's request.
+3. The ent_coef=0.01 trial ended at t588288 on October 28 at the user's request.
    Both legs exited 0 with empty cleanup errors and no fault. stop.forever remains;
    recurring monitoring was deleted and the October 29 deadline is superseded.
    Minimum 40-rollout use_none mean was 0.5313; its 0.40 guard never fired.
    [Combined final report](../reports/2026-10-29-pure-v8-ent001-overnight.md).
-3. A bounded two-instance launch probe observed only one persistent game; direct second
+4. A bounded two-instance launch probe observed only one persistent game; direct second
    launch exited 53. Four-instance gameplay and shared-learner training remain untested.
    [Probe evidence and current architectural limits](../reports/2026-10-28-isaac-parallel-instance-probe.md).
-4. Frozen t270336 evaluation passed kills/clears conditions, but stalled-step share failed;
+5. Frozen t270336 evaluation passed kills/clears conditions, but stalled-step share failed;
    task 2.3 remains open. [Evaluation](../reports/2026-10-27-pure-v8-t270336-frozen-eval.md).
-5. Before parallel training, establish independent game launch, save/profile handling,
+6. Before parallel training, establish independent game launch, save/profile handling,
    per-instance bridge ports and process ownership, then a vectorized single learner.
-6. STOP_MARGIN_SECONDS=15 produced clean one-hour deadlines; native eight-hour
+7. STOP_MARGIN_SECONDS=15 produced clean one-hour deadlines; native eight-hour
    rollover succeeded on 2026-10-25; a later recovered fault blocked the following one. Evaluation display can stay waiting after a long episode
    (record separately). Dashboard views passed the offline gate, interactive
    acceptance was not run.
-7. Keep old lineages and pure-v4-pre preserved. Generic player_damaged event sources
+8. Keep old lineages and pure-v4-pre preserved. Generic player_damaged event sources
    are hardcoded enemy; use native hits_* counters for source aggregates.
 
 ## Navigation

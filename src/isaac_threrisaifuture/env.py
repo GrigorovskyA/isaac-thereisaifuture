@@ -13,7 +13,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from .encoding import OBSERVATION_SIZE, VisitedCells, encode
-from .entities import EntityFrame, OracleDoor, OracleEvent
+from .entities import ENTITY_KINDS, EntityFrame, EntityKind, OracleDoor, OracleEvent
 from .episodes import (
     ACTION_NVEC,
     HIT_FIELDS,
@@ -109,6 +109,7 @@ class IsaacCombatEnv(gym.Env[NDArray[np.float32], NDArray[np.int64]]):
         self._start_room: int | None = None
         self._idle_seconds = 0.0  # stall watchdog idle clock at the previous step
         self._visited = VisitedCells()  # run-long; a new session or game epoch clears it
+        self._reset_cap_stats()
 
     def _backend_idle_seconds(self) -> float:
         """Idle clock of the stall watchdog; backends without one report 0.0."""
@@ -132,6 +133,7 @@ class IsaacCombatEnv(gym.Env[NDArray[np.float32], NDArray[np.int64]]):
         self._return = 0.0
         self._columns = {}
         self._facts = _new_facts()
+        self._reset_cap_stats()
         self._start_room = transition.room_index
         self._idle_seconds = self._backend_idle_seconds()
         if self.accountant is not None:
@@ -195,10 +197,10 @@ class IsaacCombatEnv(gym.Env[NDArray[np.float32], NDArray[np.int64]]):
             self._columns[name] = self._columns.get(name, 0.0) + value
         info = self._info(transition)
         info["reward_components"] = components
+        obs = self._observe(transition.frame, info)  # before the summary: it counts this frame
         if transition.outcome is not None:
             info["episode"] = {**asdict(transition.summary), "return": self._return}
             info["episode_summary"] = self._summary(transition)
-        obs = self._observe(transition.frame, info)
         return obs, reward, transition.terminated, transition.truncated, info
 
     def _note_facts(self, transition: Transition, use: int, components: dict[str, float]) -> None:
@@ -238,6 +240,22 @@ class IsaacCombatEnv(gym.Env[NDArray[np.float32], NDArray[np.int64]]):
             **self._hits(),
             **stats,
             **self._facts,
+            **self._cap_facts(),
+        }
+
+    def _reset_cap_stats(self) -> None:
+        self._cap_max: dict[EntityKind, int] = dict.fromkeys(ENTITY_KINDS, 0)
+        self._cap_over: dict[EntityKind, int] = dict.fromkeys(ENTITY_KINDS, 0)
+        self._cap_steps = 0
+        self._enemy_kinds: set[tuple[int, int]] = set()
+
+    def _cap_facts(self) -> dict[str, float]:
+        """Per kind: max count in one snapshot (cut ones included), share of steps with overflow."""
+        steps = max(self._cap_steps, 1)
+        return {
+            **{f"max_{kind}": self._cap_max[kind] for kind in ENTITY_KINDS},
+            **{f"overflow_{kind}": self._cap_over[kind] / steps for kind in ENTITY_KINDS},
+            "enemy_kinds": len(self._enemy_kinds),
         }
 
     def _hits(self) -> dict[str, int]:
@@ -255,6 +273,11 @@ class IsaacCombatEnv(gym.Env[NDArray[np.float32], NDArray[np.int64]]):
         stall = float(getattr(self.controller.backend, "stall_fraction", 0.0))
         encoded = encode(frame, stall_fraction=stall, visited_cells=self._visited.update(frame))
         info["overflow"] = dict(encoded.overflow)
+        self._cap_steps += 1
+        self._enemy_kinds |= encoded.enemy_kinds
+        for kind in ENTITY_KINDS:
+            self._cap_max[kind] = max(self._cap_max[kind], encoded.counts.get(kind, 0))
+            self._cap_over[kind] += encoded.overflow.get(kind, 0) > 0
         info["clipped_values"] = encoded.clipped_values
         return encoded.vector
 

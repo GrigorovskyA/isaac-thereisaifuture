@@ -842,7 +842,32 @@ def run_forever(
         return finish()
 
 
+class LazyWindowsMenu:
+    """Guarded game keyboard for the worker, built on first use.
+
+    The worker starts before the supervisor launches the game, so any game process it finds is
+    newer than `launched_at`. Errors surface at the first key press, where pausing records and
+    skips them.
+    """
+
+    def __init__(self, directory: Path, launched_at: float) -> None:
+        self._directory, self._launched_at = directory, launched_at
+        self._menu: WindowsMenu | None = None
+
+    def _get(self) -> WindowsMenu:
+        if self._menu is None:
+            self._menu = WindowsMenu(self._directory, self._launched_at)
+        return self._menu
+
+    def ready(self) -> bool:
+        return self._get().ready()
+
+    def press(self, key: str, stop: Callable[[], bool]) -> None:
+        self._get().press(key, stop)
+
+
 def worker(path: Path) -> None:
+    launched_at = time.time()
     payload = json.loads(path.read_text("utf-8"))
     raw = payload["options"]
     output = Path(raw["output"])
@@ -887,6 +912,7 @@ def worker(path: Path) -> None:
                     session_deadline=payload["clock"]["deadline"] - STOP_MARGIN_SECONDS,
                     stop_file=output / "stop.request",
                     require_initial_isaac=True,
+                    keyboard=LazyWindowsMenu(Path(raw["game"]), launched_at),
                     **extra,
                 ),
                 on_record=record,

@@ -163,12 +163,12 @@ class ObservationClient:
             newline = self._buffer.find(b"\n")
             if newline >= 0:
                 if newline > MAX_MESSAGE_BYTES:
-                    raise ProtocolError("Message exceeds 49152 bytes")
+                    raise ProtocolError(f"Message exceeds {MAX_MESSAGE_BYTES} bytes")
                 raw = bytes(self._buffer[:newline])
                 del self._buffer[: newline + 1]
                 return raw
             if len(self._buffer) > MAX_MESSAGE_BYTES:
-                raise ProtocolError("Message exceeds 49152 bytes")
+                raise ProtocolError(f"Message exceeds {MAX_MESSAGE_BYTES} bytes")
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise BridgeTimeout("Message deadline expired")

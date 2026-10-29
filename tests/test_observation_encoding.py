@@ -16,7 +16,13 @@ from isaac_threrisaifuture.encoding import (
     SLOT_FEATURES,
     encode,
 )
-from isaac_threrisaifuture.entities import Entity, EntityFrame, Vec
+from isaac_threrisaifuture.entities import (
+    FRAME_SCHEMA_VERSION,
+    MAX_FRAME_BYTES,
+    Entity,
+    EntityFrame,
+    Vec,
+)
 from isaac_threrisaifuture.observation import ProtocolError, decode
 from isaac_threrisaifuture.recording import JsonlRecorder, open_replay
 
@@ -26,10 +32,12 @@ def first_enemy_slot(vector: np.ndarray) -> np.ndarray:
 
 
 def test_shape_is_constant_and_overflow_is_counted():
-    sizes = {encode(frame([enemy(i, i, 0) for i in range(n)])).vector.shape for n in (0, 3, 20)}
+    over = CAPACITY["enemy"] + 8
+    sizes = {encode(frame([enemy(i, i, 0) for i in range(n)])).vector.shape for n in (0, 3, over)}
     assert sizes == {(OBSERVATION_SIZE,)}
-    overflowing = encode(frame([enemy(i, i, 0) for i in range(20)]))
-    assert overflowing.overflow == {"enemy": 20 - CAPACITY["enemy"]}
+    overflowing = encode(frame([enemy(i, i, 0) for i in range(over)]))
+    assert overflowing.overflow == {"enemy": 8}
+    assert overflowing.counts["enemy"] == over and overflowing.counts["bomb"] == 0
 
 
 def test_nearest_enemies_survive_overflow():
@@ -82,7 +90,7 @@ def test_oracle_fields_cannot_enter_a_policy_frame():
     payload = json.loads(frame().model_dump_json())
     payload["hidden_secret_room"] = {"x": 1, "y": 2}
     with pytest.raises(ProtocolError):
-        decode(json.dumps(payload).encode(), EntityFrame, 65536)
+        decode(json.dumps(payload).encode(), EntityFrame, 131072)
 
 
 def test_encoder_rejects_oracle_events():
@@ -105,7 +113,7 @@ def test_record_replay_round_trip(tmp_path):
         for item in frames:
             recorder.record(item)
     manifest, replayed = open_replay(path, "policy_frames")
-    assert manifest.observation_schema_version == 5
+    assert manifest.observation_schema_version == FRAME_SCHEMA_VERSION == 6
     for live, again in zip(frames, replayed, strict=True):
         assert np.array_equal(encode(live).vector, encode(again).vector)  # type: ignore[arg-type]
 
@@ -155,7 +163,7 @@ def test_replay_rejects_oversized_lines_and_blank_records(tmp_path):
     with JsonlRecorder(path, "policy_frames", "synthetic") as recorder:
         recorder.record(frame())
     original = path.read_bytes()
-    path.write_bytes(original + b" " * 100_000 + b"\n")
+    path.write_bytes(original + b" " * (MAX_FRAME_BYTES + 100) + b"\n")
     _, records = open_replay(path, "policy_frames")
     next(records)
     with pytest.raises(ProtocolError, match="size limit"):

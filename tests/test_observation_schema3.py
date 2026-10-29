@@ -5,7 +5,7 @@ from typing import Any
 
 import numpy as np
 import pytest
-from synthetic import enemy, frame, inventory, pickup, room_facts
+from synthetic import door, enemy, frame, inventory, pickup, room_facts
 from test_live import live
 
 from isaac_threrisaifuture.encoding import (
@@ -28,7 +28,8 @@ from isaac_threrisaifuture.observation import ProtocolError, decode
 
 PICKUP_OFFSET = (
     ENEMY_OFFSET
-    + SLOT_FEATURES * (CAPACITY["enemy"] + CAPACITY["projectile"])
+    + SLOT_WIDTH["enemy"] * CAPACITY["enemy"]
+    + SLOT_FEATURES * CAPACITY["projectile"]
     + SLOT_WIDTH["obstacle"] * CAPACITY["obstacle"]
 )
 
@@ -37,17 +38,23 @@ def wire(item: EntityFrame) -> dict[str, Any]:
     return json.loads(item.model_dump_json())
 
 
+def door_wire(**changes: Any) -> dict[str, Any]:
+    fields: dict[str, Any] = dict(open=True, locked=False, target_type=1, target_visited=False)
+    return {**fields, **changes}
+
+
 def decoded(payload: dict[str, Any]) -> EntityFrame:
-    return decode(json.dumps(payload).encode(), EntityFrame, 65536)
+    return decode(json.dumps(payload).encode(), EntityFrame, 131072)
 
 
 def test_layout_matches_the_design_table():
-    # Schema 5 grew the room block by 12 (shape) and obstacle slots by 11 (class).
-    assert COLLECTIBLE_OFFSET + 1024 == 2113  # the base vector; later blocks append
-    assert (INVENTORY_OFFSET, ROOM_OFFSET, ENEMY_OFFSET) == (9, 18, 73)
-    assert PICKUP_OFFSET == 73 + 128 + 256 + 24 * 19
+    # Schema 8: the room block holds 8 door slots of 15 features, obstacle slots carry 16
+    # classes and the caps are 32/64/64/24 (see tests/test_observation_schema8.py).
+    assert COLLECTIBLE_OFFSET + 1024 == 6281  # the base vector; later blocks append
+    assert (INVENTORY_OFFSET, ROOM_OFFSET, ENEMY_OFFSET) == (9, 18, 18 + 167)
+    assert PICKUP_OFFSET == 185 + 78 * 32 + 8 * 64 + 24 * 64
     assert PICKUP_SLOT_FEATURES == 22 and len(VARIANT_CLASSES) == 12
-    assert COLLECTIBLE_OFFSET == PICKUP_OFFSET + 8 * 22 == 2113 - 1024
+    assert COLLECTIBLE_OFFSET == PICKUP_OFFSET + 24 * 22 == 6281 - 1024
 
 
 def test_wire_round_trip_encodes_a_full_finite_vector():
@@ -55,7 +62,7 @@ def test_wire_round_trip_encodes_a_full_finite_vector():
         [enemy(1, 10, 0), pickup(2, 30, 0, variant=100, subtype=33, price=15)],
         inventory=inventory(coins=12, active_item=33, active_charge=3, active_max_charge=6),
         collectibles=[1, 33, 1024],
-        room=room_facts(type=5, clear=True, doors=[True, False] * 4),
+        room=room_facts(type=5, clear=True, doors=[door(), None] * 4),
     )
     again = decoded(wire(original))
     assert again == original
@@ -78,15 +85,17 @@ def test_inventory_room_and_collectible_blocks():
                 trinket=9,
             ),  # fmt: skip
             collectibles=[1, 33, 1024],
-            room=room_facts(type=7, stage=15, stage_type=7, clear=True, doors=[True] + [False] * 7),
+            room=room_facts(
+                type=7, stage=15, stage_type=7, clear=True, doors=[door(), *[None] * 7]
+            ),
         )
     ).vector
     inv = vector[INVENTORY_OFFSET : INVENTORY_OFFSET + 9]
     assert inv.tolist() == pytest.approx([50 / 99, 1.0, 1.0, 1.0, 0.5, 0.5, 1.0, 0.0, 1.0])
-    room = vector[ROOM_OFFSET : ROOM_OFFSET + 43]
+    room = vector[ROOM_OFFSET : ROOM_OFFSET + 43]  # type, stage, stage type, clear, door 0
     assert room[7] == 1.0 and room[:32].sum() == 1.0
     assert room[32:35].tolist() == [1.0, 1.0, 1.0]  # stage, stage type, clear
-    assert room[35:].tolist() == [1.0] + [0.0] * 7
+    assert room[35:39].tolist() == [1.0, 1.0, 0.0, 0.0]  # exists, open, not locked, not visited
     held = vector[COLLECTIBLE_OFFSET : COLLECTIBLE_OFFSET + 1024]
     assert held.shape == (1024,) and np.flatnonzero(held).tolist() == [0, 32, 1023]
 
@@ -117,8 +126,8 @@ def test_free_pickup_has_no_shop_flag():
     assert slot[PICKUP_SLOT_FEATURES - 1] == 0.0
 
 
-def test_pickup_capacity_is_eight_with_overflow_counted():
-    encoded = encode(frame([pickup(i, i, 0) for i in range(11)]))
+def test_pickup_capacity_is_24_with_overflow_counted():
+    encoded = encode(frame([pickup(i, i, 0) for i in range(27)]))
     assert encoded.overflow == {"pickup": 3}
 
 
@@ -155,9 +164,14 @@ MALFORMED = {
     "room type": mutate("room.type", 32),
     "stage": mutate("room.stage", 16),
     "stage type": mutate("room.stage_type", 8),
-    "seven doors": mutate("room.doors", [False] * 7),
-    "nine doors": mutate("room.doors", [False] * 9),
-    "door not bool": mutate("room.doors", [0] * 8),
+    "seven doors": mutate("room.doors", [None] * 7),
+    "nine doors": mutate("room.doors", [None] * 9),
+    "door not an object": mutate("room.doors", [0] * 8),
+    "old bool doors": mutate("room.doors", [True] * 8),
+    "door target type": mutate("room.doors", [None] * 7 + [door_wire(target_type=32)]),
+    "door open not bool": mutate("room.doors", [None] * 7 + [door_wire(open=1)]),
+    "door extra field": mutate("room.doors", [None] * 7 + [door_wire(secret=True)]),
+    "door locked null": mutate("room.doors", [None] * 7 + [door_wire(locked=None)]),
     "clear not bool": mutate("room.clear", 1),
     "schema 1": mutate("observation_schema_version", 1),
     "schema 2": mutate("observation_schema_version", 2),
