@@ -3,14 +3,17 @@
 `python -m isaac_threrisaifuture.session_runner` supervises native Windows training.
 The pre-refactor finite-session guide is in `archive/docs/TRAINING_SESSION.pre-pure.md`.
 
-Current finite run: sourcefc80cd5 resumes t31744 without initialization until
-2026-10-30 09:00 CET. SB3 train statistics are captured at learn() end, before the
-next learn() replaces its logger; the pending row waits for pause/resume evidence.
-New-row statistics are verified at12min; empty required columns stop/report.
-Pause is evaluated over the first full hour, with a user-authorized flag-only
-switch off below70% between sessions, followed by compatible resume. The absolute
-deadline does not move. Monitor files only; no other windows are opened/activated.
-See the [finite plan](../reports/2026-10-29-train-statistics-resume-plan.md).
+The finite run from source `fc80cd5` resumed t31744 without initialization and
+stopped early October 29 at 21:29:25 CET after a Windows status-file access fault,
+final checkpoint t102400. All nine captured statistics were filled in 69/69 new rows;
+pause_ok was 69/69 (first hour 15/15), so the live pause flag stayed enabled.
+The first learner exited 0/cleanup empty. The supervisor automatically began a second
+startup before the stop guard took effect; it made no progress and required worker
+termination (exit 1; cooperative release unverified). All training/game/owner processes
+and port 9528 are now absent; stop.forever remains. No manual retry or new run.
+The planned October 30 09:00 CET deadline was not reached.
+See the [final report](../reports/2026-10-30-schema8-train-statistics.md) and
+[finite plan](../reports/2026-10-29-train-statistics-resume-plan.md).
 
 ## Forever mode
 
@@ -138,7 +141,7 @@ game seed is not controlled, so differences within the intervals are not evidenc
 on how episodes end, so they compare policies that die at different rates; the stall
 share does not. `--baseline random-prior` adds a table of each run's rate difference to
 that root with a 95% bootstrap interval over episodes. One 3600 s session gives
-intervals about ±3 wide on `damage_1k`; use two sessions per policy for acceptance.
+intervals about В±3 wide on `damage_1k`; use two sessions per policy for acceptance.
 `live_evaluation.py` / `evaluate-live` is superseded for pure lineages.
 
 ## Guards kept

@@ -8,19 +8,18 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 - Pure self-learning since 2026-10-22 ([decision](UPDATE_DECISION.md)). RecurrentPPO
   learns from raw facts and outcome rewards, plus one potential-based door term since
   reward v9: no scripted setup, advice features or technique rewards. Archive content is history, not runtime authority.
-- Train-statistics logger repair at `fc80cd5` is running natively from qualified
-  `b26db425-s1-t31744`, without initialization. Check1428/Lua/no skips; strict25/25.
-  Each update captures SB3 statistics at learn() end before the next logger reset;
-  the CSV row still waits for its matching pause result. Contract/mod unchanged.
-  October29 start16:58:40 CET; fixed stop October30 at09:00 CET (08:00 UTC).
-  Required new-row statistics check at17:10:40 CET (12 min); empty statistics stop.
-  First-hour pause review at17:58:40 CET: below70% disable only live pause between
-  sessions, then resume latest under the same deadline. Pause failure alone never stops.
-  Continue file2 verified, fresh episode progress; monitoring reads files only.
-  Baseline138 episode/31 train rows and parent checkpoint protected locally.
-  [Finite repair/run plan](../reports/2026-10-29-train-statistics-resume-plan.md).
-  Prior pause qualification passed15/15; its early stopped continuation and integrity
-  discrepancy remain historical in the [report](../reports/2026-10-31-schema8-focus-training.md).
+- Train-statistics logger repair `fc80cd5` passed native recording: all nine statistics
+  populated in 69/69 new rows; pause_ok 69/69, first hour 15/15. Check1428/Lua/no skips;
+  strict 25/25. Contract/mod/config unchanged; live pause remains enabled.
+  Finite continuation from t31744 stopped early October 29 at 21:29:25 CET on a
+  Windows access-denied status-file replacement fault, final `b26db425-s1-t102400`.
+  First learner exit 0/cleanup empty; automatic supervisor startup of a second session
+  made no progress and required worker termination (exit 1; release unverified).
+  No game/worker/owner/listener remains; stop.forever present. No manual retry.
+  [Final statistics, gameplay windows and stall report](../reports/2026-10-30-schema8-train-statistics.md).
+  [Finite plan](../reports/2026-10-29-train-statistics-resume-plan.md).
+  Prior pause qualification passed15/15; historical early-stop integrity discrepancy
+  remains in its [report](../reports/2026-10-31-schema8-focus-training.md).
 - Previous trained native lineage: `runs/pure-v4-reward-v9-schema7`, observation schema 7, reward contract `pure-v9`.
   One-hour qualification ended cleanly October 28 at 19:33 CET, checkpoint t13824.
   Measured geometry/door checks passed. User stopped continuation October 29 at 10:36 CET
@@ -152,10 +151,9 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Next
 
-1. Verify newly recorded entropy_loss/explained_variance and the other train statistics
-   after12min; stop/report if empty. Review pause across the first full hour, disable
-   below70% between sessions if needed. Final October30 report: ~30k windows vs schema7,
-   stage2/stalls/deaths, pause share, optimizer-statistic trends and stall context.
+1. Training is stopped after the status-file access fault. Preserve t102400 and all
+   evidence; no retry or source fix is part of this task. A separate authorized change
+   is needed to investigate status-file contention and the automatic restart/stop race.
 2. Schema 7 training is complete and archived with stop.forever and verified checkpoint hashes.
    Schema 6 remains separately stopped in `runs/pure-v4-reward-v9-schema6`.
 3. The ent_coef=0.01 trial ended at t588288 on October 28 at the user's request.
