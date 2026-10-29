@@ -37,3 +37,9 @@ strict OpenSpec 24/24, synthetic CPU smoke passed. Observer deployment hashes ma
 schema 7 was archived. Native startup failed before training because file-2 Continue
 was unavailable. Task 2.2 remains unchecked; no native acceptance is claimed.
 See [bounded startup report](../../../reports/2026-10-29-schema8-startup-blocked.md).
+
+Authorized repeated hour ended cleanly on 2026-10-29 at t15360. Native task 2.2
+remains unchecked: all 15 pause_ok/pause_seconds cells are empty; required pause
+success cannot be verified. Snapshot size, update latency and positive door/minimap/
+enemy identity samples were observed, but continuation was not accepted. No fix/retry.
+See [final qualification report](../../../reports/2026-10-31-pure-v9-schema8-training.md).
