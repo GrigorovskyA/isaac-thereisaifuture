@@ -8,17 +8,17 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 - Pure self-learning since 2026-10-22 ([decision](UPDATE_DECISION.md)). RecurrentPPO
   learns from raw facts and outcome rewards, plus one potential-based door term since
   reward v9: no scripted setup, advice features or technique rewards. Archive content is history, not runtime authority.
-- Schema8 full-hour focus/pause review is running from `b26db425-s1-t16384`, without
-  initialization, source `fde8b1f`. Check1428/Lua/no skips; strict OpenSpec25/25.
-  Contract b26db425 and observer unchanged. Continue file2 verified, no startup fault.
-  October29: 15:45:42 to16:45:42 CET; timer stops the hour for review.
-  During training, file-only monitoring opens/activates no windows; no foreground helper.
-  Latest user rule: evaluate the WHOLE hour; pause failures never stop training.
-  At >=70% keep pause; below70% disable only live.pause_during_updates, then continue
-  without initialization until October31 at09:00 CET/08:00 UTC. Training faults stop.
+- Schema8 full-hour focus/pause review passed on October29, source `fde8b1f`:
+  15/15 pauses successful, durations6.469-10.593 s, update median7.7735 s (14 samples),
+  update_paused15, no skipped/resume failures or focus refusals. Parentt16384 to t31744.
+  Native exit0, fault null, cleanup[]; actual game/worker/owner/listener/approval cleared,
+  stop.forever retained at review. All67 prior episode/16 train rows preserved;
+  68 new episodes (48 stalls,20 nonstalls) passed context checks. 15583 completed steps.
+  [Full-hour qualification](../reports/2026-10-29-focus-hour-qualification.md).
+  Pause stays enabled. Authorized no-initialize continuation fromt31744 to October31
+  at09:00 CET/08:00 UTC is next; file-only monitoring never opens/activates windows.
+  Contract b26db425 and observer unchanged. Check1428/Lua/no skips; strict specs25/25.
   [Finite plan](../reports/2026-10-29-full-hour-focus-plan.md).
-  Earlier early-stop attempt and its failed pause remain historical in the
-  [pause/stall report](../reports/2026-10-31-schema8-pause-stall-training.md).
 - Previous trained native lineage: `runs/pure-v4-reward-v9-schema7`, observation schema 7, reward contract `pure-v9`.
   One-hour qualification ended cleanly October 28 at 19:33 CET, checkpoint t13824.
   Measured geometry/door checks passed. User stopped continuation October 29 at 10:36 CET
@@ -150,10 +150,10 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Next
 
-1. Review the complete hour after16:45 CET, reporting pause share, update median and
-   named focus holders. Continue to the fixed October31 deadline with pause on/off per
-   the user's70% rule. Stop only on training failure, deadline or explicit user stop.
-   Final report includes same-step schema7 comparison, stall context and night pause share.
+1. Continue from qualified t31744 without initialization to October31 at09:00 CET,
+   pause enabled. Stop on training failure, deadline or explicit user stop, not pause
+   failure alone. Final report: ~30k-step windows, schema7 comparison, stall context,
+   and overnight pause share. No task2.3 gameplay acceptance from training metrics.
 2. Schema 7 training is complete and archived with stop.forever and verified checkpoint hashes.
    Schema 6 remains separately stopped in `runs/pure-v4-reward-v9-schema6`.
 3. The ent_coef=0.01 trial ended at t588288 on October 28 at the user's request.

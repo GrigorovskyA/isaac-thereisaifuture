@@ -3,14 +3,13 @@
 `python -m isaac_threrisaifuture.session_runner` supervises native Windows training.
 The pre-refactor finite-session guide is in `archive/docs/TRAINING_SESSION.pre-pure.md`.
 
-The current finite run resumes t16384 at sourcefde8b1f. The user superseded the
-previous first-pause failure stop: measure the entire October29 hour, keep pause
-if its success share is >=70%, otherwise disable only live.pause_during_updates
-before continuing without initialization until October31 at09:00 CET. Pause failures
-alone never stop this run; training faults do. During training monitor files only,
-without opening or activating any PC windows. See the
-[finite focus plan](../reports/2026-10-29-full-hour-focus-plan.md).
-Earlier pause/stall failures remain in their dated reports and do not authorize retries.
+The October29 full-hour review at sourcefde8b1f passed: 15/15 successful pauses,
+update median7.7735s, no focus refusals or native faults. Pause remains enabled;
+qualified checkpointt31744 continues without initialization to October31 at09:00CET.
+During training monitor files only, without opening/activating PC windows.
+Pause failures alone do not stop this finite run; training failures and its fixed
+stop.forever deadline do. See the [hour qualification](../reports/2026-10-29-focus-hour-qualification.md)
+and [finite plan](../reports/2026-10-29-full-hour-focus-plan.md).
 
 ## Forever mode
 

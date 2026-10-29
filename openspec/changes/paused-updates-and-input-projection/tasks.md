@@ -15,7 +15,7 @@
 ## 2. Verification
 
 - [x] 2.1 Offline gate: `scripts/check.sh` and strict OpenSpec validation (macOS).
-- [ ] 2.2 Native one hour on Windows: `update_seconds` median below 12 s, `pause_ok` share
+- [x] 2.2 Native one hour on Windows: `update_seconds` median below 12 s, `pause_ok` share
   above 90%, no fault from pausing, steps per hour not below the schema-7 run.
 
 Windows follow-up (2026-10-29): Check passed (1422 tests including Lua, no skips),
@@ -43,3 +43,11 @@ pause_ok0/1, foreground refusal; startup also had a faulted automatic attempt.
 All60 old episode/15 train rows preserved; new6 stall/1 death contexts were valid
 in the available sample. Task2.2 remains unchecked: full-hour acceptance not reached.
 No fix or retry. [Report](../../../reports/2026-10-31-schema8-pause-stall-training.md).
+
+Full-hour follow-up passed (2026-10-29, sourcefde8b1f): 15/15 successful pauses,
+all durations filled, update median7.7735s, 15 update_paused and no pause/resume skips.
+Native exit0/faultnull/cleanup[], t16384->t31744, 15583 completed-episode steps.
+All67 old episode/16 train rows preserved; 48 new stall and20 nonstall contexts
+validated. Zero-enemy stall kind/distance fields are conditionally empty by design.
+Task2.2 passed in this scope; no task2.3 acceptance or archive is claimed.
+See [hour qualification](../../../reports/2026-10-29-focus-hour-qualification.md).
