@@ -8,18 +8,16 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 - Pure self-learning since 2026-10-22 ([decision](UPDATE_DECISION.md)). RecurrentPPO
   learns from raw facts and outcome rewards, plus one potential-based door term since
   reward v9: no scripted setup, advice features or technique rewards. Archive content is history, not runtime authority.
-- Schema 8 qualification ended on October 29 at 12:39:45 CET and **failed**:
-  pause_ok and pause_seconds are empty in all 15 train rows; success share is unverified.
-  Median update 7.617 s; audit recorded 16,158 steps, 69,500 snapshots, max 24,605 bytes,
-  no decode errors; 16/16,234 command acknowledgements rejected (0.09856%).
-  Locked/treasure/boss doors, minimap room classes and real enemy identities were observed.
-  Checkpoint `b26db425-s1-t15360` is retained in `runs/pure-v4`; stop.forever remains.
-  Native learner exit 0, fault null, cleanup empty; actual game/worker/owner/listener/approval
-  are absent. No fix, additional initialization or conditional continuation was started.
-  [Final qualification report](../reports/2026-10-31-pure-v9-schema8-training.md)
-  (actual run/review October 29; October 31 was the planned continuation endpoint).
-  [Authorized repeat plan](../reports/2026-10-29-schema8-authorized-repeat.md).
-  Earlier failed startup root remains `runs/pure-v4-schema8-startup-failed-20261029`.
+- Schema 8 pause/stall qualification is running from `b26db425-s1-t15360`, without
+  initialization, at source `bc5e985`. Windows Check1427/Lua/no skips, strict specs25/25.
+  Contract b26db425 unchanged; observer unchanged and deployed hashes matched.
+  October 29 hour: 15:18:11 to 16:18:11 CET; timer stops for review. Continue file2 verified.
+  Baseline 60 episode/15 train rows and parent checkpoint were copied before launch;
+  the header upgrade preserved all old-column values. First new stall context is populated.
+  Pause success and hour acceptance are pending. No conditional continuation yet.
+  [Resume plan and offline verification](../reports/2026-10-29-pause-stall-resume-plan.md).
+  Earlier missing-telemetry hour remains historical in the
+  [failed qualification report](../reports/2026-10-31-pure-v9-schema8-training.md).
 - Previous trained native lineage: `runs/pure-v4-reward-v9-schema7`, observation schema 7, reward contract `pure-v9`.
   One-hour qualification ended cleanly October 28 at 19:33 CET, checkpoint t13824.
   Measured geometry/door checks passed. User stopped continuation October 29 at 10:36 CET
@@ -135,8 +133,8 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Verification
 
-- Current Windows gate: 1422 tests passed with Lua, no skips; mypy passed,
-  lint/format/pip clean, strict OpenSpec 24/24. Synthetic CPU smoke passed:
+- Current Windows gate: 1427 tests passed with Lua, no skips; mypy passed,
+  lint/format/pip clean, strict OpenSpec 25/25. Synthetic CPU smoke passed:
   16 steps, 9762 inputs, [5,5,4] actions. Synthetic smoke is not gameplay evidence.
 - Closed-game deployment hashes matched source:
   Lua 41b78262d4e8a80634a6d9ce0a04e343195601b2dbcf061fdeca46aac4e58985,
@@ -151,10 +149,10 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Next
 
-1. Schema 8 stopped at t15360. The pauses worked (game-log update rate drops about every
-   3.7 min) but their train.csv cells were lost: the row was written at learn() end, before the
-   resume. Fixed offline (row waits for the resume, `update_paused` event); the contract hash is
-   unchanged, so the next hour resumes t15360 without `--initialize` and reruns task 2.2.
+1. Review the resumed hour after 16:18 CET. Require new-row pause_ok >=90%, filled
+   pause durations, update_paused event coverage, update median <12 s, stall-context
+   semantics and legacy row preservation. If passed, continue without initialization
+   until October 31 at 09:00 CET (08:00 UTC); otherwise stop/report without fixes.
 2. Schema 7 training is complete and archived with stop.forever and verified checkpoint hashes.
    Schema 6 remains separately stopped in `runs/pure-v4-reward-v9-schema6`.
 3. The ent_coef=0.01 trial ended at t588288 on October 28 at the user's request.
