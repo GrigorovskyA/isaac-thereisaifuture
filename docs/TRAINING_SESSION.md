@@ -3,15 +3,15 @@
 `python -m isaac_threrisaifuture.session_runner` supervises native Windows training.
 The pre-refactor finite-session guide is in `archive/docs/TRAINING_SESSION.pre-pure.md`.
 
-Current authorized plan: preserve reward v9 schema8 as
-`runs/pure-v4-reward-v9-schema8` (final b26db425-s1-t102400), deploy reward v10,
-then initialize `runs/pure-v4` once with observation schema8 unchanged. Check native
-graph labels at15min and continue until October31 09:00 CET /08:00 UTC if valid.
-The game owns foreground focus; monitor by reading files only. Close the dashboard
-before launch. Pause failures alone do not stop training.
-[Finite plan and offline verification](../reports/2026-10-30-reward-v10-native-plan.md).
-The earlier v9 run's access fault and incomplete cooperative release remain recorded
-in the [v9 final report](../reports/2026-10-30-schema8-train-statistics.md).
+Reward v10 was stopped by the human October 30 at 13:26:04 CET, final
+`3043a54c-s1-t63488`,290 completed episodes. Final learner exited 0, fault=null,
+cleanup empty; game/worker/owner/listener closed and stop.forever retained.
+The 15-minute graph-label check passed. The earlier Continue-only startup failure
+and subsequent explicitly authorized file2 New Run are recorded separately.
+[Final report](../reports/2026-10-31-reward-v10-training.md).
+Reward v9 schema8 remains at `runs/pure-v4-reward-v9-schema8`, final t102400.
+Reward v11 is being prepared; no new training or initialization is authorized here.
+The October 31 09:00 CET deadline is superseded by the stop request.
 
 ## Forever mode
 

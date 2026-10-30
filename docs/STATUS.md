@@ -8,14 +8,17 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 - Pure self-learning since 2026-10-22 ([decision](UPDATE_DECISION.md)). RecurrentPPO
   learns from raw facts and outcome rewards, plus one potential-based door term since
   reward v9: no scripted setup, advice features or technique rewards. Archive content is history, not runtime authority.
-- Reward v10 graph-aware door potential is ready for the authorized fresh lineage.
+- Reward v10 training stopped at the human's request October 30 13:26:04 CET.
+  Final checkpoint `3043a54c-s1-t63488`:290 completed episodes/64430 observed steps.
+  Final session user_cancelled, learner exit 0, fault=null, cleanup empty; no game,
+  worker, finite owner or bridge listener remains. stop.forever retained; no v11 launch.
+  Native 15-minute graph-label check passed;191/191 stalls have stall_goal_hops,
+  pause_ok 61/62. Earlier Continue-only startup failed before learning, then an
+  explicitly authorized file2 New Run allowed the fresh v10 launch.
+  [Final comparison and cleanup report](../reports/2026-10-31-reward-v10-training.md).
   Contract `3043a54c9d56e402f4a2bb6bd96906e79ee6ae3d7cc272a834d13ac13e31f621`;
-  observation8/action2 unchanged. Windows Check1466 including Lua/no skips;
-  strict OpenSpec26/26; one existing synthetic All-NaN warning.
-  Preserve v9 schema8 at t102400, deploy the updated mod, initialize once, then
-  verify native oracle graph labels after15min. Fixed stop October31 09:00 CET.
-  [Finite native plan and verification limits](../reports/2026-10-30-reward-v10-native-plan.md).
-  Graph-door-reward-v10 tasks2.2/2.3 remain open; no archive or acceptance claim.
+  observation8/action2 unchanged. Windows 1466/Lua/no skips, strict OpenSpec26/26.
+  Graph-door tasks 2.2/2.3 remain open; no frozen or gameplay acceptance claim.
 - Held live-status writes skip an exhausted Windows sharing retry and record
   `status_writes_skipped`; durable result.json stays strict (source c010ef9).
 - Train-statistics logger repair `fc80cd5` passed native recording: all nine statistics
@@ -161,9 +164,9 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Next
 
-1. Execute the authorized reward-v10 initialization and 15-minute graph-label check;
-   then continue under the fixed October31 deadline. Report native coverage honestly;
-   compare against archived v9 schema8 using cumulative gameplay-step windows.
+1. Training remains stopped. Preserve v10 t63488, v9 schema8 archive t102400 and
+   failed-start evidence. The human is preparing reward v11; no new training is
+   authorized by this status or by the superseded October 31 deadline.
 2. Schema 7 training is complete and archived with stop.forever and verified checkpoint hashes.
    Schema 6 remains separately stopped in `runs/pure-v4-reward-v9-schema6`.
 3. The ent_coef=0.01 trial ended at t588288 on October 28 at the user's request.
