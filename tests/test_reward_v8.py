@@ -39,7 +39,7 @@ def test_v8_differs_from_v7_only_in_the_stagnation_rate_and_grace():
 def test_the_training_config_keeps_the_short_stall_limit_under_the_current_contract():
     config, digest = load_training_config(TRAINING)
     assert STALL_SECONDS == 40.0 and config.watchdog.stall_seconds == 40.0
-    assert config.contract.reward_version == 9
+    assert config.contract.reward_version == 10
     assert digest != "d62dc21baf19941b0484e857f2124e8fbffb3d564ab9763a2e13619230c63bc4"
 
 

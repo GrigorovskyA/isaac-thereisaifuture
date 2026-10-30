@@ -3,17 +3,15 @@
 `python -m isaac_threrisaifuture.session_runner` supervises native Windows training.
 The pre-refactor finite-session guide is in `archive/docs/TRAINING_SESSION.pre-pure.md`.
 
-The finite run from source `fc80cd5` resumed t31744 without initialization and
-stopped early October 29 at 21:29:25 CET after a Windows status-file access fault,
-final checkpoint t102400. All nine captured statistics were filled in 69/69 new rows;
-pause_ok was 69/69 (first hour 15/15), so the live pause flag stayed enabled.
-The first learner exited 0/cleanup empty. The supervisor automatically began a second
-startup before the stop guard took effect; it made no progress and required worker
-termination (exit 1; cooperative release unverified). All training/game/owner processes
-and port 9528 are now absent; stop.forever remains. No manual retry or new run.
-The planned October 30 09:00 CET deadline was not reached.
-See the [final report](../reports/2026-10-30-schema8-train-statistics.md) and
-[finite plan](../reports/2026-10-29-train-statistics-resume-plan.md).
+Current authorized plan: preserve reward v9 schema8 as
+`runs/pure-v4-reward-v9-schema8` (final b26db425-s1-t102400), deploy reward v10,
+then initialize `runs/pure-v4` once with observation schema8 unchanged. Check native
+graph labels at15min and continue until October31 09:00 CET /08:00 UTC if valid.
+The game owns foreground focus; monitor by reading files only. Close the dashboard
+before launch. Pause failures alone do not stop training.
+[Finite plan and offline verification](../reports/2026-10-30-reward-v10-native-plan.md).
+The earlier v9 run's access fault and incomplete cooperative release remain recorded
+in the [v9 final report](../reports/2026-10-30-schema8-train-statistics.md).
 
 ## Forever mode
 
@@ -48,7 +46,8 @@ from the last snapshot before the restart, and are empty for deaths. They show w
 stalled: room clear flag, type and shape; alive enemies (observed and oracle counts);
 invulnerable, flying and boss enemies; the `type.variant` kinds present (`stall_enemy_kinds`,
 sorted, `;` separated); the distance in px to the nearest enemy; open doors and open doors into
-unexplored rooms; half hearts; and `stall_seconds_in_room` (game updates since the last room
+unexplored rooms; `stall_goal_hops` (reward v10: the best door term, rooms to cross plus the
+in-room share, two digits; empty when unknown); half hearts; and `stall_seconds_in_room` (game updates since the last room
 change or the episode start, divided by 30). Metrics only, never policy inputs.
 An older `episodes.csv` header is rewritten once with the full header; old rows get empty cells.
 
@@ -141,7 +140,7 @@ game seed is not controlled, so differences within the intervals are not evidenc
 on how episodes end, so they compare policies that die at different rates; the stall
 share does not. `--baseline random-prior` adds a table of each run's rate difference to
 that root with a 95% bootstrap interval over episodes. One 3600 s session gives
-intervals about В±3 wide on `damage_1k`; use two sessions per policy for acceptance.
+intervals about Р’В±3 wide on `damage_1k`; use two sessions per policy for acceptance.
 `live_evaluation.py` / `evaluate-live` is superseded for pure lineages.
 
 ## Guards kept

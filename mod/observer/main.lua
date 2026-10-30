@@ -533,9 +533,23 @@ local function minimap()
     return result, current_grid < 0
 end
 
+-- Grid index (0..168) of a room descriptor, or -1 when unreadable or off the 13x13 grid.
+local function grid_of(desc)
+    local ok, grid = pcall(function() return tonumber(desc.GridIndex) end)
+    if ok and grid and grid % 1 == 0 and grid >= 0 and grid <= 168 then return grid end
+    return -1
+end
+
+local function current_room_grid()
+    local ok, grid = pcall(function() return grid_of(Game():GetLevel():GetCurrentRoomDesc()) end)
+    return ok and grid or -1
+end
+
 -- Live-loop reward label only (door shaping): every existing door of the room with its slot
--- position, open state and whether the room behind it is unvisited. A door whose position
--- cannot be read is skipped; a target that cannot be read counts as explored.
+-- position, open state, whether the room behind it is unvisited, its grid index (-1 when
+-- unknown) and whether the room graph may use it. A door is not usable when it is locked or
+-- leads to a closed secret room; an unreadable lock or type reads not usable. A door whose
+-- position cannot be read is skipped; a target that cannot be read counts as explored.
 local function oracle_doors(room)
     local level = Game():GetLevel()
     local doors = {}
@@ -548,8 +562,19 @@ local function oracle_doors(room)
                 local target = level:GetRoomByIdx(found.TargetRoomIndex)
                 return target ~= nil and target.Data ~= nil and target.VisitedCount == 0
             end)
-            return { slot = slot, x = position.x, y = position.y,
-                open = found:IsOpen() == true, unexplored = target_ok and unexplored == true }
+            local grid_ok, grid = pcall(function()
+                return grid_of(level:GetRoomByIdx(found.TargetRoomIndex))
+            end)
+            local is_open = found:IsOpen() == true
+            local usable_ok, usable = pcall(function()
+                if found:IsLocked() == true then return false end
+                local target_type = found.TargetRoomType
+                if type(target_type) ~= "number" then return false end
+                return is_open or not secret_type(target_type)
+            end)
+            return { slot = slot, x = position.x, y = position.y, open = is_open,
+                unexplored = target_ok and unexplored == true,
+                target = grid_ok and grid or -1, usable = usable_ok and usable == true }
         end)
         if ok and door then doors[#doors + 1] = door end
     end
@@ -731,7 +756,8 @@ local function capture_entities(room, player, data)
             enemy_overflow = oracle_overflow,
             room_index = clamp_int(Game():GetLevel():GetCurrentRoomIndex(), -64, 255),
             kills = metrics.kills, killed = #metrics.killed > 0 and {} or json.EMPTY_ARRAY,
-            player_hits = {}, doors = json.EMPTY_ARRAY }
+            player_hits = {}, doors = json.EMPTY_ARRAY,
+            room_grid = current_room_grid() }
         local doors = oracle_doors(room)
         if #doors > 0 then oracle.doors = doors end
         for i, id in ipairs(metrics.killed) do oracle.killed[i] = id end

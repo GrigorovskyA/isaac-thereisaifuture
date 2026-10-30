@@ -396,10 +396,19 @@ def test_worst_case_snapshot_fits_the_message_limit():
         ],
         "enemy_overflow": 2**53 - 1,
         "room_index": -64,
+        "room_grid": 168,
         "kills": 2**53 - 1,
         "killed": [2**53 - 1] * 16,
         "doors": [
-            {"slot": i, "x": -99999.123456, "y": -99999.654321, "open": True, "unexplored": True}
+            {
+                "slot": i,
+                "x": -99999.123456,
+                "y": -99999.654321,
+                "open": True,
+                "unexplored": True,
+                "target": 168,
+                "usable": True,
+            }
             for i in range(8)
         ],
         "player_hits": dict.fromkeys(

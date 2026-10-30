@@ -213,7 +213,16 @@ def snapshot_with_doors(doors):
 
 
 def door(slot=0, **changes):
-    return {"slot": slot, "x": 20.5, "y": 280.0, "open": True, "unexplored": True, **changes}
+    return {
+        "slot": slot,
+        "x": 20.5,
+        "y": 280.0,
+        "open": True,
+        "unexplored": True,
+        "target": 85,
+        "usable": True,
+        **changes,
+    }
 
 
 def test_oracle_doors_are_validated_and_stay_out_of_the_frame():

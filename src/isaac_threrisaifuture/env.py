@@ -48,6 +48,7 @@ def stall_facts(
     doors: Sequence[OracleDoor] | None,
     oracle_enemies: int | None,
     seconds_in_room: float,
+    goal_hops: float | None = None,
 ) -> dict[str, Any]:
     """Room context of a stalled episode from its last snapshot. Metrics only."""
     enemies = [entity for entity in frame.entities if entity.kind == "enemy"]
@@ -68,6 +69,7 @@ def stall_facts(
         "stall_open_unexplored_doors": (
             None if doors is None else sum(door.open and door.unexplored for door in doors)
         ),
+        "stall_goal_hops": goal_hops,
         "stall_open_doors": sum(door is not None and door.open for door in frame.room.doors),
         "stall_half_hearts": health.red_half_hearts + health.soul_half_hearts,
         "stall_seconds_in_room": round(seconds_in_room, 1),
@@ -94,6 +96,7 @@ class StateAwareAccountant(RewardAccountant, Protocol):
         room_index: int | None,
         doors: Sequence[OracleDoor] | None = None,
         enemies_present: bool = False,
+        room_grid: int | None = None,
     ) -> None: ...
 
     def consume(
@@ -105,6 +108,7 @@ class StateAwareAccountant(RewardAccountant, Protocol):
         doors: Sequence[OracleDoor] | None = None,
         enemies_present: bool = False,
         terminal: bool = False,
+        room_grid: int | None = None,
     ) -> tuple[float, dict[str, float]]: ...
 
     def run_stats(self) -> dict[str, Any]: ...
@@ -179,6 +183,7 @@ class IsaacCombatEnv(gym.Env[NDArray[np.float32], NDArray[np.int64]]):
                     transition.room_index,
                     transition.doors,
                     transition.enemies_present,
+                    transition.room_grid,
                 )
             self.accountant.consume(transition.events, 0)  # spawn events; reward is zero
         self._emit(transition)
@@ -209,6 +214,7 @@ class IsaacCombatEnv(gym.Env[NDArray[np.float32], NDArray[np.int64]]):
                     transition.doors,
                     transition.enemies_present,
                     transition.terminated or transition.truncated,
+                    transition.room_grid,
                 )
             else:
                 reward, components = self.accountant.consume(transition.events, elapsed)
@@ -294,8 +300,13 @@ class IsaacCombatEnv(gym.Env[NDArray[np.float32], NDArray[np.int64]]):
             return {}
         count = getattr(self.controller.backend, "oracle_enemy_count", None)
         seconds = (transition.summary.game_updates - self._room_since) / UPDATES_PER_SECOND
+        goal_hops = getattr(self.accountant, "goal_hops", None)
         return stall_facts(
-            transition.frame, transition.doors, count() if count is not None else None, seconds
+            transition.frame,
+            transition.doors,
+            count() if count is not None else None,
+            seconds,
+            goal_hops() if callable(goal_hops) else None,
         )
 
     def _reset_cap_stats(self) -> None:

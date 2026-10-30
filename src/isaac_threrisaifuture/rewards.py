@@ -1,4 +1,4 @@
-"""Event-driven reward ledgers: combat reward-v1 and outcome-only reward-v4 to v9.
+"""Event-driven reward ledgers: combat reward-v1 and outcome-only reward-v4 to v10.
 
 Coefficients are hypotheses, not tuned values.
 """
@@ -14,6 +14,7 @@ import yaml
 from .encoding import ROOM_ORIGIN, room_diagonal
 from .entities import BOSS_ROOM_TYPE, EntityFrame, OracleDoor, OracleEvent
 from .env import UPDATES_PER_SECOND
+from .room_graph import RoomGraph
 from .stall_watchdog import DEFAULT_STALL_SECONDS
 
 DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "configs" / "reward-v1.yaml"
@@ -130,13 +131,16 @@ class RewardLedger:
 
 
 DEFAULT_CONFIG_V9 = Path(__file__).resolve().parents[2] / "configs" / "reward-v9.yaml"
-# The same ledger pays v4-v9: v5 changed stall_restart, v6 adds kill credit in the deriver, v7 adds
-# the stagnation cost, v8 shortens the stall limit it is sized for and v9 adds the boss clear
-# bonus and potential-based door shaping. Only v7-v9 have a `stagnation` section and only v9 has
-# `door_shaping` and `outcome.boss_room_clear_first`; the archived v4-v8 configs stay loadable.
-REWARD_V4_VERSIONS = (4, 5, 6, 7, 8, 9)
-STAGNATION_VERSIONS = (7, 8, 9)
-DOOR_SHAPING_VERSIONS = (9,)
+DEFAULT_CONFIG_V10 = Path(__file__).resolve().parents[2] / "configs" / "reward-v10.yaml"
+# The same ledger pays v4-v10: v5 changed stall_restart, v6 adds kill credit in the deriver, v7
+# adds the stagnation cost, v8 shortens the stall limit it is sized for, v9 adds the boss clear
+# bonus and potential-based door shaping and v10 makes that potential graph-aware (`max_hops`).
+# Only v7-v10 have a `stagnation` section and only v9-v10 have `door_shaping` and
+# `outcome.boss_room_clear_first`; the archived v4-v8 configs stay loadable.
+REWARD_V4_VERSIONS = (4, 5, 6, 7, 8, 9, 10)
+STAGNATION_VERSIONS = (7, 8, 9, 10)
+DOOR_SHAPING_VERSIONS = (9, 10)
+GRAPH_SHAPING_VERSIONS = (10,)
 REWARD_V4_COLUMNS = (
     "enemy_damage",
     "room_clear",
@@ -179,6 +183,7 @@ _V4_SECTIONS: dict[str, tuple[str, ...]] = {
 _STAGNATION_KEYS = ("per_second", "grace_seconds")
 _BOSS_KEY = "boss_room_clear_first"
 _DOOR_SHAPING_KEYS = ("coefficient",)
+_GRAPH_SHAPING_KEYS = ("coefficient", "max_hops")
 
 
 @dataclass(frozen=True)
@@ -203,8 +208,11 @@ class RewardV4Coefficients:
     stagnation_grace_seconds: float = 0.0
     boss_room_clear_first: float = 0.0
     door_shaping_coefficient: float = 0.0
+    door_shaping_max_hops: int = 0  # 0: the v9 potential; > 0: the v10 room graph potential
 
     def __post_init__(self) -> None:
+        if self.door_shaping_max_hops < 0:
+            raise ValueError("The door shaping hop cap must be >= 0")
         if self.consumable_run_cap < 0 or self.novelty_cell_size <= 0:
             raise ValueError("The consumable cap must be >= 0 and the novelty cell size positive")
         if self.stagnation_grace_seconds < 0:
@@ -221,11 +229,11 @@ class RewardV4Coefficients:
         if version in STAGNATION_VERSIONS:
             top.add("stagnation")  # required for v7-v9, forbidden for v4-v6
         if version in DOOR_SHAPING_VERSIONS:
-            top.add("door_shaping")  # v9 only
+            top.add("door_shaping")  # v9 and v10
             sections["outcome"] = (*sections["outcome"], _BOSS_KEY)
         if not isinstance(raw, dict) or set(raw) != top or version not in REWARD_V4_VERSIONS:
-            raise ValueError(f"Reward v4-v9 configuration must define exactly {sorted(top)}")
-        values: dict[str, float] = {}
+            raise ValueError(f"Reward v4-v10 configuration must define exactly {sorted(top)}")
+        values: dict[str, Any] = {}
         for name, keys in sections.items():
             section = raw[name]
             if not isinstance(section, dict) or set(section) != set(keys):
@@ -246,14 +254,18 @@ class RewardV4Coefficients:
                 values[f"stagnation_{key}"] = float(value)
         if "door_shaping" in raw:
             section = raw["door_shaping"]
-            if not isinstance(section, dict) or set(section) != set(_DOOR_SHAPING_KEYS):
-                raise ValueError(
-                    f"The door_shaping section must define exactly {_DOOR_SHAPING_KEYS}"
-                )
+            keys = _GRAPH_SHAPING_KEYS if version in GRAPH_SHAPING_VERSIONS else _DOOR_SHAPING_KEYS
+            if not isinstance(section, dict) or set(section) != set(keys):
+                raise ValueError(f"The door_shaping section must define exactly {keys}")
             value = section["coefficient"]
             if isinstance(value, bool) or not isinstance(value, (int, float)):
                 raise ValueError("door_shaping.coefficient must be a number")
             values["door_shaping_coefficient"] = float(value)
+            if "max_hops" in section:
+                hops = section["max_hops"]
+                if isinstance(hops, bool) or not isinstance(hops, int) or hops < 1:
+                    raise ValueError("door_shaping.max_hops must be an integer >= 1")
+                values["door_shaping_max_hops"] = hops
         return cls(**values)
 
 
@@ -269,6 +281,11 @@ class RewardLedgerV4:
     clear with no enemies and such a door exists. A step pays gamma * Phi(s') - Phi(s) with
     Phi(s') = 0 after a terminal step. After a room change, Phi(s) is the old room's last value
     and Phi(s') the new room's, as the formula says. `gamma` is the training discount.
+
+    Since v10 (`max_hops` set) the potential counts the rooms still to cross: Phi(s) = -coefficient
+    * cost(s), where cost adds the hop distance H of a door's target room (to an unvisited room or
+    the boss room, through the doors seen this floor, capped at `max_hops`) to the in-room term:
+    the distance share to an open door in a calm room, else a constant 1. See `RoomGraph`.
     """
 
     coefficients: RewardV4Coefficients
@@ -295,6 +312,8 @@ class RewardLedgerV4:
     _stage: int = 0
     _room_type: int = 0
     _dead: bool = False
+    _graph: RoomGraph = field(default_factory=RoomGraph)
+    _goal_hops: float | None = None  # best door term at the last step, for stall metrics
 
     def reset(self, episode_id: int) -> None:
         self._dead = False  # run state survives a reset; `begin` decides about a new run
@@ -305,13 +324,16 @@ class RewardLedgerV4:
         room_index: int | None,
         doors: Sequence[OracleDoor] | None = None,
         enemies_present: bool = False,
+        room_grid: int | None = None,
     ) -> None:
         """Call after every reset with the first frame; a new epoch starts a fresh run."""
         run = (frame.session_id, frame.game_epoch)
         self._room = room_index
         self._stage = frame.room.stage
         self._room_type = frame.room.type
-        self._phi = self._potential(frame, doors, enemies_present)  # every episode starts here
+        self._graph.clear()  # the room graph is per episode and per floor
+        # every episode starts here
+        self._phi = self._potential(frame, doors, enemies_present, room_grid)
         if run == self._run:
             return
         self._run = run
@@ -341,6 +363,7 @@ class RewardLedgerV4:
         doors: Sequence[OracleDoor] | None = None,
         enemies_present: bool = False,
         terminal: bool = False,
+        room_grid: int | None = None,
     ) -> tuple[float, dict[str, float]]:
         c = self.coefficients
         parts = dict.fromkeys(REWARD_V4_COLUMNS, 0.0)
@@ -365,7 +388,8 @@ class RewardLedgerV4:
                 parts["novelty"] = c.novelty_coefficient
         if frame is not None and c.door_shaping_coefficient != 0.0:
             # A terminal step (death, clear, truncation) ends in the zero potential.
-            phi = 0.0 if terminal else self._potential(frame, doors, enemies_present)
+            phi = self._potential(frame, doors, enemies_present, room_grid)
+            phi = 0.0 if terminal else phi
             parts["door_shaping"] = self._discount() * phi - self._phi
             self._phi = phi
         return sum(parts.values()), parts
@@ -375,15 +399,25 @@ class RewardLedgerV4:
         return self.gamma
 
     def _potential(
-        self, frame: EntityFrame, doors: Sequence[OracleDoor] | None, enemies_present: bool
+        self,
+        frame: EntityFrame,
+        doors: Sequence[OracleDoor] | None,
+        enemies_present: bool,
+        room_grid: int | None = None,
     ) -> float:
-        """Phi(s): minus the scaled distance to the nearest open door to an unvisited room.
+        """Phi(s): minus the scaled cost of reaching the next unvisited room.
 
-        Zero without doors data, with a dead player, an unclear room or enemies present, and
-        when no open door leads to an unvisited room.
+        v9: the distance to the nearest open door to an unvisited room; zero without doors data,
+        with a dead player, an unclear room or enemies present, and when no such door exists.
+        v10: the room graph cost (`_graph_cost`).
         """
         coefficient = self.coefficients.door_shaping_coefficient
-        if coefficient == 0.0 or self._dead or doors is None:
+        self._goal_hops = None
+        if coefficient == 0.0:
+            return 0.0
+        if self.coefficients.door_shaping_max_hops > 0:
+            return -coefficient * self._graph_cost(frame, doors, enemies_present, room_grid)
+        if self._dead or doors is None:
             return 0.0
         if enemies_present or not frame.room.clear:
             return 0.0
@@ -396,6 +430,60 @@ class RewardLedgerV4:
         if not distances:
             return 0.0
         return -coefficient * min(min(distances) / room_diagonal(frame.room.shape), 1.0)
+
+    def _graph_cost(
+        self,
+        frame: EntityFrame,
+        doors: Sequence[OracleDoor] | None,
+        enemies_present: bool,
+        room_grid: int | None,
+    ) -> float:
+        """Cost of the state in [0, 1 + max_hops]: rooms still to cross plus the in-room share.
+
+        Zero without doors data or an on-grid room, and for a dead player. In the boss room it is
+        1 while the boss lives, else the share of the distance to the trapdoor (0 without one).
+        Elsewhere it is the best usable door's in-room term plus its target's hop distance; the
+        in-room term is the distance share to an open door in a calm room, else a constant 1.
+        With no door to a goal the cost is the constant 1 + max_hops.
+        """
+        if doors is None or room_grid is None or room_grid < 0:
+            return 0.0
+        boss_room = frame.room.type == BOSS_ROOM_TYPE
+        self._graph.observe(
+            (frame.room.stage, frame.room.stage_type), room_grid, doors, boss_room=boss_room
+        )
+        if self._dead:
+            return 0.0
+        scale = room_diagonal(frame.room.shape)
+        calm = frame.room.clear and not enemies_present
+        if boss_room:
+            if not calm:
+                return 1.0
+            trapdoors = [
+                math.hypot(entity.position.x, entity.position.y)
+                for entity in frame.entities
+                if entity.kind == "obstacle" and entity.obstacle_class == "trapdoor"
+            ]
+            return min(min(trapdoors) / scale, 1.0) if trapdoors else 0.0
+        cap = self.coefficients.door_shaping_max_hops
+        hops = self._graph.hops()
+        position = frame.player_position
+        terms: list[float] = []
+        for door in doors:
+            if door.target < 0 or not door.usable or door.target not in hops:
+                continue
+            in_room = 1.0
+            if calm and door.open:
+                in_room = min(math.hypot(door.x - position.x, door.y - position.y) / scale, 1.0)
+            terms.append(in_room + min(hops[door.target], cap))
+        if not terms:
+            return 1.0 + cap
+        self._goal_hops = round(min(terms), 2)
+        return min(terms)
+
+    def goal_hops(self) -> float | None:
+        """Best door term of the last state (v10), or None when unknown. Metrics only."""
+        return self._goal_hops
 
     def stall_restart(self) -> float:
         """Penalty for an episode the watchdog truncated; the env calls it once per episode.

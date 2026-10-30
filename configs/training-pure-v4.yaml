@@ -33,6 +33,12 @@
 # contract hash). With observation 7522 one optimizer update took 55 s on CPU; the projection
 # cuts it to about 7 s. n_steps 1024 and batch_size 256 give fewer, cheaper updates, and the
 # game is paused while each update runs. The schema 8 reward v9 run is not resumed.
+# Reward v10 (openspec change graph-door-reward-v10) restarts the lineage with observation
+# schema 8 unchanged: after 105k steps 92% of the stalls were in a cleared room and 40% of those
+# had no open door to an unvisited room, where the v9 door term was silent. The door potential
+# now counts the rooms still to cross through the doors seen on the floor. The reward v9 schema 8
+# run (b26db425, final t102400) is kept as runs/pure-v4-reward-v9-schema8; its checkpoints are
+# refused (new contract hash).
 # Only `contract` binds the lineage; `hyperparameters` may be tuned between sessions
 # and are recorded per checkpoint.
 config_version: 2
@@ -47,7 +53,7 @@ contract:
   action_repeat_game_updates: 6
   observation_schema_version: 8
   action_schema_version: 2
-  reward_version: 9
+  reward_version: 10
   # Initial P(no use press) of the use head, set at fresh model creation only.
   use_head_initial_none_probability: 0.85
 hyperparameters:

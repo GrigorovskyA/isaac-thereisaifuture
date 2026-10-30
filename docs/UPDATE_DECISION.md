@@ -60,7 +60,9 @@ fresh model, and old lineages stay preserved.
    Used since reward v9 (2026-10-28, approved by the user): door shaping, the change in
    distance to the nearest open door into an unexplored room, paid only in a clear room
    as gamma * Phi(s') - Phi(s). It is the only potential-based term; the other v9 terms
-   remain outcomes.
+   remain outcomes. Since reward v10 (openspec change graph-door-reward-v10) the same term counts
+   the rooms still to cross, through the doors seen on this floor, to reach an unvisited room or
+   the boss room.
 3. The agent must see what it needs to learn about, but the observation should
    carry facts, not advice. Pickup types and item IDs are facts; "good target
    here" is advice.

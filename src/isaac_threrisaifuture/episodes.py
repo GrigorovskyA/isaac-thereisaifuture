@@ -81,6 +81,8 @@ class StepResult:
     # None doors means the backend has no door data.
     doors: tuple[OracleDoor, ...] | None = None
     enemies_present: bool = False
+    # Level grid index of the current room (reward v10 room graph); None means unknown.
+    room_grid: int | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.terminal_coverage, frozenset) or not (
@@ -153,6 +155,7 @@ class Transition:
     room_index: int | None = None
     doors: tuple[OracleDoor, ...] | None = None
     enemies_present: bool = False
+    room_grid: int | None = None
 
 
 @dataclass
@@ -347,4 +350,5 @@ class EpisodeController:
             room_index=result.room_index,
             doors=result.doors,
             enemies_present=result.enemies_present,
+            room_grid=result.room_grid,
         )

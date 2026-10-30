@@ -66,7 +66,11 @@ visited or its icon is shown) and `map_current_off_grid`. The oracle block gains
 cumulative `kills`, `killed` (identities of the last 16 listed enemies killed this game epoch, oldest first, used for reward v6 kill credit) and `player_hits` by source; they are labels only. The oracle block also carries `doors` (reward v9 door shaping; label only, never in
 the frame): up to 8 entries, one per existing door slot, each with `slot` 0..7, `x`, `y` (world
 position of the slot), `open` and `unexplored` (the room behind the door has `VisitedCount` 0;
-false when the target cannot be read). The observer needs no new capability: the block is part of
+false when the target cannot be read), `target` (grid index 0..168 of the room behind the door, -1
+when unreadable or off the grid) and `usable` (false for a locked door and for a closed door to a
+secret, super secret or ultra secret room; false when unreadable; reward v10 room graph). The
+oracle block also has `room_grid`, the GridIndex of the current room descriptor (-1 off the grid).
+The observer needs no new capability: the block is part of
 `live_loop_v1` and a Python peer rejects a snapshot without `doors`, so redeploy the mod with the
 code. Messages may reach 131072 bytes (the Lua worst case with every kind past its cap, eight
 locked doors and 64 map rooms measured 80 KB; with the live oracle block 84 KB).

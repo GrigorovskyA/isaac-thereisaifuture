@@ -121,7 +121,7 @@ def test_schema_5_frames_are_refused():
 def test_the_contract_hash_differs_from_schema_7_and_the_config_pins_8():
     config, digest = load_training_config(ROOT / "configs/training-pure-v4.yaml")
     raw = yaml.safe_load((ROOT / "configs/training-pure-v4.yaml").read_text("utf-8"))
-    assert config.contract.observation_schema_version == 8 and config.contract.reward_version == 9
+    assert config.contract.observation_schema_version == 8 and config.contract.reward_version == 10
     assert config_hash(raw["contract"]) == digest
     raw["contract"]["observation_schema_version"] = 7
     assert config_hash(raw["contract"]) != digest

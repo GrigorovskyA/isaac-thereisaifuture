@@ -34,7 +34,8 @@ end
 """
 
 # Simulated doors and level rooms (not engine evidence): DOOR_TABLE maps a slot to its position,
-# open state and target room index; ROOM_DESCS maps a room index to its descriptor.
+# open state, lock, target room type and target room index; ROOM_DESCS maps a room index to its
+# descriptor.
 DOOR_STUBS = """
 DOOR_TABLE, ROOM_DESCS = {}, {}
 local door_game = Game
@@ -45,7 +46,11 @@ Game = function()
   local room = base_room(self)
   room.GetDoor = function(_, slot)
    local d = DOOR_TABLE[slot]
-   if d then return { IsOpen=function() return d.open end, TargetRoomIndex=d.target } end
+   if d then
+    return { IsOpen=function() return d.open end, TargetRoomIndex=d.target,
+     IsLocked=function() if d.lock_fault then error("lock fault") end return d.locked == true end,
+     TargetRoomType=d.type or 2 }
+   end
   end
   room.GetDoorSlotPosition = function(_, slot)
    local d = DOOR_TABLE[slot]
@@ -391,9 +396,9 @@ def test_oracle_lists_doors_with_positions_and_unexplored_flag(doors):
       ROOM_DESCS[86] = make_desc(86, 1, 1, 1, 0)
     """)
     assert oracle_doors(doors) == [
-        dict(slot=0, x=20, y=280, open=True, unexplored=True),
-        dict(slot=3, x=300.5, y=400, open=False, unexplored=False),
-        dict(slot=6, x=580, y=280, open=True, unexplored=False),
+        dict(slot=0, x=20, y=280, open=True, unexplored=True, target=83, usable=True),
+        dict(slot=3, x=300.5, y=400, open=False, unexplored=False, target=85, usable=True),
+        dict(slot=6, x=580, y=280, open=True, unexplored=False, target=86, usable=True),
     ]
 
 
@@ -408,6 +413,50 @@ def test_door_with_an_unreadable_target_is_explored_and_without_position_is_skip
     """)
     found = oracle_doors(doors)
     assert [(d["slot"], d["unexplored"]) for d in found] == [(0, False), (1, False), (2, False)]
+    assert not doors.globals().CLOSED
+
+
+def test_door_targets_are_grid_indexes_and_unreadable_ones_are_minus_one(doors):
+    doors.execute("""
+      DOOR_TABLE[0] = { x=20, y=280, open=true, target=70 }   -- no descriptor at all
+      DOOR_TABLE[1] = { x=300, y=20, open=true, target=999 }  -- level lookup fails
+      DOOR_TABLE[2] = { x=580, y=280, open=true, target=71 }  -- grid index off the 13x13 grid
+      DOOR_TABLE[3] = { x=300, y=500, open=true, target=72 }  -- grid index 168 is the last cell
+      DOOR_TABLE[4] = { x=40, y=500, open=true, target=73 }   -- negative grid index
+      ROOM_DESCS[71] = make_desc(169, 1, 1, 0, 0)
+      ROOM_DESCS[72] = make_desc(168, 1, 1, 0, 0)
+      ROOM_DESCS[73] = make_desc(-1, 1, 1, 0, 0)
+    """)
+    assert [d["target"] for d in oracle_doors(doors)] == [-1, -1, -1, 168, -1]
+
+
+def test_locked_and_closed_secret_doors_are_not_usable(doors):
+    doors.execute("""
+      for slot = 0, 5 do ROOM_DESCS[80+slot] = make_desc(80+slot, 1, 1, 0, 0) end
+      DOOR_TABLE[0] = { x=20, y=280, open=true, target=80, type=2 }                 -- plain
+      DOOR_TABLE[1] = { x=300, y=20, open=false, target=81, type=2, locked=true }   -- locked
+      DOOR_TABLE[2] = { x=580, y=280, open=false, target=82, type=7 }  -- closed secret
+      DOOR_TABLE[3] = { x=300, y=500, open=true, target=83, type=7 }   -- open secret
+      DOOR_TABLE[4] = { x=40, y=500, open=false, target=84, type=8 }    -- closed super secret
+      DOOR_TABLE[5] = { x=60, y=500, open=false, target=85, type=29 }   -- closed ultra secret
+      DOOR_TABLE[6] = { x=80, y=500, open=true, target=80, lock_fault=true } -- unreadable lock
+    """)
+    assert [(d["slot"], d["usable"]) for d in oracle_doors(doors)] == [
+        (0, True), (1, False), (2, False), (3, True), (4, False), (5, False), (6, False)
+    ]  # fmt: skip
+
+
+def test_oracle_room_grid_is_the_current_descriptor_grid_index_or_minus_one(doors):
+    def room_grid():
+        tick(doors, 5)
+        return live_snapshots(doors)[-1].oracle.room_grid
+
+    doors.execute("ROOM_INDEX=97")
+    assert room_grid() == 97
+    doors.execute("ROOM_INDEX=-4")  # special rooms are off the grid
+    assert room_grid() == -1
+    doors.execute("ROOM_INDEX=169")
+    assert room_grid() == -1
     assert not doors.globals().CLOSED
 
 

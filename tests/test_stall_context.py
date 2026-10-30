@@ -4,6 +4,7 @@ import csv
 from pathlib import Path
 
 import numpy as np
+import pytest
 from synthetic import door, room_facts
 
 from isaac_threrisaifuture.entities import Entity, OracleDoor, Vec
@@ -18,7 +19,7 @@ from isaac_threrisaifuture.episodes import Scenario, StepResult
 from isaac_threrisaifuture.sim import SyntheticRoomBackend
 
 TOY = Scenario("toy", "train", 1, 900, enemy_count=1, enemy_hp=7.0)
-CONTRACT_HASH = "b26db425729a40fa632b66a3967cf403f708bc10f89edb13500e09cd4e47b4de"
+CONTRACT_HASH = "3043a54c9d56e402f4a2bb6bd96906e79ee6ae3d7cc272a834d13ac13e31f621"
 
 
 def npc(entity_id, x, y, kind, variant, *, flying=False, invulnerable=False, boss=False):
@@ -47,8 +48,10 @@ class RoomBackend(SyntheticRoomBackend):
 
     def step(self, action, repeat):
         result = super().step(action, repeat)
-        doors = (OracleDoor(slot=0, x=0.0, y=0.0, open=True, unexplored=True),
-                 OracleDoor(slot=2, x=1.0, y=1.0, open=False, unexplored=True))  # fmt: skip
+        doors = (
+            OracleDoor(slot=0, x=0.0, y=0.0, open=True, unexplored=True, target=85, usable=True),
+            OracleDoor(slot=2, x=1.0, y=1.0, open=False, unexplored=True, target=83, usable=True),
+        )
         return StepResult(result.frame, result.events, result.terminal_coverage, doors=doors)
 
 
@@ -109,9 +112,10 @@ def test_death_episode_leaves_the_stall_columns_empty_and_sets_last_room_clear(t
     assert all(row[name] == "" for name in STALL_FIELDS)
 
 
-def test_old_header_is_upgraded_once_and_keeps_rows(tmp_path):
+@pytest.mark.parametrize("generation", range(len(LEGACY_HEADERS)))
+def test_old_header_is_upgraded_once_and_keeps_rows(tmp_path, generation):
     path = tmp_path / "episodes.csv"
-    old = LEGACY_HEADERS[0]
+    old = LEGACY_HEADERS[generation]  # 0: before the stall columns, 1: before stall_goal_hops
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.writer(handle, lineterminator="\n")
         writer.writerow(old)
@@ -121,7 +125,9 @@ def test_old_header_is_upgraded_once_and_keeps_rows(tmp_path):
     rows = list(csv.DictReader(path.open(encoding="utf-8")))
     assert tuple(rows[0]) == FIELDS and len(rows) == 1
     assert rows[0]["episode_id"] == "7" and rows[0]["return"] == "x"
-    assert rows[0]["last_room_clear"] == "" and rows[0]["stall_enemies"] == ""
+    kept = "x" if generation == 1 else ""  # columns the old file already had keep their cells
+    assert rows[0]["stall_goal_hops"] == "" and rows[0]["stall_enemies"] == kept
+    assert rows[0]["last_room_clear"] == kept
     assert not path.with_name(path.name + ".upgrade").exists()
 
 

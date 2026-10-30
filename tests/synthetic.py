@@ -45,12 +45,18 @@ def weapons(*names: str) -> list[bool]:
 
 
 def oracle_metrics(**hits: int) -> dict[str, object]:
-    """Wire fields of LiveOracle that tests rarely care about: kills, hits by source, no doors."""
+    """Wire fields of LiveOracle that tests rarely care about: kills, hits, no doors, grid room."""
     sources = dict.fromkeys(
         ("enemy", "projectile", "own_bomb", "explosion", "spikes", "fire", "creep", "other"), 0
     )
     sources.update(hits)
-    return {"kills": 0, "killed": [], "player_hits": sources, "doors": []}
+    return {
+        "kills": 0,
+        "killed": [],
+        "player_hits": sources,
+        "doors": [],
+        "room_grid": 84,
+    }
 
 
 def door(

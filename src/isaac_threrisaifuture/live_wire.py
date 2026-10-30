@@ -52,6 +52,8 @@ class LiveOracle(WireModel):
     player_hits: PlayerHits
     # Existing doors of the current room, one per slot. Reward label only (door shaping).
     doors: Annotated[list[OracleDoor], Field(max_length=DOOR_SLOTS)]
+    # Level grid index of the current room (13x13 grid), -1 when off the grid. Reward label only.
+    room_grid: Annotated[int, Field(ge=-1, le=168)]
 
     @model_validator(mode="after")
     def door_slots_unique(self) -> Self:

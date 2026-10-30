@@ -38,7 +38,7 @@ def ledger(gamma=GAMMA, *, start=None, doors=None, room=1, **begin) -> RewardLed
 
 
 def door(slot=0, x=580.0, y=280.0, *, open=True, unexplored=True) -> OracleDoor:
-    return OracleDoor(slot=slot, x=x, y=y, open=open, unexplored=unexplored)
+    return OracleDoor(slot=slot, x=x, y=y, open=open, unexplored=unexplored, target=85, usable=True)
 
 
 def at(x, y, *, clear=True, **changes):
@@ -116,8 +116,8 @@ def test_the_v9_sections_are_required_and_strict(tmp_path):
         RewardV4Coefficients.load(path)
 
 
-def test_the_training_config_pins_contract_v9_and_the_entropy_coefficient():
-    assert CONFIG.contract.reward_version == 9 and CONFIG.contract.observation_schema_version == 8
+def test_the_training_config_pins_the_current_contract_and_the_entropy_coefficient():
+    assert CONFIG.contract.reward_version == 10 and CONFIG.contract.observation_schema_version == 8
     assert CONFIG.hyperparameters.ent_coef == 0.005 and STALL_SECONDS == 40.0
 
 

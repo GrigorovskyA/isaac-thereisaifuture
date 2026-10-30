@@ -63,9 +63,10 @@ def test_the_kill_event_is_stall_progress():
     assert progress.novel(events, stage=1) is True
 
 
-def test_live_env_pays_reward_v9_and_refuses_other_versions():
+def test_live_env_pays_reward_v9_or_v10_and_refuses_other_versions():
     client = object()
     for version in (4, 5, 6, 7, 8):
         with pytest.raises(ValueError, match="Unsupported reward version"):
             make_live_env(client, reward_version=version)  # type: ignore[arg-type]
     assert make_live_env(client, reward_version=9)  # type: ignore[arg-type]
+    assert make_live_env(client, reward_version=10)  # type: ignore[arg-type]

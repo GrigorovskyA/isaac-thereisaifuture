@@ -8,13 +8,16 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 - Pure self-learning since 2026-10-22 ([decision](UPDATE_DECISION.md)). RecurrentPPO
   learns from raw facts and outcome rewards, plus one potential-based door term since
   reward v9: no scripted setup, advice features or technique rewards. Archive content is history, not runtime authority.
-- Held live-status writes now skip a publication after the bounded Windows sharing
-  retry instead of faulting training; `result.json` remains strict. The terminal
-  result records `status_writes_skipped` for skipped live publications.
-  October 30 Check.ps1 passed: 1075 tests, 10 Lua module skips (isolated runtime
-  unavailable), strict OpenSpec 25/25; existing synthetic All-NaN warning.
-  Training remains stopped. Reward v10 is being prepared as a separate fresh lineage;
-  no initialization, new branch or training launch is part of this repair.
+- Reward v10 graph-aware door potential is ready for the authorized fresh lineage.
+  Contract `3043a54c9d56e402f4a2bb6bd96906e79ee6ae3d7cc272a834d13ac13e31f621`;
+  observation8/action2 unchanged. Windows Check1466 including Lua/no skips;
+  strict OpenSpec26/26; one existing synthetic All-NaN warning.
+  Preserve v9 schema8 at t102400, deploy the updated mod, initialize once, then
+  verify native oracle graph labels after15min. Fixed stop October31 09:00 CET.
+  [Finite native plan and verification limits](../reports/2026-10-30-reward-v10-native-plan.md).
+  Graph-door-reward-v10 tasks2.2/2.3 remain open; no archive or acceptance claim.
+- Held live-status writes skip an exhausted Windows sharing retry and record
+  `status_writes_skipped`; durable result.json stays strict (source c010ef9).
 - Train-statistics logger repair `fc80cd5` passed native recording: all nine statistics
   populated in 69/69 new rows; pause_ok 69/69, first hour 15/15. Check1428/Lua/no skips;
   strict 25/25. Contract/mod/config unchanged; live pause remains enabled.
@@ -142,8 +145,8 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Verification
 
-- Previous Windows gate: 1428 tests passed with Lua, no skips; mypy passed,
-  lint/format/pip clean, strict OpenSpec 25/25. Synthetic CPU smoke passed:
+- Current Windows gate: 1466 tests passed with Lua, no skips; mypy passed,
+  lint/format/pip clean, strict OpenSpec 26/26. Earlier synthetic CPU smoke passed:
   16 steps, 9762 inputs, [5,5,4] actions. Synthetic smoke is not gameplay evidence.
 - Closed-game deployment hashes matched source:
   Lua 41b78262d4e8a80634a6d9ce0a04e343195601b2dbcf061fdeca46aac4e58985,
@@ -158,9 +161,9 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Next
 
-1. Training is stopped after the status-file access fault. Preserve t102400 and all
-   evidence; no retry or source fix is part of this task. A separate authorized change
-   is needed to investigate status-file contention and the automatic restart/stop race.
+1. Execute the authorized reward-v10 initialization and 15-minute graph-label check;
+   then continue under the fixed October31 deadline. Report native coverage honestly;
+   compare against archived v9 schema8 using cumulative gameplay-step windows.
 2. Schema 7 training is complete and archived with stop.forever and verified checkpoint hashes.
    Schema 6 remains separately stopped in `runs/pure-v4-reward-v9-schema6`.
 3. The ent_coef=0.01 trial ended at t588288 on October 28 at the user's request.

@@ -52,7 +52,7 @@ APPROVAL_NAME = "action_authorization.json"
 TRAINING_MAX_SECONDS = 28800  # mirrors Config.training_max_seconds in main.lua
 MAX_RESTARTS = 5000
 MAX_REWARD_IDENTITIES = 4096
-LIVE_REWARD_CONTRACT: Literal["pure-v9"] = "pure-v9"
+LIVE_REWARD_CONTRACT: Literal["pure-v10"] = "pure-v10"
 _CONSUMABLES: tuple[Literal["coin", "bomb", "key"], ...] = ("coin", "bomb", "key")
 SNAPSHOT_BACKLOG = 512
 ACK_TIMEOUT = 1.0
@@ -431,6 +431,7 @@ def _step_result(
         room_index=oracle.room_index,
         doors=tuple(oracle.doors),
         enemies_present=bool(oracle.enemies) or oracle.enemy_overflow > 0,
+        room_grid=oracle.room_grid,
     )
 
 
@@ -881,13 +882,13 @@ def make_live_env(
     oracle_sink: Callable[[OracleEvent], None] | None = None,
     run_deadline: float | None = None,
     stop_file: Path | None = None,
-    reward_version: int = 9,
+    reward_version: int = 10,
     gamma: float | None = None,
     stall_seconds: float | None = None,
     clock: Callable[[], float] = time.monotonic,
     max_consecutive_faults: int | None = None,
 ) -> FaultTolerantEnv:
-    """Live env; the pure profile pays reward v9 (v1 stays selectable for old comparisons).
+    """Live env; the pure profile pays reward v9 or v10 (v1 stays selectable for old comparisons).
 
     `gamma` is the training discount that door shaping needs (reward v9); without it door shaping
     is off, which suits attach-only runs that learn nothing. Training and the frozen pure
@@ -896,11 +897,20 @@ def make_live_env(
     one restart command. Leave it unset for attach-only runs such as evaluation.
     """
     from .env import IsaacCombatEnv, RewardAccountant
-    from .rewards import CombatCoefficients, RewardLedger, RewardLedgerV4, RewardV4Coefficients
+    from .rewards import (
+        DEFAULT_CONFIG_V9,
+        DEFAULT_CONFIG_V10,
+        CombatCoefficients,
+        RewardLedger,
+        RewardLedgerV4,
+        RewardV4Coefficients,
+    )
 
-    if reward_version not in (1, 9):
-        raise ValueError(f"Unsupported reward version {reward_version}; use 1 or 9")
-    coefficients = RewardV4Coefficients.load()
+    if reward_version not in (1, 9, 10):
+        raise ValueError(f"Unsupported reward version {reward_version}; use 1, 9 or 10")
+    coefficients = RewardV4Coefficients.load(
+        DEFAULT_CONFIG_V10 if reward_version == 10 else DEFAULT_CONFIG_V9
+    )
     if gamma is None:
         coefficients = replace(coefficients, door_shaping_coefficient=0.0)
     accountant: RewardAccountant = (
@@ -909,7 +919,7 @@ def make_live_env(
             stall_seconds=DEFAULT_STALL_SECONDS if stall_seconds is None else stall_seconds,
             gamma=gamma,
         )
-        if reward_version == 9
+        if reward_version in (9, 10)
         else RewardLedger(CombatCoefficients.load())
     )
 

@@ -76,7 +76,7 @@ creation and never on resume; learning may move it anywhere). Commands are bound
 session, epoch, room visit and frame; stale or replayed commands are refused and
 input is released on expiry, disconnect, fault and stop.
 
-## Reward v9 (`configs/reward-v9.yaml`)
+## Reward v10 (`configs/reward-v10.yaml`; v9 stays in `configs/reward-v9.yaml`)
 
 | Term | Value | Rule |
 | --- | --- | --- |
@@ -99,8 +99,23 @@ input is released on expiry, disconnect, fault and stop.
 There is no reward for using items; item value and synergies must show up through
 combat and progress. Ledger columns are logged separately.
 
-Door shaping (the one term that is not an outcome, approved explicitly) follows Ng et al. 1999:
-Phi(s) = -coefficient * d / D, with d the distance from the player to the nearest open door
+Reward v10 (openspec change `graph-door-reward-v10`) equals v9 except that door shaping
+(`door_shaping: {coefficient: 2.0, max_hops: 5}`) is graph-aware. After 105k steps under v9, 92%
+of the stalls happened in a cleared room and 40% of those had no open door to an unvisited room,
+where the v9 term was silent. Phi(s) = -coefficient * cost(s). The ledger keeps, per episode and
+floor, the visited rooms (level grid indexes), the usable doors seen from them (not locked, not a
+closed secret door; oracle `target`, `usable`, `room_grid`, labels only) and the boss room once
+entered. The hop distance H of a room is 0 for an unvisited target of a usable door and for the
+boss room, else 1 + the best neighbour, capped at `max_hops`. Outside the boss room cost = the
+minimum over usable doors of in_room + H(target), with in_room the distance share d / D to an
+open door in a clear room without enemies and the constant 1 otherwise; with no such door cost =
+1 + max_hops (no gradient). In the boss room cost = 1 while it is not clear, else the trapdoor
+distance share (0 without a trapdoor). Cost 0 without doors data, for a dead player and off the
+grid. Max |Phi| = 12. The step formula, terminal handling and the exploit analysis (discounted
+sum = -Phi(s0)) are as below and in the change design. A v9 config keeps the v9 potential:
+
+Door shaping (the one term that is not an outcome, approved explicitly) follows Ng et al. 1999.
+In reward v9: Phi(s) = -coefficient * d / D, with d the distance from the player to the nearest open door
 whose room behind it has not been visited this run (oracle doors, reward label only) and D the
 diagonal of the room's bounding box (by room shape; the ratio is clipped to 1). Phi is 0 when
 the room is not clear or has enemies, when no such door exists, for a dead player and without
@@ -120,9 +135,10 @@ was replaced and its lineage `pure-v1` retired; its config is in `archive/config
 
 ## Lineages
 
-`pure-v4` restarts with reward v9 and observation schema 8 (OpenSpec changes
-`dense-exploration-reward-v9` and `rich-room-observation-v8`); the reward v8 run is kept as
-`runs/pure-v4-reward-v8`, the reward v9 schema 7 run as `runs/pure-v4-reward-v9-schema7`. Their
+`pure-v4` restarts with reward v10 and observation schema 8 (OpenSpec changes
+`graph-door-reward-v10`, `dense-exploration-reward-v9` and `rich-room-observation-v8`); the reward v8 run is kept as
+`runs/pure-v4-reward-v8`, the reward v9 schema 7 run as `runs/pure-v4-reward-v9-schema7` and the
+reward v9 schema 8 run as `runs/pure-v4-reward-v9-schema8`. Their
 checkpoints are refused (different contract hash).
 `ent_coef` returns to 0.005: the 0.01 trial did not raise entropy and did not help.
 

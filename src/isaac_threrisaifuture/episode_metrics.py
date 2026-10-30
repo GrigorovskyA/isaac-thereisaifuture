@@ -48,6 +48,7 @@ STALL_FIELDS = (
     "stall_enemy_kinds",  # "type.variant" pairs, sorted, joined by ";"
     "stall_nearest_enemy",  # px from the player
     "stall_open_unexplored_doors",
+    "stall_goal_hops",  # reward v10: best door term (rooms to cross plus in-room share), 2 digits
     "stall_open_doors",
     "stall_half_hearts",
     "stall_seconds_in_room",  # game updates since the room change (or episode start) / 30
@@ -74,7 +75,10 @@ FIELDS = (
 )
 
 NEW_FIELDS = frozenset(("last_room_clear", *STALL_FIELDS))
-LEGACY_HEADERS = (tuple(name for name in FIELDS if name not in NEW_FIELDS),)
+LEGACY_HEADERS = (
+    tuple(name for name in FIELDS if name not in NEW_FIELDS),  # before the stall columns
+    tuple(name for name in FIELDS if name != "stall_goal_hops"),  # before reward v10
+)
 
 
 def summary_row(summary: Mapping[str, Any]) -> dict[str, Any]:

@@ -415,7 +415,9 @@ class OracleDoor(WireModel):
     """One existing door of the current room. Reward label only, never a policy input.
 
     `x`, `y` is the world position of the door slot. `unexplored` is True when the room behind
-    the door has never been visited in this run.
+    the door has never been visited in this run. `target` is the level grid index of the room
+    behind the door (-1 when unreadable or off the grid). `usable` is False for a locked door
+    and for a closed door to a secret room; the room graph ignores such doors.
     """
 
     slot: Annotated[int, Field(ge=0, le=DOOR_SLOTS - 1)]
@@ -423,6 +425,8 @@ class OracleDoor(WireModel):
     y: Coord
     open: bool
     unexplored: bool
+    target: Annotated[int, Field(ge=-1, le=168)]
+    usable: bool
 
 
 class OracleEvent(WireModel):
