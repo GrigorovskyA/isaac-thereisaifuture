@@ -1,4 +1,4 @@
-"""Event-driven reward ledgers: combat reward-v1 and outcome-only reward-v4 to v10.
+"""Event-driven reward ledgers: combat reward-v1 and outcome-only reward-v4 to v11.
 
 Coefficients are hypotheses, not tuned values.
 """
@@ -14,6 +14,7 @@ import yaml
 from .encoding import ROOM_ORIGIN, room_diagonal
 from .entities import BOSS_ROOM_TYPE, EntityFrame, OracleDoor, OracleEvent
 from .env import UPDATES_PER_SECOND
+from .novelty_counts import NoveltyCounts
 from .room_graph import RoomGraph
 from .stall_watchdog import DEFAULT_STALL_SECONDS
 
@@ -132,15 +133,18 @@ class RewardLedger:
 
 DEFAULT_CONFIG_V9 = Path(__file__).resolve().parents[2] / "configs" / "reward-v9.yaml"
 DEFAULT_CONFIG_V10 = Path(__file__).resolve().parents[2] / "configs" / "reward-v10.yaml"
-# The same ledger pays v4-v10: v5 changed stall_restart, v6 adds kill credit in the deriver, v7
+DEFAULT_CONFIG_V11 = Path(__file__).resolve().parents[2] / "configs" / "reward-v11.yaml"
+# The same ledger pays v4-v11: v5 changed stall_restart, v6 adds kill credit in the deriver, v7
 # adds the stagnation cost, v8 shortens the stall limit it is sized for, v9 adds the boss clear
-# bonus and potential-based door shaping and v10 makes that potential graph-aware (`max_hops`).
-# Only v7-v10 have a `stagnation` section and only v9-v10 have `door_shaping` and
+# bonus and potential-based door shaping, v10 makes that potential graph-aware (`max_hops`) and
+# v11 adds `blocked_cost`.
+# Only v7-v11 have a `stagnation` section and only v9-v11 have `door_shaping` and
 # `outcome.boss_room_clear_first`; the archived v4-v8 configs stay loadable.
-REWARD_V4_VERSIONS = (4, 5, 6, 7, 8, 9, 10)
-STAGNATION_VERSIONS = (7, 8, 9, 10)
-DOOR_SHAPING_VERSIONS = (9, 10)
-GRAPH_SHAPING_VERSIONS = (10,)
+REWARD_V4_VERSIONS = (4, 5, 6, 7, 8, 9, 10, 11)
+STAGNATION_VERSIONS = (7, 8, 9, 10, 11)
+DOOR_SHAPING_VERSIONS = (9, 10, 11)
+GRAPH_SHAPING_VERSIONS = (10, 11)
+CROSS_RUN_NOVELTY_VERSIONS = (11,)  # novelty pays coefficient / sqrt(runs the cell was new in)
 REWARD_V4_COLUMNS = (
     "enemy_damage",
     "room_clear",
@@ -184,6 +188,7 @@ _STAGNATION_KEYS = ("per_second", "grace_seconds")
 _BOSS_KEY = "boss_room_clear_first"
 _DOOR_SHAPING_KEYS = ("coefficient",)
 _GRAPH_SHAPING_KEYS = ("coefficient", "max_hops")
+_BLOCKED_SHAPING_KEYS = ("coefficient", "max_hops", "blocked_cost")  # v11
 
 
 @dataclass(frozen=True)
@@ -209,10 +214,16 @@ class RewardV4Coefficients:
     boss_room_clear_first: float = 0.0
     door_shaping_coefficient: float = 0.0
     door_shaping_max_hops: int = 0  # 0: the v9 potential; > 0: the v10 room graph potential
+    # v11: the in-room term of a blocked door and the cost of a live boss room (v10: 1.0).
+    door_shaping_blocked_cost: float = 1.0
+    # v11: novelty is divided by sqrt(N), N = runs (this one included) that first visited the cell.
+    novelty_cross_run: bool = False
 
     def __post_init__(self) -> None:
         if self.door_shaping_max_hops < 0:
             raise ValueError("The door shaping hop cap must be >= 0")
+        if self.door_shaping_blocked_cost < 0:
+            raise ValueError("The door shaping blocked cost must be >= 0")
         if self.consumable_run_cap < 0 or self.novelty_cell_size <= 0:
             raise ValueError("The consumable cap must be >= 0 and the novelty cell size positive")
         if self.stagnation_grace_seconds < 0:
@@ -227,18 +238,26 @@ class RewardV4Coefficients:
         sections = dict(_V4_SECTIONS)
         top = {"reward_version", "status", *sections}
         if version in STAGNATION_VERSIONS:
-            top.add("stagnation")  # required for v7-v9, forbidden for v4-v6
+            top.add("stagnation")  # required for v7-v11, forbidden for v4-v6
         if version in DOOR_SHAPING_VERSIONS:
-            top.add("door_shaping")  # v9 and v10
+            top.add("door_shaping")  # v9 to v11
             sections["outcome"] = (*sections["outcome"], _BOSS_KEY)
         if not isinstance(raw, dict) or set(raw) != top or version not in REWARD_V4_VERSIONS:
-            raise ValueError(f"Reward v4-v10 configuration must define exactly {sorted(top)}")
+            raise ValueError(f"Reward v4-v11 configuration must define exactly {sorted(top)}")
         values: dict[str, Any] = {}
+        if version in CROSS_RUN_NOVELTY_VERSIONS:  # required for v11, forbidden before
+            novelty = raw["novelty"]
+            if not isinstance(novelty, dict) or not isinstance(novelty.get("cross_run"), bool):
+                raise ValueError("novelty.cross_run must be a boolean")
+            values["novelty_cross_run"] = novelty["cross_run"]
+            sections["novelty"] = (*sections["novelty"], "cross_run")
         for name, keys in sections.items():
             section = raw[name]
             if not isinstance(section, dict) or set(section) != set(keys):
                 raise ValueError(f"The {name} section must define exactly {keys}")
             for key in keys:
+                if key == "cross_run":
+                    continue
                 value = section[key]
                 if isinstance(value, bool) or not isinstance(value, (int, float)):
                     raise ValueError(f"{name}.{key} must be a number")
@@ -254,7 +273,9 @@ class RewardV4Coefficients:
                 values[f"stagnation_{key}"] = float(value)
         if "door_shaping" in raw:
             section = raw["door_shaping"]
-            keys = _GRAPH_SHAPING_KEYS if version in GRAPH_SHAPING_VERSIONS else _DOOR_SHAPING_KEYS
+            keys = _DOOR_SHAPING_KEYS
+            if version in GRAPH_SHAPING_VERSIONS:
+                keys = _BLOCKED_SHAPING_KEYS if version >= 11 else _GRAPH_SHAPING_KEYS
             if not isinstance(section, dict) or set(section) != set(keys):
                 raise ValueError(f"The door_shaping section must define exactly {keys}")
             value = section["coefficient"]
@@ -266,6 +287,15 @@ class RewardV4Coefficients:
                 if isinstance(hops, bool) or not isinstance(hops, int) or hops < 1:
                     raise ValueError("door_shaping.max_hops must be an integer >= 1")
                 values["door_shaping_max_hops"] = hops
+            if "blocked_cost" in section:
+                blocked = section["blocked_cost"]
+                if (
+                    isinstance(blocked, bool)
+                    or not isinstance(blocked, (int, float))
+                    or blocked < 0
+                ):
+                    raise ValueError("door_shaping.blocked_cost must be a number >= 0")
+                values["door_shaping_blocked_cost"] = float(blocked)
         return cls(**values)
 
 
@@ -275,6 +305,9 @@ class RewardLedgerV4:
 
     "First" sets, the consumable cap, the heal pool and visited novelty cells belong to a run, so
     they reset only when `begin` sees a new session or game epoch (a new run).
+
+    Since v11 (`novelty.cross_run`) a first visit of a cell pays coefficient / sqrt(N), N the number
+    of runs, this one included, that first visited it (`novelty_counts`, saved with checkpoints).
 
     Door shaping (v9) is potential-based: Phi(s) = -coefficient * d / D with d the distance to the
     nearest open door to an unvisited room and D the room's diagonal; Phi is 0 unless the room is
@@ -286,11 +319,15 @@ class RewardLedgerV4:
     * cost(s), where cost adds the hop distance H of a door's target room (to an unvisited room or
     the boss room, through the doors seen this floor, capped at `max_hops`) to the in-room term:
     the distance share to an open door in a calm room, else a constant 1. See `RoomGraph`.
+    Since v11 that constant (and the cost of a live boss room) is `blocked_cost`, set to 0: entering
+    a room whose doors are still blocked then costs nothing.
     """
 
     coefficients: RewardV4Coefficients
     stall_seconds: float = DEFAULT_STALL_SECONDS
     gamma: float | None = None
+    # Cross-run counts (v11). Pass the table the checkpoints save; a frozen one never stores.
+    novelty_counts: NoveltyCounts | None = None
     _stagnation_paid: float = 0.0
     _phi: float = 0.0  # door potential of the previous state
     _run: tuple[str, int] | None = None
@@ -386,6 +423,10 @@ class RewardLedgerV4:
             if cell not in self._novelty:  # first visit of a cell per run; revisits pay nothing
                 self._novelty.add(cell)
                 parts["novelty"] = c.novelty_coefficient
+                if c.novelty_cross_run:
+                    assert self.novelty_counts is not None  # set in __post_init__
+                    runs = self.novelty_counts.visit(cell)
+                    parts["novelty"] = c.novelty_coefficient / math.sqrt(runs) if runs else 0.0
         if frame is not None and c.door_shaping_coefficient != 0.0:
             # A terminal step (death, clear, truncation) ends in the zero potential.
             phi = self._potential(frame, doors, enemies_present, room_grid)
@@ -441,9 +482,11 @@ class RewardLedgerV4:
         """Cost of the state in [0, 1 + max_hops]: rooms still to cross plus the in-room share.
 
         Zero without doors data or an on-grid room, and for a dead player. In the boss room it is
-        1 while the boss lives, else the share of the distance to the trapdoor (0 without one).
+        `blocked_cost` while the boss lives, else the share of the distance to the trapdoor (0 if
+        none).
         Elsewhere it is the best usable door's in-room term plus its target's hop distance; the
-        in-room term is the distance share to an open door in a calm room, else a constant 1.
+        in-room term is the distance share to an open door in a calm room, else `blocked_cost`
+        (v10: 1).
         With no door to a goal the cost is the constant 1 + max_hops.
         """
         if doors is None or room_grid is None or room_grid < 0:
@@ -458,7 +501,7 @@ class RewardLedgerV4:
         calm = frame.room.clear and not enemies_present
         if boss_room:
             if not calm:
-                return 1.0
+                return self.coefficients.door_shaping_blocked_cost
             trapdoors = [
                 math.hypot(entity.position.x, entity.position.y)
                 for entity in frame.entities
@@ -472,7 +515,7 @@ class RewardLedgerV4:
         for door in doors:
             if door.target < 0 or not door.usable or door.target not in hops:
                 continue
-            in_room = 1.0
+            in_room = self.coefficients.door_shaping_blocked_cost
             if calm and door.open:
                 in_room = min(math.hypot(door.x - position.x, door.y - position.y) / scale, 1.0)
             terms.append(in_room + min(hops[door.target], cap))
@@ -494,6 +537,8 @@ class RewardLedgerV4:
 
     def __post_init__(self) -> None:
         c = self.coefficients
+        if c.novelty_cross_run and self.novelty_counts is None:
+            self.novelty_counts = NoveltyCounts()  # in memory only: nothing saves it
         if self.stall_seconds <= 0:
             raise ValueError("The stall limit must be positive")
         if c.stagnation_per_second != 0.0 and c.stagnation_grace_seconds >= self.stall_seconds:

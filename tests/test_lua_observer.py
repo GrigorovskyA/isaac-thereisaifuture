@@ -35,6 +35,7 @@ COMMANDS = {}
 COINS, BOMBS, KEYS, ACTIVE, CHARGE, MAX_CHARGES = 0, 0, 0, 0, 0, nil
 CARD, PILL, TRINKET, HELD, HAS_CALLS, ITEM_SIZE = 0, 0, 0, {}, 0, 733
 ROOM_TYPE, STAGE, STAGE_TYPE, ROOM_INDEX, DOORS = 1, 1, 0, 84, {}
+CURSES = 0
 -- DOORS[slot] is a bool (open) or { open, locked, type, target, lock_fault }; ROOM_DESCS maps a
 -- room index to its descriptor (simulated, not engine evidence).
 ROOM_DESCS = {}
@@ -87,7 +88,11 @@ print = function(message) LOGS[#LOGS+1] = message end
 Isaac = { GetTime = function() return NOW end }
 Isaac.GetItemConfig = function() return {
  GetCollectibles=function() return { Size=ITEM_SIZE } end,
- GetCollectible=function(self, id) if MAX_CHARGES then return { MaxCharges=MAX_CHARGES } end end
+ GetCollectible=function(self, id)
+  -- ITEM_CONFIG(id) overrides the catalog entry (quality, type, charges, tags).
+  if ITEM_CONFIG then return ITEM_CONFIG(id) end
+  if MAX_CHARGES then return { MaxCharges=MAX_CHARGES } end
+ end
 } end
 Isaac.ExecuteCommand = function(command)
  COMMANDS[#COMMANDS+1] = command
@@ -152,6 +157,7 @@ Game = function() return {
  } end,
  GetLevel=function() return {
   GetStage=function() return STAGE end, GetStageType=function() return STAGE_TYPE end,
+  GetCurses=function() return CURSES end,
   GetCurrentRoomIndex=function() return ROOM_INDEX end,
   GetCurrentRoomDesc=function() return { GridIndex=ROOM_INDEX } end,
   GetRoomByIdx=function(self, index) return ROOM_DESCS[index] end,

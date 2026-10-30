@@ -19,21 +19,22 @@ Principles:
 - Every reward term has an exploit test.
 - Training reward, optimizer updates and synthetic smoke do not prove better play.
 
-## Observation schema 8 (9762 floats)
+## Observation schema 9 (11691 floats)
 
 | Block | Features |
 | --- | --- |
 | Player | position, velocity, red/max red/soul hearts, bone containers (9) |
-| Inventory | coins, bombs, keys, active item present/ID/charge fraction, card, pill, trinket held (9) |
+| Inventory | coins, bombs, keys, active item present/ID/charge fraction, card, pill, trinket held (9), then the active item block: quality / 4, 8 tag bits and a one-hot of 64 buckets of the item ID, all zero without an active item (73) |
 | Room | room type one-hot (32), stage, stage type, clear flag, 8 door slots x 15 (exists, open, locked, target visited, class one-hot of the room behind, 11 classes), room shape one-hot (12) (167) |
 | Enemies | nearest-first slots (32 x 78): the 8 slot features plus identity valid, boss, champion, flying, invulnerable, log-scaled max HP and a one-hot of 64 buckets of a stable hash of (entity type, variant); the one-hot into the first linear layer is a learned embedding per kind (a few kinds may share a bucket); current enemy HP stays unknown |
 | Projectiles | nearest-first slots: present, position, velocity, HP fraction (64 x 8) |
 | Obstacles | nearest-first slots (64 x 24): the 8 slot features plus a class one-hot (rock, marked rock, bomb rock, block, pit, spikes, poop, TNT, fire, trapdoor, crawlspace, pressure plate, lock block, teleporter, wall, other); fireplaces included, wall cells never exported (`wall` unused); the trapdoor is the floor exit; a pressure plate's pressed state is not exported |
-| Pickups | base slot plus variant class one-hot (12), subtype, shop flag (24 x 22) |
+| Pickups | base slot plus variant class one-hot (12), subtype, shop flag, then the item block (24 x 99): only for a pedestal collectible, quality / 4, type one-hot (passive, active, familiar), max charges / 12 (clipped), 8 tag bits and a one-hot of 64 buckets of the item ID (zeros for other pickups and empty pedestals) |
 | Collectibles | multi-hot of held collectible IDs 1..1024 |
 | Stats | damage, tears per second, range, shot speed, move speed, luck (6, scaled) |
 | Tear flags | 16 booleans: spectral, piercing, homing, slow, poison, freeze, split, growing, boomerang, persistent, wiggle, explosive, charm, confusion, burn, bouncing |
 | Weapons | 15 weapon-type booleans (tears, Brimstone, laser, knife, bombs, rockets, ...) |
+| Held tags | 8 counts of held collectibles per item tag (below), count / 3 clipped to 1 |
 | Own attacks | nearest-first slots for own tears, lasers and knives (48 x 8) |
 | Bombs | nearest bombs with age (8 x 9) |
 | Interactables | nearest-first slots (16 x 16): base features plus a class one-hot (slot machine, beggar, blood donation, fortune teller, restock box, crane, other slot, heaven door) |
@@ -43,7 +44,8 @@ Principles:
 
 Schema 4 had 2038 floats; schema 5 added obstacle classes, room shape, the minimap and the stall
 clock (3499); schema 7 appended the visited-cells block (3863); schema 8 (9762) adds door facts,
-room classes, floor-feature obstacle classes, interactables, enemy identity and larger caps (below) (schema 6 had the same block on a grid
+room classes, floor-feature obstacle classes, interactables, enemy identity and larger caps (below); schema 9 (11691) adds item identity and
+catalog facts (below) (schema 6 had the same block on a grid
 that cut every tile in half and was replaced after its native check). Cells are the 40 px floor
 tiles counted from the room interior corner (60, 140), so the largest room (2x2) is 26 x 14 cells
 and a 1x1 room exactly 13 x 7; smaller rooms and L shapes use the same grid, and positions in
@@ -58,12 +60,24 @@ counts in `source_overflow`). Room classes group `RoomType` values and serve doo
 minimap: normal (1), boss (5), treasure (4), shop (2), secret (7, 8, 29), curse (10), challenge
 (11, 17), devil_angel (14, 15), sacrifice (13), arcade (9), special (all others, such as library,
 planetarium, miniboss). A door is a fact the player sees: a door to a secret room that is still
-closed is a hidden wall and reads as absent. The wire frame is schema 6 and messages are bounded
-at 128 KiB (worst case measured: 76 KB Lua entity frame, 80 KB live snapshot, 105 KB Python
+closed is a hidden wall and reads as absent. The wire frame is schema 7 and messages are bounded
+at 128 KiB (worst case measured: 81 KB Lua entity frame, 85 KB live snapshot, 111 KB Python
 extreme-number case). Episode rows carry `max_<kind>` and `overflow_<kind>` per kind for tuning
 the caps (metrics only). Positions are relative to the player and scaled; values are clipped with a
 counter. Oracle data (`room_index`, hidden enemy HP, door targets) is used only for reward and
 novelty keys and door labels and never enters the policy vector, normalizer or recurrent state.
+
+Schema 9 item identity (OpenSpec change `item-identity-observation-v9`): before it a pedestal
+item was one scalar (ID / 1024) and the active item likewise, so the policy could not tell items
+apart. Now every pedestal collectible and the active item carry a one-hot of 64 buckets of
+`(item_id * 2654435761 mod 2^32) >> 26` (the top bits; never Python's `hash()`; distinct items may
+share a bucket, about 11 of 729 per bucket) and facts from the game's ItemConfig: quality 0-4, type
+(passive, active, familiar), max charges and eight tag bits. These are catalog facts, not predicted
+effects or advice; what each item does is learned. The tags are the transformation sets of the
+game, in bit order: GUPPY, FLY, MUSHROOM, SYRINGE, BOB, SPIDER, BABY, MOM (`ItemConfig.TAG_<NAME>`,
+read from the game; a missing name reads as no tag). The held tag counts are the number of held
+collectibles per tag, the quantity the game itself counts for a transformation. A blind pedestal
+(curse of the blind) hides its item: it exports subtype 0 and no facts if `IsBlind()` exists.
 
 ## Actions v2
 
@@ -76,7 +90,7 @@ creation and never on resume; learning may move it anywhere). Commands are bound
 session, epoch, room visit and frame; stale or replayed commands are refused and
 input is released on expiry, disconnect, fault and stop.
 
-## Reward v10 (`configs/reward-v10.yaml`; v9 stays in `configs/reward-v9.yaml`)
+## Reward v11 (`configs/reward-v11.yaml`; v9 and v10 stay in `configs/`)
 
 | Term | Value | Rule |
 | --- | --- | --- |
@@ -93,7 +107,7 @@ input is released on expiry, disconnect, fault and stop.
 | New collectible | 5.0 | per item ID per run (reward v3 paid 1.0) |
 | Healing | 0.5 per half-heart | only up to health lost earlier in the run |
 | Stagnation | -0.25 per second | stall watchdog idle seconds past a 12 s grace, charged in the step that adds them; none after progress resets the clock, for a dead player or without a watchdog (at most -7.0 per episode with the 40 s limit) |
-| Novelty | 0.1 | first visit only, per (stage, room, 40-unit cell) per run (about 9 for a full 1x1 room) |
+| Novelty | 0.1 | first visit only, per (stage, room, 40-unit cell) per run (about 9 for a full 1x1 room); v11: 0.1 / sqrt(N), N = runs that first visited the key |
 | Door shaping | coefficient 2.0 | potential-based, see below; ledger column `door_shaping` |
 
 There is no reward for using items; item value and synergies must show up through
@@ -113,6 +127,24 @@ open door in a clear room without enemies and the constant 1 otherwise; with no 
 distance share (0 without a trapdoor). Cost 0 without doors data, for a dead player and off the
 grid. Max |Phi| = 12. The step formula, terminal handling and the exploit analysis (discounted
 sum = -Phi(s0)) are as below and in the change design. A v9 config keeps the v9 potential:
+
+Reward v11 (openspec change `door-entry-fix-reward-v11`) equals v10 plus `door_shaping.blocked_cost`
+(0.0), which replaces the constant 1 above (blocked in-room term and live boss room; v10 is 1.0).
+After 61k steps under v10, 73% of the stalls (135/184) were in a cleared room within 0.1-0.45
+diagonal of an open door to an unvisited room, because entering an uncleared room paid about
+-coefficient. Under v11 entering a frontier room costs nothing, a dead end still drops Phi by
+coefficient * H, and clearing a room lowers Phi by at most coefficient * d / D (<= 2).
+
+Reward v11 also changes three things, still without a new version number. A stall is terminal
+for learning: `env.step` returns terminated (not truncated) for a stall, because a New Run
+follows and the stall clock is observed, so SB3 must not bootstrap `gamma * V(s')`; the
+terminal Phi = 0 now belongs to a real end. Summaries and `episodes.csv` still say truncated /
+stall; other truncations keep bootstrapping. Novelty counts across runs (`novelty.cross_run`):
+a first visit pays 0.1 / sqrt(N), N the runs that first visited the (stage, room, cell) key
+(0.1, 0.071, 0.058 ...), stored in `novelty_counts.npz` in each checkpoint (reward state, never an
+observation). Evidence from v10: 111 of 191 stalls (58%) never left the start room; returns were
+-9.0 (1 room, n=111), +4.5 (2 rooms, n=153), +19.3 (3 rooms, n=25). Hyperparameters:
+n_epochs 10, batch_size 128, target_kl 0.03 (about 5x more gradient steps per sample).
 
 Door shaping (the one term that is not an outcome, approved explicitly) follows Ng et al. 1999.
 In reward v9: Phi(s) = -coefficient * d / D, with d the distance from the player to the nearest open door
@@ -135,8 +167,8 @@ was replaced and its lineage `pure-v1` retired; its config is in `archive/config
 
 ## Lineages
 
-`pure-v4` restarts with reward v10 and observation schema 8 (OpenSpec changes
-`graph-door-reward-v10`, `dense-exploration-reward-v9` and `rich-room-observation-v8`); the reward v8 run is kept as
+`pure-v4` restarts with reward v11 and observation schema 9 (OpenSpec changes
+`item-identity-observation-v9`, `door-entry-fix-reward-v11`, `graph-door-reward-v10`, `dense-exploration-reward-v9` and `rich-room-observation-v8`); the reward v10 run (61k steps) is kept as `runs/pure-v4-reward-v10`, the reward v8 run as
 `runs/pure-v4-reward-v8`, the reward v9 schema 7 run as `runs/pure-v4-reward-v9-schema7` and the
 reward v9 schema 8 run as `runs/pure-v4-reward-v9-schema8`. Their
 checkpoints are refused (different contract hash).

@@ -19,11 +19,12 @@ import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from .entities import OBSERVATION_SCHEMA_VERSION
+from .novelty_counts import COUNTS_FILE, NoveltyCounts
 
 CHECKPOINT_SCHEMA_VERSION: Literal[2] = 2
 ACTION_SCHEMA_VERSION = 2
 REWARD_SCHEMA_VERSION = 1
-RewardContract = Literal["combat-v1", "pure-v10"]
+RewardContract = Literal["combat-v1", "pure-v11"]
 
 MANIFEST_NAME = "manifest.json"
 LATEST_POINTER = "latest.txt"
@@ -57,6 +58,9 @@ class CheckpointManifest(BaseModel):
     rollout_index: int | None = None
     # Hyperparameters in effect when this checkpoint was written (config version 2).
     hyperparameters: dict[str, Any] | None = None
+    # Reward v11 cross-run novelty counts: reward state, saved and hashed like the other files.
+    novelty_counts_file: str | None = None
+    novelty_counts_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")] | None = None
 
     @model_validator(mode="after")
     def complete_hashes(self) -> Self:
@@ -133,10 +137,18 @@ def read_manifest(directory: Path) -> CheckpointManifest:
             raise CheckpointError(f"Checkpoint file missing: {directory / name}")
         if (directory / name).resolve().parent != directory.resolve():
             raise CheckpointError("Checkpoint artifact escapes its directory")
-    for name, expected in (
+    counts = manifest.novelty_counts_file
+    if counts is not None:
+        _component(counts)
+        if manifest.novelty_counts_sha256 is None or not (directory / counts).is_file():
+            raise CheckpointError(f"Checkpoint file missing: {directory / counts}")
+    hashed = [
         (manifest.model_file, manifest.model_sha256),
         (manifest.normalizer_file, manifest.normalizer_sha256),
-    ):
+    ]
+    if counts is not None:
+        hashed.append((counts, manifest.novelty_counts_sha256))
+    for name, expected in hashed:
         if expected is not None and _sha256(directory / name) != expected:
             raise CheckpointError(f"Checkpoint artifact hash mismatch: {name}")
     return manifest
@@ -160,6 +172,7 @@ def save_checkpoint(
     reward_contract: RewardContract = "combat-v1",
     hyperparameters: dict[str, Any] | None = None,
     retention: tuple[int, int] | None = None,
+    novelty_counts: NoveltyCounts | None = None,
 ) -> CheckpointManifest:
     """Publish one complete immutable checkpoint, then atomically advance latest.
 
@@ -205,6 +218,7 @@ def save_checkpoint(
             reward_contract=reward_contract,
             rollout_index=rollout_index,
             hyperparameters=hyperparameters,
+            novelty_counts=novelty_counts,
         )
         if retention is not None:
             prune_checkpoints(root, keep_latest=retention[0], keep_every=retention[1])
@@ -280,6 +294,7 @@ def _publish_checkpoint(
     reward_contract: RewardContract,
     rollout_index: int,
     hyperparameters: dict[str, Any] | None,
+    novelty_counts: NoveltyCounts | None = None,
 ) -> CheckpointManifest:
     checkpoint_id = f"{cfg_hash[:8]}-s{seed}-t{timesteps}"
     _component(checkpoint_id)
@@ -295,7 +310,11 @@ def _publish_checkpoint(
     try:
         model.save(stage / "model.zip")
         vec_normalize.save(str(stage / "vecnormalize.pkl"))
-        for name in ("model.zip", "vecnormalize.pkl"):
+        names = ["model.zip", "vecnormalize.pkl"]
+        if novelty_counts is not None:
+            novelty_counts.save(stage / COUNTS_FILE)
+            names.append(COUNTS_FILE)
+        for name in names:
             _sync_file(stage / name)
         manifest = CheckpointManifest(
             checkpoint_schema_version=CHECKPOINT_SCHEMA_VERSION,
@@ -316,6 +335,10 @@ def _publish_checkpoint(
             normalizer_sha256=_sha256(stage / "vecnormalize.pkl"),
             rollout_index=rollout_index,
             hyperparameters=hyperparameters,
+            novelty_counts_file=COUNTS_FILE if novelty_counts is not None else None,
+            novelty_counts_sha256=(
+                _sha256(stage / COUNTS_FILE) if novelty_counts is not None else None
+            ),
         )
         write_manifest(stage, manifest)
         _sync_file(stage / MANIFEST_NAME)

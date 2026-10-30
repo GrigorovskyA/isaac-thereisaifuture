@@ -49,7 +49,7 @@ NEUTRAL_FACTS = {
 
 
 def upgraded(name: str, tmp_path: Path) -> Path:
-    """Copy a recorded schema 1 fixture to schema 6 with neutral, clearly invented facts.
+    """Copy a recorded schema 1 fixture to schema 7 with neutral, clearly invented facts.
 
     Only the real positions, velocities and identities are replayed; the added inventory,
     stats, weapon, room (no doors), map and pickup fields are placeholders (obstacles become class
@@ -59,7 +59,7 @@ def upgraded(name: str, tmp_path: Path) -> Path:
     out = []
     for line in lines:
         record = json.loads(line)
-        record["observation_schema_version"] = 6
+        record["observation_schema_version"] = 7
         if record["type"] == "entity_frame":
             record.update(NEUTRAL_FACTS)
             for entity in record["entities"]:

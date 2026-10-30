@@ -90,8 +90,8 @@ def block(vector: np.ndarray, kind: str) -> np.ndarray:
 
 
 def test_versions_caps_and_size():
-    assert (OBSERVATION_SCHEMA_VERSION, FRAME_SCHEMA_VERSION) == (8, 6)
-    assert EntityFrame.model_fields["observation_schema_version"].default == 6
+    assert (OBSERVATION_SCHEMA_VERSION, FRAME_SCHEMA_VERSION) == (9, 7)
+    assert EntityFrame.model_fields["observation_schema_version"].default == 7
     assert (
         CAPACITY
         == ENTITY_CAPS
@@ -106,7 +106,6 @@ def test_versions_caps_and_size():
         }
     )
     assert tuple(ENTITY_CAPS) == ENTITY_KINDS and sum(ENTITY_CAPS.values()) == 256
-    assert OBSERVATION_SIZE == 9762
     assert len(ROOM_CLASSES) == 11 and DOOR_FEATURES == 4 + 11 and MAP_CHANNELS == 3 + 11
     assert SLOT_WIDTH["interactable"] == SLOT_FEATURES + len(INTERACTABLE_CLASSES) == 16
 
@@ -118,12 +117,12 @@ def test_schema_5_frames_are_refused():
         decoded(payload)
 
 
-def test_the_contract_hash_differs_from_schema_7_and_the_config_pins_8():
+def test_the_contract_hash_differs_from_schema_8_and_the_config_pins_9():
     config, digest = load_training_config(ROOT / "configs/training-pure-v4.yaml")
     raw = yaml.safe_load((ROOT / "configs/training-pure-v4.yaml").read_text("utf-8"))
-    assert config.contract.observation_schema_version == 8 and config.contract.reward_version == 10
+    assert config.contract.observation_schema_version == 9 and config.contract.reward_version == 11
     assert config_hash(raw["contract"]) == digest
-    raw["contract"]["observation_schema_version"] = 7
+    raw["contract"]["observation_schema_version"] = 8
     assert config_hash(raw["contract"]) != digest
 
 
@@ -373,7 +372,7 @@ def test_enemy_slot_layout_and_size():
     assert IDENTITY_BUCKETS == 64 and ENEMY_IDENTITY_FEATURES == 6 + 64
     assert SLOT_WIDTH["enemy"] == SLOT_FEATURES + 70 == 78
     assert SLOT_WIDTH["projectile"] == SLOT_FEATURES  # the other blocks are unchanged
-    assert OBSERVATION_SIZE == 7522 + 32 * 70
+    assert OBSERVATION_SIZE == 7522 + 32 * 70 + 73 + 24 * 77 + 8  # plus schema 9 item blocks
 
 
 def test_identity_bucket_is_a_stable_integer_hash():

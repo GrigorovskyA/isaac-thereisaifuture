@@ -488,7 +488,8 @@ def test_loopback_stall_truncates_and_restarts_through_the_production_lua(loop_g
         _, _, terminated, truncated, info = env.step(idle)
         if terminated or truncated:
             break
-    assert truncated and not terminated
+    # The learner sees a stall as terminated; the info below still says truncated / stall.
+    assert terminated and not truncated
     assert info["truncation_reason"] == "stall" and "fault" not in info
     assert sent.count("restart") == 1 and sent[-1] == "restart"
     env.reset()  # the accepted restart exits and starts a new epoch, then reconnects

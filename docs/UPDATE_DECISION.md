@@ -62,7 +62,7 @@ fresh model, and old lineages stay preserved.
    as gamma * Phi(s') - Phi(s). It is the only potential-based term; the other v9 terms
    remain outcomes. Since reward v10 (openspec change graph-door-reward-v10) the same term counts
    the rooms still to cross, through the doors seen on this floor, to reach an unvisited room or
-   the boss room.
+   the boss room; since reward v11 (door-entry-fix-reward-v11) a blocked room costs 0, so room entry is free.
 3. The agent must see what it needs to learn about, but the observation should
    carry facts, not advice. Pickup types and item IDs are facts; "good target
    here" is advice.

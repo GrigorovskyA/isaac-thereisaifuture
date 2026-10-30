@@ -93,9 +93,9 @@ def cells(vector: np.ndarray) -> dict[tuple[int, int], list[float]]:
 
 def test_layout_is_pinned_to_its_computed_value():
     assert (
-        FRAME_SCHEMA_VERSION == 6
-        and EntityFrame.model_fields["observation_schema_version"].default == 6
-        and OBSERVATION_SCHEMA_VERSION == 8
+        FRAME_SCHEMA_VERSION == 7
+        and EntityFrame.model_fields["observation_schema_version"].default == 7
+        and OBSERVATION_SCHEMA_VERSION == 9
     )
     assert len(OBSTACLE_CLASSES) == 16 and SLOT_WIDTH["obstacle"] == SLOT_FEATURES + 16
     assert CAPACITY["obstacle"] == 64 and MAX_ENTITIES == 256
@@ -103,7 +103,7 @@ def test_layout_is_pinned_to_its_computed_value():
     assert MAP_OFFSET + 169 * MAP_CHANNELS == OFF_GRID_OFFSET
     assert STALL_OFFSET == OFF_GRID_OFFSET + 1 and MAP_CHANNELS == 3 + len(ROOM_CLASSES)
     assert VISITED_OFFSET == STALL_OFFSET + 1
-    assert OBSERVATION_SIZE == VISITED_OFFSET + VISITED_COLS * VISITED_ROWS == 9762
+    assert OBSERVATION_SIZE == VISITED_OFFSET + VISITED_COLS * VISITED_ROWS == 11691
     assert encode(frame()).vector.shape == (OBSERVATION_SIZE,)
     assert COLLECTIBLE_OFFSET > ROOM_OFFSET + ROOM_FEATURES
 
@@ -334,6 +334,9 @@ ENEMY_FACT_NAMES = (
 )
 
 
+ITEM_FACT_NAMES = ("item_quality", "item_type", "item_max_charges", "item_tags")
+
+
 def test_worst_case_snapshot_fits_the_message_limit():
     caps = dict(ENTITY_CAPS)
     assert sum(caps.values()) == MAX_ENTITIES
@@ -350,7 +353,16 @@ def test_worst_case_snapshot_fits_the_message_limit():
                 max_hp=234567.890123456,
             )
             if kind == "pickup":
-                fields.update(variant=1023, subtype=1024, price=-1000)
+                # Pedestals carry the item facts, the widest pickup case.
+                fields.update(
+                    variant=100,
+                    subtype=1024,
+                    price=-1000,
+                    item_quality=4,
+                    item_type="familiar",
+                    item_max_charges=24,
+                    item_tags=255,
+                )
             if kind == "enemy":
                 fields.update(
                     npc_type=1000,
@@ -382,10 +394,14 @@ def test_worst_case_snapshot_fits_the_message_limit():
     raw = entity_snapshot(SESSION, 1)
     raw["entity_frame"] = wire(big)
     raw["entity_frame"]["session_id"] = SESSION
-    # The observer sends the enemy identity facts on enemies only and omits them elsewhere.
+    # The observer sends the enemy identity facts on enemies only and the item facts on pedestal
+    # pickups only; it omits them elsewhere.
     for item in raw["entity_frame"]["entities"]:
         if item["kind"] != "enemy":
             for name in ENEMY_FACT_NAMES:
+                del item[name]
+        if item["kind"] != "pickup":
+            for name in ITEM_FACT_NAMES:
                 del item[name]
     raw["oracle"] = {
         "room_clear": True,

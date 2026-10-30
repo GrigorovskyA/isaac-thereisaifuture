@@ -32,13 +32,13 @@ def test_v6_keeps_the_v5_coefficients():
     assert v6 == v5
 
 
-def test_the_ledger_loads_versions_4_to_10_only(tmp_path):
+def test_the_ledger_loads_versions_4_to_11_only(tmp_path):
     assert RewardV4Coefficients.load(ARCHIVED_V4).stall_restart == -5.0
     assert RewardV4Coefficients.load(ARCHIVED_V5) == RewardV4Coefficients.load(ARCHIVED_V6)
     assert RewardV4Coefficients.load(ARCHIVED_V8).stagnation_per_second == -0.25
     raw = yaml.safe_load(ARCHIVED_V8.read_text("utf-8"))
-    raw["reward_version"] = 11
-    path = tmp_path / "v11.yaml"
+    raw["reward_version"] = 12
+    path = tmp_path / "v12.yaml"
     path.write_text(yaml.safe_dump(raw), "utf-8")
     with pytest.raises(ValueError):
         RewardV4Coefficients.load(path)

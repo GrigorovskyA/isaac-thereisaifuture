@@ -80,7 +80,7 @@ local slot_class_cache = nil
 -- GRID_WALL is never exported: wall cells are room boundaries, and narrow or L-shaped
 -- rooms put them inside the rectangular grid. The room shape already describes them.
 local MAX_MAP_ROOMS = 64
-local collectible_cache = { dirty = true, frame = nil, ids = {}, overflow = 0 }
+local collectible_cache = { dirty = true, frame = nil, ids = {}, overflow = 0, tag_counts = {} }
 
 -- Slot variant number to interactable class, built once from the enum when it exists.
 local function slot_classes()
@@ -353,6 +353,61 @@ local function clamp_int(value, low, high)
     return math.max(low, math.min(high, math.floor(value)))
 end
 
+-- ItemConfig tags kept as catalog facts, in the order of entities.py ITEM_TAGS: bit i of a tag
+-- mask is item_tag_names[i]. The flag values are read from the game (ItemConfig.TAG_<NAME>); a
+-- missing name reads as 0 and the tag is never set.
+local item_tag_names = { "GUPPY", "FLY", "MUSHROOM", "SYRINGE", "BOB", "SPIDER", "BABY", "MOM" }
+local item_quality_max, item_charges_max = 4, 24
+
+local tag_flag_cache = nil
+local function item_tag_flags()
+    if tag_flag_cache then return tag_flag_cache end
+    local flags = {}
+    for i, name in ipairs(item_tag_names) do
+        local ok, value = pcall(function() return ItemConfig["TAG_" .. name] end)
+        flags[i] = ok and type(value) == "number" and value or 0
+    end
+    if type(ItemConfig) == "table" then tag_flag_cache = flags end  -- the enum never changes
+    return flags
+end
+
+-- Tag bits of one ItemConfig entry as a mask and a list of 0/1 (all zero when unreadable).
+local function item_tags(config, flags)
+    local mask, bits, weight = 0, {}, 1
+    for i, flag in ipairs(flags) do
+        local ok, has = pcall(function() return flag ~= 0 and config:HasTags(flag) end)
+        bits[i] = ok and has == true and 1 or 0
+        if bits[i] == 1 then mask = mask + weight end
+        weight = weight * 2
+    end
+    return mask, bits
+end
+
+-- Quality, type name, max charges and tags of a collectible from the game's ItemConfig.
+-- Anything unreadable is quality 0, type "unknown", no charges and no tags.
+local function item_facts(item_id, flags)
+    local ok, config = pcall(function() return Isaac.GetItemConfig():GetCollectible(item_id) end)
+    if not ok or not config then return 0, "unknown", 0, 0 end
+    local function field(name)
+        local read, value = pcall(function() return config[name] end)
+        return read and tonumber(value) or nil
+    end
+    local types = { passive = 1, active = 3, familiar = 4 }  -- ItemType numbers
+    if type(ItemType) == "table" then
+        types.passive = ItemType.ITEM_PASSIVE or types.passive
+        types.active = ItemType.ITEM_ACTIVE or types.active
+        types.familiar = ItemType.ITEM_FAMILIAR or types.familiar
+    end
+    local kind, raw = "unknown", field("Type")
+    for name, number in pairs(types) do
+        if raw == number then kind = name end
+    end
+    local mask = item_tags(config, flags)
+    local quality = field("Quality") or 0
+    local charges = field("MaxCharges") or 0
+    return clamp_int(quality, 0, item_quality_max), kind, clamp_int(charges, 0, item_charges_max), mask
+end
+
 local function collectible_list(player, frame)
     local cache = collectible_cache
     if cache.dirty or cache.frame == nil or frame < cache.frame
@@ -365,9 +420,20 @@ local function collectible_list(player, frame)
                 else ids[#ids + 1] = id end
             end
         end
+        -- Held items per tag, counted with the list so it shares its cadence.
+        local flags, counts = item_tag_flags(), {}
+        for i = 1, #item_tag_names do counts[i] = 0 end
+        for _, id in ipairs(ids) do
+            local ok, config = pcall(function() return Isaac.GetItemConfig():GetCollectible(id) end)
+            if ok and config then
+                local _, bits = item_tags(config, flags)
+                for i = 1, #item_tag_names do counts[i] = counts[i] + bits[i] end
+            end
+        end
         cache.ids, cache.overflow, cache.frame, cache.dirty = ids, overflow, frame, false
+        cache.tag_counts = counts
     end
-    return cache.ids, cache.overflow
+    return cache.ids, cache.overflow, cache.tag_counts
 end
 
 -- Like clamp_int but keeps fractions (3 decimals). Declared wire ranges are in entities.py
@@ -435,8 +501,10 @@ end
 local function inventory_facts(player)
     local slot = ActiveSlot.SLOT_PRIMARY
     local active = clamp_int(player:GetActiveItem(slot), 0, collectible_max_id)
-    local charge, max_charge = 0, 0
+    local charge, max_charge, quality, tags = 0, 0, 0, 0
     if active > 0 then
+        local facts = { item_facts(active, item_tag_flags()) }
+        quality, tags = facts[1], facts[4]
         charge = clamp_int(player:GetActiveCharge(slot), 0, 24)
         local config = Isaac.GetItemConfig():GetCollectible(active)
         if config then max_charge = clamp_int(config.MaxCharges, 0, 24) end
@@ -446,6 +514,7 @@ local function inventory_facts(player)
         bombs = clamp_int(player:GetNumBombs(), 0, 999),
         keys = clamp_int(player:GetNumKeys(), 0, 999),
         active_item = active, active_charge = charge, active_max_charge = max_charge,
+        active_quality = quality, active_tags = tags,
         card = clamp_int(player:GetCard(0), 0, 65535),
         pill = clamp_int(player:GetPill(0), 0, 65535),
         trinket = clamp_int(player:GetTrinket(0), 0, 65535),
@@ -665,6 +734,25 @@ local function capture_entities(room, player, data)
             item.variant = clamp_int(pickup.Variant, 0, 1023)
             item.subtype = clamp_int(pickup.SubType, 0, 1024)
             item.price = clamp_int(native and native.Price or 0, -1000, 999)
+            -- Pedestal collectibles (variant 100, an item on it) also carry ItemConfig facts.
+            if item.variant == 100 and item.subtype > 0 then
+                -- A blind pedestal (curse of the blind) shows "?": its item is not exported.
+                local read, blind = false, nil
+                if native then read, blind = pcall(function() return native:IsBlind() end) end
+                -- Without IsBlind (plain Repentance API) the level curse decides; unreadable
+                -- curses also hide the item, so a "?" pedestal never leaks its ID.
+                local cursed_ok, cursed = pcall(function()
+                    local flag = (LevelCurse and LevelCurse.CURSE_OF_BLIND) or 64
+                    return Game():GetLevel():GetCurses() & flag ~= 0
+                end)
+                if (read and blind == true) or not cursed_ok or cursed then
+                    item.subtype = 0
+                else
+                    local quality, kind, charges, tags = item_facts(item.subtype, item_tag_flags())
+                    item.item_quality, item.item_type = quality, kind
+                    item.item_max_charges, item.item_tags = charges, tags
+                end
+            end
         end
         groups[kind][#groups[kind]+1] = item
     end
@@ -764,9 +852,9 @@ local function capture_entities(room, player, data)
         for _, name in ipairs(HIT_CLASSES) do oracle.player_hits[name] = metrics.hits[name] end
     end
     local map, off_grid = minimap()
-    local held, held_overflow = collectible_list(player, data.frame)
+    local held, held_overflow, tag_counts = collectible_list(player, data.frame)
     return {
-        type="entity_frame", observation_schema_version=6, provenance="game_api",
+        type="entity_frame", observation_schema_version=7, provenance="game_api",
         session_id=state.session, game_epoch=state.epoch, room_visit=state.visit,
         frame_id=data.frame, player_position=data.player.position,
         player_velocity=vector(player.Velocity), health=data.player.health,
@@ -776,7 +864,7 @@ local function capture_entities(room, player, data)
         tear_flags=flag_list(tear_flag_names, has_tear_flag, player),
         weapons=flag_list(weapon_names, has_weapon, player),
         collectibles=#held > 0 and held or json.EMPTY_ARRAY,
-        collectible_overflow=held_overflow, room=room_facts(room),
+        collectible_overflow=held_overflow, tag_counts=tag_counts, room=room_facts(room),
         map=#map > 0 and map or json.EMPTY_ARRAY, map_current_off_grid=off_grid,
     }, oracle
 end

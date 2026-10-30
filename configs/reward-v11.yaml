@@ -1,0 +1,58 @@
+# Outcome-only reward for the pure profile (openspec change door-entry-fix-reward-v11).
+# Terms describe what happened, never how to play. "First" terms and caps are per run.
+# Novelty pays once per (stage, room, cell) per run, and since v11 coefficient / sqrt(N) with N the
+# number of runs (this one included) that first visited the key; counts persist across runs,
+# sessions and resumes in the checkpoint (`cross_run`). stall_restart is paid once on a stall.
+# Reward v11 = reward v10 with a free blocked room. After 61k native steps of v10, 73% of the
+# stalls (135/184) happened in a cleared room within 0.1-0.45 diagonal of an open door to an
+# unvisited room: the agent did not walk through. Entering a new, uncleared room made the in-room
+# term jump from about 0 to the constant 1, so every room entry paid about -coefficient = -2.
+# Only `door_shaping.blocked_cost` is new: the in-room term of a closed door or a room that is not
+# calm, and the cost of a live boss room. v10 is blocked_cost 1.0 (its file has no such key);
+# v11 sets 0. Entering a frontier room whose new neighbours are unvisited now costs nothing,
+# entering a dead end still drops Phi by coefficient * H, and clearing a room lowers Phi by at
+# most coefficient * d/D (<= 2, far below room_clear_first 10). Every other value is as in v10,
+# except novelty: in v10, 111 of 191 stalls (58%) never left the start room, which paid about 3.0
+# novelty on every run. With `cross_run` that pays 0.1, 0.07, 0.058 ... on the 1st, 2nd, 3rd run.
+# A stall now ends the episode for learning (terminal for the learner, no bootstrap), so the
+# potential ends in Phi = 0 on a stall like on a death; metrics still report truncated / stall.
+# door_shaping is still the only potential-based term (Ng et al. 1999): Phi(s) = -coefficient *
+# cost(s). The cost counts the rooms the agent still has to cross to reach an unvisited room or
+# the boss room through the doors it has seen on this floor (at most max_hops), plus an in-room
+# share: the distance to the door divided by the room diagonal in a clear room without enemies,
+# else blocked_cost. A step pays gamma * Phi(s') - Phi(s) (gamma from the training config) and a
+# terminal step ends in Phi = 0. It does not change the optimal policy. Max |Phi| =
+# coefficient * (1 + max_hops) = 2 * 6 = 12.
+# Stagnation is unchanged, so a full stall still costs at most -12 and a death from full health
+# (-10 + 6 * -0.5 = -13) never pays better than a full stall.
+# Archived: archive/configs/reward-v4.yaml ... reward-v8.yaml; v9 and v10 stay in configs/.
+reward_version: 11
+status: pure_v4
+outcome:
+  enemy_hp_fraction_total: 5.0
+  room_clear_first: 10.0
+  boss_room_clear_first: 20.0
+  room_first_visit: 5.0
+  floor_first_entered: 30.0
+  player_damage_half_heart: -0.5
+  death: -10.0
+  stall_restart: -5.0
+  time_second: -0.005
+pickups:
+  coin: 0.3
+  bomb: 0.5
+  key: 0.5
+  consumable_run_cap: 10.0
+  collectible_new: 5.0
+  heal_half_heart: 0.5
+novelty:
+  coefficient: 0.1
+  cell_size: 40
+  cross_run: true
+stagnation:
+  per_second: -0.25
+  grace_seconds: 12
+door_shaping:
+  coefficient: 2.0
+  max_hops: 5
+  blocked_cost: 0.0

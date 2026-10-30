@@ -85,6 +85,34 @@ def pickup(entity_id: int, x: float, y: float, *, variant: int = 10, subtype: in
     )
 
 
+def pedestal(
+    entity_id: int,
+    x: float,
+    y: float,
+    item_id: int,
+    *,
+    quality: int = 2,
+    item_type: str = "passive",
+    max_charges: int = 0,
+    tags: int = 0,
+    price: int = 0,
+) -> Entity:
+    """A pedestal collectible with ItemConfig facts."""
+    return Entity(
+        kind="pickup",
+        entity_id=entity_id,
+        spawn_generation=0,
+        position=Vec(x=x, y=y),
+        variant=100,
+        subtype=item_id,
+        price=price,
+        item_quality=quality,
+        item_type=item_type,
+        item_max_charges=max_charges,
+        item_tags=tags,
+    )
+
+
 def enemy(entity_id: int, x: float, y: float, *, hp: float | None = 10.0, generation: int = 0):
     return Entity(
         kind="enemy",

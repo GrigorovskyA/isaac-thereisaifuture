@@ -75,7 +75,23 @@ The observer needs no new capability: the block is part of
 code. Messages may reach 131072 bytes (the Lua worst case with every kind past its cap, eight
 locked doors and 64 map rooms measured 80 KB; with the live oracle block 84 KB).
 
-Frame schema 6 (current, observation schema 8, 9762 floats, see `docs/RL_DESIGN.md`):
+Frame schema 7 (current, observation schema 9, 11691 floats, see `docs/RL_DESIGN.md`) adds item
+catalog facts to frame schema 6 (the list below, then these):
+- Pedestal collectibles (pickup variant 100 with subtype > 0) carry `item_quality` (0..4,
+  `ItemConfig:GetCollectible(id).Quality`), `item_type` (`passive`, `active`, `familiar` or
+  `unknown`, from `.Type` against the ItemType enum), `item_max_charges` (0..24, `.MaxCharges`) and
+  `item_tags` (a bit mask, bit i = `ITEM_TAGS[i]` = GUPPY, FLY, MUSHROOM, SYRINGE, BOB, SPIDER,
+  BABY, MOM; set when `config:HasTags(ItemConfig.TAG_<NAME>)`). All four go together and are
+  omitted on every other entity. An unreadable item reads quality 0, `unknown`, 0 charges, no
+  tags. If `pickup:IsBlind()` is true or the level has the curse of the blind (bit 64, unreadable
+  curses count as cursed) the pedestal exports subtype 0 and no facts.
+- `inventory.active_quality` and `inventory.active_tags` describe the active item the same way (0
+  without one).
+- `tag_counts`: 8 counts of held collectibles per tag, in `ITEM_TAGS` order, recomputed with the
+  held list (every 30 frames, new room or game start).
+- Python refuses frames of schema 6 and older.
+
+Frame schema 6 (observation schema 8, 9762 floats):
 - Caps per kind, nearest first: enemy 32, projectile 64, obstacle 64, pickup 24, own attack 48,
   bomb 8, interactable 16 (`entity_caps` in `main.lua` = `ENTITY_CAPS`; a test compares them).
 - New obstacle classes `trapdoor`, `crawlspace`, `pressure_plate`, `lock_block`, `teleporter`

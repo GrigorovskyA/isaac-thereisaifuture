@@ -8,10 +8,14 @@ from numpy.typing import NDArray
 
 from .entities import (
     COLLECTIBLE_ID_MAX,
+    COLLECTIBLE_VARIANT,
     DOOR_SLOTS,
     ENTITY_CAPS,
     ENTITY_KINDS,
     INTERACTABLE_CLASSES,
+    ITEM_QUALITY_MAX,
+    ITEM_TAGS,
+    ITEM_TYPES,
     LEVEL_GRID_CELLS,
     OBSTACLE_CLASSES,
     TEAR_FLAG_NAMES,
@@ -22,7 +26,7 @@ from .entities import (
 )
 from .observation import ProtocolError
 
-# Hypotheses fixed by observation schema version 8; changing one needs a new version. The
+# Hypotheses fixed by observation schema version 9; changing one needs a new version. The
 # encoder capacity equals the observer cap, so the encoder never drops what the wire carried.
 CAPACITY: dict[EntityKind, int] = dict(ENTITY_CAPS)
 # Blocks before the collectible bitmap keep the schema 3 order; schema 4 appends the rest.
@@ -34,7 +38,17 @@ POSITION_SCALE = 1000.0
 VELOCITY_SCALE = 20.0
 HEART_SCALE = 24.0
 PLAYER_FEATURES = 9
-INVENTORY_FEATURES = 9
+# Item identity (schema 9): a one-hot of the hashed collectible ID, like the enemy buckets, plus
+# ItemConfig facts. Distinct items may share a bucket; the first layer learns one embedding each.
+ITEM_BUCKETS = 64
+ITEM_TYPE_ONEHOT = tuple(t for t in ITEM_TYPES if t != "unknown")  # passive, active, familiar
+TAG_FEATURES = len(ITEM_TAGS)
+# Pedestal item block: quality / 4, type one-hot, max charges / 12 (clipped), tag bits, bucket.
+ITEM_FEATURES = 1 + len(ITEM_TYPE_ONEHOT) + 1 + TAG_FEATURES + ITEM_BUCKETS
+CHARGE_SCALE = 12.0
+# Counters, then the active item block: quality / 4, tag bits, bucket one-hot (all zero if none).
+INVENTORY_BASE_FEATURES = 9
+INVENTORY_FEATURES = INVENTORY_BASE_FEATURES + 1 + TAG_FEATURES + ITEM_BUCKETS
 ROOM_TYPES = 32
 ROOM_SHAPES = 12
 # Room types grouped into classes for doors and the minimap. Types by RoomType value; a type
@@ -92,7 +106,7 @@ VARIANT_CLASSES = (
 IDENTITY_BUCKETS = 64
 ENEMY_HP_SCALE = 10000.0
 ENEMY_IDENTITY_FEATURES = 6 + IDENTITY_BUCKETS
-PICKUP_SLOT_FEATURES = SLOT_FEATURES + len(VARIANT_CLASSES) + 2
+PICKUP_SLOT_FEATURES = SLOT_FEATURES + len(VARIANT_CLASSES) + 2 + ITEM_FEATURES
 COUNTER_SCALE = 99.0
 SUBTYPE_SCALE = 1024.0
 SLOT_WIDTH: dict[EntityKind, int] = {
@@ -111,7 +125,9 @@ COLLECTIBLE_OFFSET = ENEMY_OFFSET + sum(CAPACITY[k] * SLOT_WIDTH[k] for k in BAS
 STATS_OFFSET = COLLECTIBLE_OFFSET + COLLECTIBLE_ID_MAX
 TEAR_FLAG_OFFSET = STATS_OFFSET + len(STAT_SCALES)
 WEAPON_OFFSET = TEAR_FLAG_OFFSET + len(TEAR_FLAG_NAMES)
-EXTRA_OFFSET = WEAPON_OFFSET + len(WEAPON_NAMES)  # then EXTRA_KINDS blocks
+HELD_TAG_OFFSET = WEAPON_OFFSET + len(WEAPON_NAMES)  # held collectibles per tag / 3, clipped
+HELD_TAG_SCALE = 3.0  # three items complete a transformation
+EXTRA_OFFSET = HELD_TAG_OFFSET + TAG_FEATURES  # then EXTRA_KINDS blocks
 MAP_OFFSET = EXTRA_OFFSET + sum(CAPACITY[k] * SLOT_WIDTH[k] for k in EXTRA_KINDS)
 # Minimap channels per level grid cell: known, visited, current, then the room class one-hot
 # (all zero while the room's type is hidden).
@@ -174,6 +190,14 @@ def identity_bucket(npc_type: int, npc_variant: int) -> int:
     """
     product = (npc_type * 4096 + npc_variant) * 2654435761 % 2**32
     return product >> (32 - IDENTITY_BUCKETS.bit_length() + 1)
+
+
+def item_bucket(item_id: int) -> int:
+    """Stable bucket of a collectible ID: Knuth multiplicative hash, top bits, never hash().
+
+    Same idea as `identity_bucket`, one hash per ID; the top 6 bits give 64 buckets.
+    """
+    return item_id * 2654435761 % 2**32 >> (32 - ITEM_BUCKETS.bit_length() + 1)
 
 
 def room_diagonal(shape: int) -> float:
@@ -244,6 +268,16 @@ def _encode_inventory(vector: NDArray[np.float32], frame: EntityFrame) -> None:
     vector[base + 6] = float(inv.card > 0)
     vector[base + 7] = float(inv.pill > 0)
     vector[base + 8] = float(inv.trinket > 0)
+    if inv.active_item > 0:
+        at = base + INVENTORY_BASE_FEATURES
+        vector[at] = inv.active_quality / ITEM_QUALITY_MAX
+        _encode_tags(vector, at + 1, inv.active_tags)
+        vector[at + 1 + TAG_FEATURES + item_bucket(inv.active_item)] = 1.0
+
+
+def _encode_tags(vector: NDArray[np.float32], base: int, mask: int) -> None:
+    for bit in range(TAG_FEATURES):
+        vector[base + bit] = float(mask >> bit & 1)
 
 
 def _encode_room(vector: NDArray[np.float32], frame: EntityFrame) -> None:
@@ -298,6 +332,19 @@ def _encode_pickup(vector: NDArray[np.float32], base: int, entity: Entity) -> No
     vector[base + variant_class(entity.variant)] = 1.0
     vector[base + len(VARIANT_CLASSES)] = entity.subtype / SUBTYPE_SCALE
     vector[base + len(VARIANT_CLASSES) + 1] = float(entity.price != 0)
+    # Item block: only a pedestal collectible (an empty pedestal has subtype 0).
+    if entity.variant != COLLECTIBLE_VARIANT or entity.subtype == 0:
+        return
+    at = base + len(VARIANT_CLASSES) + 2
+    if entity.item_type is not None:
+        assert entity.item_quality is not None and entity.item_max_charges is not None
+        assert entity.item_tags is not None
+        vector[at] = entity.item_quality / ITEM_QUALITY_MAX
+        if entity.item_type != "unknown":
+            vector[at + 1 + ITEM_TYPE_ONEHOT.index(entity.item_type)] = 1.0
+        vector[at + 1 + len(ITEM_TYPE_ONEHOT)] = min(entity.item_max_charges / CHARGE_SCALE, 1.0)
+        _encode_tags(vector, at + 2 + len(ITEM_TYPE_ONEHOT), entity.item_tags)
+    vector[at + 2 + len(ITEM_TYPE_ONEHOT) + TAG_FEATURES + item_bucket(entity.subtype)] = 1.0
 
 
 class VisitedCells:
@@ -390,6 +437,8 @@ def encode(
         vector[TEAR_FLAG_OFFSET + i] = float(flag)
     for i, flag in enumerate(frame.weapons):
         vector[WEAPON_OFFSET + i] = float(flag)
+    for i, count in enumerate(frame.tag_counts):
+        vector[HELD_TAG_OFFSET + i] = min(count / HELD_TAG_SCALE, 1.0)
     offset = ENEMY_OFFSET
     for kind in (*BASE_KINDS, *EXTRA_KINDS):
         if kind == "own_attack":

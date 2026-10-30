@@ -48,13 +48,14 @@ def decoded(payload: dict[str, Any]) -> EntityFrame:
 
 
 def test_layout_matches_the_design_table():
-    # Schema 8: the room block holds 8 door slots of 15 features, obstacle slots carry 16
-    # classes and the caps are 32/64/64/24 (see tests/test_observation_schema8.py).
-    assert COLLECTIBLE_OFFSET + 1024 == 6281  # the base vector; later blocks append
-    assert (INVENTORY_OFFSET, ROOM_OFFSET, ENEMY_OFFSET) == (9, 18, 18 + 167)
-    assert PICKUP_OFFSET == 185 + 78 * 32 + 8 * 64 + 24 * 64
-    assert PICKUP_SLOT_FEATURES == 22 and len(VARIANT_CLASSES) == 12
-    assert COLLECTIBLE_OFFSET == PICKUP_OFFSET + 24 * 22 == 6281 - 1024
+    # Schema 9: the inventory block is 82 wide (active item block) and a pickup slot is 99 wide
+    # (item block); the room block holds 8 door slots of 15 features, obstacle slots carry 16
+    # classes and the caps are 32/64/64/24 (see tests/test_observation_schema[89].py).
+    assert COLLECTIBLE_OFFSET + 1024 == 8202  # the base vector; later blocks append
+    assert (INVENTORY_OFFSET, ROOM_OFFSET, ENEMY_OFFSET) == (9, 91, 91 + 167)
+    assert PICKUP_OFFSET == 258 + 78 * 32 + 8 * 64 + 24 * 64
+    assert PICKUP_SLOT_FEATURES == 99 and len(VARIANT_CLASSES) == 12
+    assert COLLECTIBLE_OFFSET == PICKUP_OFFSET + 24 * 99 == 8202 - 1024
 
 
 def test_wire_round_trip_encodes_a_full_finite_vector():
@@ -118,12 +119,13 @@ def test_variant_class_mapping(variant, name):
     assert slot[0] == 1.0
     one_hot = slot[SLOT_FEATURES : SLOT_FEATURES + 12]
     assert one_hot.sum() == 1.0 and VARIANT_CLASSES[int(one_hot.argmax())] == name
-    assert slot[-2] == 0.5 and slot[-1] == 1.0  # subtype/1024 and shop flag
+    # subtype/1024 and the shop flag follow the variant one-hot; the item block comes after them
+    assert slot[SLOT_FEATURES + 12] == 0.5 and slot[SLOT_FEATURES + 13] == 1.0
 
 
 def test_free_pickup_has_no_shop_flag():
     slot = encode(frame([pickup(1, 5, 5, price=0)])).vector[PICKUP_OFFSET:]
-    assert slot[PICKUP_SLOT_FEATURES - 1] == 0.0
+    assert slot[SLOT_FEATURES + 13] == 0.0
 
 
 def test_pickup_capacity_is_24_with_overflow_counted():

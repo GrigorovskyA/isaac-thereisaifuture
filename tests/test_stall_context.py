@@ -19,7 +19,7 @@ from isaac_threrisaifuture.episodes import Scenario, StepResult
 from isaac_threrisaifuture.sim import SyntheticRoomBackend
 
 TOY = Scenario("toy", "train", 1, 900, enemy_count=1, enemy_hp=7.0)
-CONTRACT_HASH = "3043a54c9d56e402f4a2bb6bd96906e79ee6ae3d7cc272a834d13ac13e31f621"
+CONTRACT_HASH = "7c01606925675e6e7535a61ca75b26770e5aadecf8110dfc96bb251448dfcd7c"
 
 
 def npc(entity_id, x, y, kind, variant, *, flying=False, invulnerable=False, boss=False):

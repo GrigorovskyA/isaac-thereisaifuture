@@ -30,9 +30,9 @@ lineage `pure-v4`, `docs/UPDATE_DECISION.md`):
   resumed (their contracts differ). The reward v6 run of `pure-v4` is kept as
   `runs/pure-v4-reward-v6`, the reward v7 run as `runs/pure-v4-reward-v7` and the reward v8 run
   as `runs/pure-v4-reward-v8`, the reward v9 schema 7 run as `runs/pure-v4-reward-v9-schema7`
-  and the reward v9 schema 8 run as `runs/pure-v4-reward-v9-schema8`;
-  `pure-v4` restarts with reward v10, observation schema 8 and a 40 s stall limit
-  (`--initialize`).
+  the reward v9 schema 8 run as `runs/pure-v4-reward-v9-schema8` and the reward v10 run as
+  `runs/pure-v4-reward-v10`; `pure-v4` restarts with reward v11, observation schema 9 and a
+  40 s stall limit (`--initialize`).
 - New Run after death and after a stall-watchdog restart is authorized without a
   count limit (approval `max_restarts` 0). Restart pacing still applies.
 - Sessions stop on the stop file, Ctrl+C, the disk cap or the consecutive

@@ -8,17 +8,20 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 - Pure self-learning since 2026-10-22 ([decision](UPDATE_DECISION.md)). RecurrentPPO
   learns from raw facts and outcome rewards, plus one potential-based door term since
   reward v9: no scripted setup, advice features or technique rewards. Archive content is history, not runtime authority.
-- Reward v10 training stopped at the human's request October 30 13:26:04 CET.
-  Final checkpoint `3043a54c-s1-t63488`:290 completed episodes/64430 observed steps.
-  Final session user_cancelled, learner exit 0, fault=null, cleanup empty; no game,
-  worker, finite owner or bridge listener remains. stop.forever retained; no v11 launch.
-  Native 15-minute graph-label check passed;191/191 stalls have stall_goal_hops,
-  pause_ok 61/62. Earlier Continue-only startup failed before learning, then an
-  explicitly authorized file2 New Run allowed the fresh v10 launch.
-  [Final comparison and cleanup report](../reports/2026-10-31-reward-v10-training.md).
-  Contract `3043a54c9d56e402f4a2bb6bd96906e79ee6ae3d7cc272a834d13ac13e31f621`;
-  observation8/action2 unchanged. Windows 1466/Lua/no skips, strict OpenSpec26/26.
-  Graph-door tasks 2.2/2.3 remain open; no frozen or gameplay acceptance claim.
+- Reward v11 / observation schema 9 are verified offline and authorized for one fresh
+  initialization. Contract `7c01606925675e6e7535a61ca75b26770e5aadecf8110dfc96bb251448dfcd7c`;
+  11691 inputs, action 2; cross-run novelty counts persist with checkpoints; stalls
+  terminate learning while episode CSVs retain truncated/stall. Windows Check:
+  1543 passed including Lua, no skips; strict OpenSpec 28/28; one existing synthetic
+  AllNaN warning. Native item/count/statistics verification remains pending.
+  [Finite launch, audit and milestone plan](../reports/2026-10-30-reward-v11-schema9-native-plan.md).
+  Minimum target 300k; absolute stop November 1 09:00 CET, no automatic extension.
+  Reports near 50k/150k/300k compare only equal available baseline step bounds.
+- Reward v10 stopped on human request October 30 13:26:04 CET, checkpoint
+  `3043a54c-s1-t63488`, 290 completed episodes / 64430 observed steps. Learner 0,
+  fault null, cleanup empty; stopped root is being preserved as runs/pure-v4-reward-v10.
+  [Final report](../reports/2026-10-31-reward-v10-training.md).
+  Graph-door native tasks 2.2/2.3 remain open; no frozen/gameplay acceptance.
 - Held live-status writes skip an exhausted Windows sharing retry and record
   `status_writes_skipped`; durable result.json stays strict (source c010ef9).
 - Train-statistics logger repair `fc80cd5` passed native recording: all nine statistics

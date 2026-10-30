@@ -34,6 +34,7 @@ from .live_wire import (
     PlayerHits,
 )
 from .menu_entry import MenuInput
+from .novelty_counts import NoveltyCounts
 from .observation import (
     BridgeError,
     BridgeTimeout,
@@ -52,7 +53,7 @@ APPROVAL_NAME = "action_authorization.json"
 TRAINING_MAX_SECONDS = 28800  # mirrors Config.training_max_seconds in main.lua
 MAX_RESTARTS = 5000
 MAX_REWARD_IDENTITIES = 4096
-LIVE_REWARD_CONTRACT: Literal["pure-v10"] = "pure-v10"
+LIVE_REWARD_CONTRACT: Literal["pure-v11"] = "pure-v11"
 _CONSUMABLES: tuple[Literal["coin", "bomb", "key"], ...] = ("coin", "bomb", "key")
 SNAPSHOT_BACKLOG = 512
 ACK_TIMEOUT = 1.0
@@ -882,35 +883,38 @@ def make_live_env(
     oracle_sink: Callable[[OracleEvent], None] | None = None,
     run_deadline: float | None = None,
     stop_file: Path | None = None,
-    reward_version: int = 10,
+    reward_version: int = 11,
     gamma: float | None = None,
     stall_seconds: float | None = None,
     clock: Callable[[], float] = time.monotonic,
     max_consecutive_faults: int | None = None,
+    novelty_counts: NoveltyCounts | None = None,
 ) -> FaultTolerantEnv:
-    """Live env; the pure profile pays reward v9 or v10 (v1 stays selectable for old comparisons).
+    """Live env; the pure profile pays reward v9, v10 or v11 (v1 stays for old comparisons).
 
     `gamma` is the training discount that door shaping needs (reward v9); without it door shaping
     is off, which suits attach-only runs that learn nothing. Training and the frozen pure
     evaluation always pass it.
     With `stall_seconds`, a stall truncates the episode with reason `stall` and sends
     one restart command. Leave it unset for attach-only runs such as evaluation.
+    `novelty_counts` is the reward v11 cross-run table: training shares it with the checkpoints,
+    evaluation passes a frozen one, and without it v11 counts only in memory.
     """
     from .env import IsaacCombatEnv, RewardAccountant
     from .rewards import (
         DEFAULT_CONFIG_V9,
         DEFAULT_CONFIG_V10,
+        DEFAULT_CONFIG_V11,
         CombatCoefficients,
         RewardLedger,
         RewardLedgerV4,
         RewardV4Coefficients,
     )
 
-    if reward_version not in (1, 9, 10):
-        raise ValueError(f"Unsupported reward version {reward_version}; use 1, 9 or 10")
-    coefficients = RewardV4Coefficients.load(
-        DEFAULT_CONFIG_V10 if reward_version == 10 else DEFAULT_CONFIG_V9
-    )
+    if reward_version not in (1, 9, 10, 11):
+        raise ValueError(f"Unsupported reward version {reward_version}; use 1, 9, 10 or 11")
+    configs = {9: DEFAULT_CONFIG_V9, 10: DEFAULT_CONFIG_V10, 11: DEFAULT_CONFIG_V11}
+    coefficients = RewardV4Coefficients.load(configs.get(reward_version, DEFAULT_CONFIG_V9))
     if gamma is None:
         coefficients = replace(coefficients, door_shaping_coefficient=0.0)
     accountant: RewardAccountant = (
@@ -918,8 +922,9 @@ def make_live_env(
             coefficients,
             stall_seconds=DEFAULT_STALL_SECONDS if stall_seconds is None else stall_seconds,
             gamma=gamma,
+            novelty_counts=novelty_counts,
         )
-        if reward_version in (9, 10)
+        if reward_version in (9, 10, 11)
         else RewardLedger(CombatCoefficients.load())
     )
 
@@ -1139,6 +1144,11 @@ def _train_run(
     deadline = min(time.monotonic() + minutes * 60, options.session_deadline or math.inf)
 
     pure = isinstance(config, PureTrainingConfig)
+    counts = (
+        NoveltyCounts()
+        if isinstance(config, PureTrainingConfig) and config.contract.reward_version >= 11
+        else None
+    )
     writer = EpisodeMetricsWriter(options.out_dir / "metrics" / "episodes.csv") if pure else None
     pause = (
         UpdatePause(options.keyboard, record)
@@ -1168,6 +1178,7 @@ def _train_run(
             max_consecutive_faults=config.budget.max_consecutive_faults
             if isinstance(config, PureTrainingConfig)
             else None,
+            novelty_counts=counts,
         )
         return EpisodeMetricsEnv(env, writer) if writer is not None else env
 
@@ -1185,6 +1196,7 @@ def _train_run(
             on_progress=record,
             train_metrics_path=options.out_dir / "metrics" / "train.csv" if pure else None,
             update_pause=pause,
+            novelty_counts=counts,
         )
     except LiveBudgetExpired as exc:
         record("budget", f"{exc}; unfinished rollout has no new checkpoint")
@@ -1249,6 +1261,7 @@ def _evaluate_run(
             gamma=config.hyperparameters.gamma,
             stall_seconds=config.watchdog.stall_seconds,
             max_consecutive_faults=config.budget.max_consecutive_faults,
+            novelty_counts=NoveltyCounts(frozen=True),  # evaluation never writes counts
         ),
         writer,
     )

@@ -62,7 +62,7 @@ def test_layout_size_is_pinned():
     assert SLOT_WIDTH["own_attack"] == 8 and SLOT_WIDTH["bomb"] == 9
     assert STATS_OFFSET == COLLECTIBLE_OFFSET + 1024
     assert (TEAR_FLAG_OFFSET, WEAPON_OFFSET) == (STATS_OFFSET + 6, STATS_OFFSET + 22)
-    assert EXTRA_OFFSET == STATS_OFFSET + 37
+    assert EXTRA_OFFSET == STATS_OFFSET + 37 + 8  # plus the held tag counts
     # The minimap and stall clock follow the extra blocks (tests/test_observation_schema5.py).
     assert MAP_OFFSET == EXTRA_OFFSET + 48 * 8 + 8 * 9 + 16 * SLOT_WIDTH["interactable"]
 

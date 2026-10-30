@@ -315,9 +315,15 @@ def fill_worst_case(lua):
             e.ToNPC=function(self) return { IsChampion=function() return true end } end
             e.IsVulnerableEnemy=function() return false end
           end
+          if n == 3 and i % 2 == 0 then e.Variant = 100 end   -- pedestals carry item facts
           ROOM_ENTITIES[#ROOM_ENTITIES+1]=e
         end
       end
+      -- Widest item facts: every tag set, top quality, an active with 24 charges.
+      ItemConfig = { TAG_GUPPY=1, TAG_FLY=2, TAG_MUSHROOM=4, TAG_SYRINGE=8, TAG_BOB=16,
+        TAG_SPIDER=32, TAG_BABY=64, TAG_MOM=128 }
+      ITEM_CONFIG = function(id) return { Quality=4, Type=3, MaxCharges=24,
+        HasTags=function(self, tags) return true end } end
       for i=1,70 do
         local f=make_entity(900+i,-700.123+i,-600.456,33)
         f.HitPoints, f.MaxHitPoints = 99999.987, 99999.987
@@ -632,6 +638,6 @@ def test_minimap_cap_64_and_scan_bound(room):
     assert frames(room)[-1].status == "unavailable"
 
 
-def test_entity_frame_is_schema_6(room):
+def test_entity_frame_is_schema_7(room):
     connect(room)
-    assert latest(room).observation_schema_version == 6
+    assert latest(room).observation_schema_version == 7

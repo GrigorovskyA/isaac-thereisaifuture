@@ -499,7 +499,8 @@ def test_truncation_has_a_reason_in_step_info_and_summary():
     steps = [(2, [], 1), (3, [], 1), (4, [], 1)]
     env, results = run_env(steps, truncate_at=1)
     _, _, terminated, truncated, info = results[-1]
-    assert len(results) == 2 and truncated and not terminated
+    # The learner sees a stall as terminated (a New Run follows); reporting stays truncated.
+    assert len(results) == 2 and terminated and not truncated
     assert info["outcome"] == "truncated" and info["truncation_reason"] == "stall"
     s = info["episode_summary"]
     assert s["outcome"] == "truncated" and s["truncation_reason"] == "stall"
@@ -510,8 +511,8 @@ def test_stall_truncation_pays_the_penalty_once_on_the_final_step():
     steps = [(2, [], 1), (3, [], 1), (4, [], 1)]
     _, results = run_env(steps, truncate_at=1)
     assert results[0][4]["reward_components"].get("stall", 0.0) == 0.0
-    _, reward, _, truncated, info = results[-1]
-    assert truncated and info["reward_components"]["stall"] == COEF.stall_restart
+    _, reward, terminated, truncated, info = results[-1]
+    assert terminated and not truncated and info["reward_components"]["stall"] == COEF.stall_restart
     summary = info["episode_summary"]
     assert summary["columns"]["stall"] == COEF.stall_restart  # exactly once
     assert summary["return"] == pytest.approx(sum(summary["columns"].values()))

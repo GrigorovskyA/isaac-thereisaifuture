@@ -11,9 +11,12 @@ from .observation import Counter, Health, SessionId, Snapshot, WireModel
 # identity facts (type, variant, max HP, boss, champion, flying, invulnerable). Policy
 # observation schemas 6-8 also add encoder-side blocks built from successive frames or from
 # grouped room types (see encoding.py).
-FRAME_SCHEMA_VERSION = 6
-OBSERVATION_SCHEMA_VERSION = 8
-ORACLE_SCHEMA_VERSION = 1  # oracle events are unchanged by observation schema 8
+# Wire frame schema 7 (observation schema 9) adds item catalog facts: quality, type, max charges
+# and tag bits of pedestal collectibles, quality and tag bits of the active item, and the count of
+# held collectibles per tag (ItemConfig facts, never predicted effects).
+FRAME_SCHEMA_VERSION = 7
+OBSERVATION_SCHEMA_VERSION = 9
+ORACLE_SCHEMA_VERSION = 1  # oracle events are unchanged by observation schema 9
 MAX_FRAME_BYTES = 131072
 MAX_MAP_ROOMS = 64
 LEVEL_GRID_CELLS = 169  # 13 x 13 level grid
@@ -63,6 +66,18 @@ OBSTACLE_CLASSES = (
     "wall",
     "other",
 )
+# ItemConfig tags kept as facts, in bit order: bit i of a tag mask is ITEM_TAGS[i]. The observer
+# reads each flag by name from the game (ItemConfig.TAG_<NAME>, missing => bit 0) and
+# mod/observer/main.lua `item_tag_names` repeats this list; a test compares both. These are the
+# transformation sets of the game (Guppy, Beelzebub, Fun Guy, Spun, Bob, Spider Baby, Conjoined,
+# Mom): the game counts them itself.
+ITEM_TAGS = ("guppy", "fly", "mushroom", "syringe", "bob", "spider", "baby", "mom")
+ITEM_TAG_MASK_MAX = 2 ** len(ITEM_TAGS) - 1
+ITEM_QUALITY_MAX = 4
+ITEM_MAX_CHARGES_MAX = 24
+ItemType = Literal["passive", "active", "familiar", "unknown"]
+ITEM_TYPES: tuple[ItemType, ...] = get_args(ItemType)
+COLLECTIBLE_VARIANT = 100  # PickupVariant.PICKUP_COLLECTIBLE: a pedestal
 ObstacleClass = Literal[
     "rock",
     "marked_rock",
@@ -174,6 +189,12 @@ class Entity(WireModel):
     price: Annotated[int, Field(ge=-1000, le=999)] | None = None
     # Bombs only: frames since the bomb appeared.
     age_frames: Annotated[int, Field(ge=0, le=BOMB_AGE_MAX)] | None = None
+    # Pedestal collectibles only (variant 100, subtype > 0): ItemConfig facts, all four together.
+    # `item_tags` is a bit mask over ITEM_TAGS; type "unknown" and zeros mean unreadable.
+    item_quality: Annotated[int, Field(ge=0, le=ITEM_QUALITY_MAX)] | None = None
+    item_type: ItemType | None = None
+    item_max_charges: Annotated[int, Field(ge=0, le=ITEM_MAX_CHARGES_MAX)] | None = None
+    item_tags: Annotated[int, Field(ge=0, le=ITEM_TAG_MASK_MAX)] | None = None
     # Obstacles only: what the obstacle is.
     obstacle_class: ObstacleClass | None = None
     # Interactables only: what the machine, beggar or door is.
@@ -236,6 +257,16 @@ class Entity(WireModel):
         return self
 
     @model_validator(mode="after")
+    def item_facts(self) -> Self:
+        facts = (self.item_quality, self.item_type, self.item_max_charges, self.item_tags)
+        if any(value is not None for value in facts):
+            if self.kind != "pickup" or self.variant != COLLECTIBLE_VARIANT or not self.subtype:
+                raise ValueError("Only pedestal collectibles carry item facts")
+            if any(value is None for value in facts):
+                raise ValueError("Item facts go together")
+        return self
+
+    @model_validator(mode="after")
     def hp_consistent(self) -> Self:
         if (self.hp is None) != (self.max_hp is None):
             raise ValueError("hp and max_hp must be both known or both unknown")
@@ -253,6 +284,9 @@ class Inventory(WireModel):
     active_item: Annotated[int, Field(ge=0, le=COLLECTIBLE_ID_MAX)]
     active_charge: Annotated[int, Field(ge=0, le=24)]
     active_max_charge: Annotated[int, Field(ge=0, le=24)]
+    # ItemConfig facts of the active item; 0 when none or unreadable. Tags: a mask over ITEM_TAGS.
+    active_quality: Annotated[int, Field(ge=0, le=ITEM_QUALITY_MAX)] = 0
+    active_tags: Annotated[int, Field(ge=0, le=ITEM_TAG_MASK_MAX)] = 0
     card: Annotated[int, Field(ge=0, le=65535)]
     pill: Annotated[int, Field(ge=0, le=65535)]
     trinket: Annotated[int, Field(ge=0, le=65535)]
@@ -308,7 +342,7 @@ class EntityFrame(WireModel):
     """Policy-visible state only. Hidden map data and reward labels do not belong here."""
 
     type: Literal["entity_frame"] = "entity_frame"
-    observation_schema_version: Literal[6] = 6  # FRAME_SCHEMA_VERSION
+    observation_schema_version: Literal[7] = 7  # FRAME_SCHEMA_VERSION
     provenance: Literal["synthetic", "game_api"]
     session_id: SessionId
     game_epoch: Counter
@@ -334,6 +368,11 @@ class EntityFrame(WireModel):
         Field(max_length=MAX_COLLECTIBLES),
     ]
     collectible_overflow: Annotated[int, Field(ge=0, le=COLLECTIBLE_ID_MAX - MAX_COLLECTIBLES)]
+    # Held collectibles per ITEM_TAGS entry, in order (the game counts these for transformations).
+    tag_counts: Annotated[
+        list[Annotated[int, Field(ge=0, le=MAX_COLLECTIBLES)]],
+        Field(min_length=len(ITEM_TAGS), max_length=len(ITEM_TAGS)),
+    ] = Field(default_factory=lambda: [0] * len(ITEM_TAGS))
     room: RoomFacts
     map: Annotated[list[MapRoom], Field(max_length=MAX_MAP_ROOMS)]
     # True when the current room has no grid position (devil, angel, error rooms...).

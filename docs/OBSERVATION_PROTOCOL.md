@@ -35,7 +35,7 @@ Do not expose the listener or add a firewall rule. Same-user loopback peers are
 not authenticated. Default mode exposes no executable operations; the optional lifecycle
 capability authorizes only the fixed after-death restart described in DEATH_RESTART.
 
-One UTF-8 JSON object per LF. Maximum 131072 payload bytes (128 KiB since frame schema 6; 48 KiB before) excluding LF; no CR,
+One UTF-8 JSON object per LF. Maximum 131072 payload bytes (128 KiB since frame schema 6; 48 KiB before; frame schema 7 adds item catalog facts, see ENTITY_OBSERVATION_PROTOCOL) excluding LF; no CR,
 empty records, duplicate keys, nonfinite numbers or unknown model fields.
 Python retains combined messages and partial input; incomplete messages expire
 against an absolute deadline, even if bytes keep trickling.

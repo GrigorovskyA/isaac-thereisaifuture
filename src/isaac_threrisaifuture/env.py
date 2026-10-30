@@ -203,6 +203,11 @@ class IsaacCombatEnv(gym.Env[NDArray[np.float32], NDArray[np.int64]]):
         self._emit(transition)
         reward = 0.0
         components: dict[str, float] = {}
+        # A stall is followed by a New Run, so for learning it is a real end: the learner gets
+        # terminated, not truncated (SB3 would bootstrap from V(s') and the stall clock is in the
+        # observation). Summaries, info and episodes.csv keep reporting truncated / stall.
+        stalled = transition.truncated and transition.truncation_reason == "stall"
+        ends = transition.terminated or stalled
         if self.accountant is not None:
             elapsed = transition.summary.game_updates - before
             if isinstance(self.accountant, StateAwareAccountant):
@@ -213,7 +218,7 @@ class IsaacCombatEnv(gym.Env[NDArray[np.float32], NDArray[np.int64]]):
                     transition.room_index,
                     transition.doors,
                     transition.enemies_present,
-                    transition.terminated or transition.truncated,
+                    ends,  # other truncations keep their potential: the episode is cut, not over
                     transition.room_grid,
                 )
             else:
@@ -224,11 +229,7 @@ class IsaacCombatEnv(gym.Env[NDArray[np.float32], NDArray[np.int64]]):
                 reward += stagnation
                 components = {**components, "stagnation": stagnation}
             self._idle_seconds = idle
-            if (
-                transition.truncated
-                and transition.truncation_reason == "stall"
-                and isinstance(self.accountant, StateAwareAccountant)
-            ):
+            if stalled and isinstance(self.accountant, StateAwareAccountant):
                 stall = self.accountant.stall_restart()  # once: the episode ends here
                 reward += stall
                 components = {**components, "stall": stall}
@@ -245,7 +246,7 @@ class IsaacCombatEnv(gym.Env[NDArray[np.float32], NDArray[np.int64]]):
         if transition.outcome is not None:
             info["episode"] = {**asdict(transition.summary), "return": self._return}
             info["episode_summary"] = self._summary(transition)
-        return obs, reward, transition.terminated, transition.truncated, info
+        return obs, reward, ends, transition.truncated and not stalled, info
 
     @staticmethod
     def _room_of(transition: Transition) -> tuple[Any, ...]:

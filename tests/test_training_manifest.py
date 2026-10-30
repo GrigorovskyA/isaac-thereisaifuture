@@ -86,6 +86,7 @@ def test_compatible_checkpoint_loads(tmp_path: Path) -> None:
         {"observation_schema_version": 1},
         {"observation_schema_version": 2},
         {"observation_schema_version": 7},
+        {"observation_schema_version": 8},
         {"action_schema_version": 1},
         {"reward_schema_version": 2},
         {"config_hash": config_hash({"a": 2})},

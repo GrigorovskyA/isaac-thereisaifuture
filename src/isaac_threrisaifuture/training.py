@@ -28,12 +28,13 @@ from .checkpoints import (
     save_checkpoint,
 )
 from .entities import OBSERVATION_SCHEMA_VERSION
+from .novelty_counts import NoveltyCounts
 
 if TYPE_CHECKING:
     from .update_pause import UpdatePause
 
 DEFAULT_CONFIG = Path("configs/training-v1.yaml")  # offline and synthetic runs
-PURE_REWARD_VERSION = 10  # the contract must name the reward version this code pays
+PURE_REWARD_VERSION = 11  # the contract must name the reward version this code pays
 PURE_CONFIG = Path(__file__).resolve().parents[2] / "configs" / "training-pure-v4.yaml"
 TEMPLATE_STATUS = "template_not_executable_yet"
 StopReason = Literal["completed", "wall_time", "disk_limit", "timesteps"]
@@ -114,6 +115,7 @@ class Hyperparameters(BaseModel):
     n_steps: Annotated[int, Field(gt=1)]
     batch_size: Annotated[int, Field(gt=0)]
     n_epochs: Annotated[int, Field(gt=0)]
+    target_kl: Annotated[float, Field(gt=0)] | None = None  # early stop of the epochs
 
 
 class LiveConfig(BaseModel):
@@ -247,7 +249,7 @@ def apply_use_head_prior(model: Any, none_probability: float) -> None:
 def _hyperparameters(config: AnyTrainingConfig) -> dict[str, Any]:
     names = tuple(Hyperparameters.model_fields)
     source = config.hyperparameters if isinstance(config, PureTrainingConfig) else config
-    return {name: getattr(source, name) for name in names}
+    return {name: getattr(source, name, None) for name in names}
 
 
 # --- selection rule -------------------------------------------------------------------------
@@ -353,6 +355,7 @@ def train(
     on_progress: Callable[[str, Any], None] | None = None,
     train_metrics_path: Path | None = None,
     update_pause: "UpdatePause | None" = None,
+    novelty_counts: NoveltyCounts | None = None,
 ) -> TrainingResult:
     """Train in n_steps chunks; checkpoint after each chunk; stop on any hard budget limit.
 
@@ -360,6 +363,8 @@ def train(
     rollout buffer is rebuilt for a new n_steps; weights and Adam state are kept) and
     recorded in each manifest. Old checkpoints are pruned per the retention section.
     With `update_pause` (live backend), the game is paused while each update and checkpoint run.
+    With `novelty_counts` (reward v11), the table the env's ledger fills is saved with each
+    checkpoint and loaded on resume; a resume from a checkpoint without that file is an error.
     """
     pure = isinstance(config, PureTrainingConfig)
     hyper = _hyperparameters(config)
@@ -403,6 +408,11 @@ def train(
         target = min(target, max_timesteps)
     # Monitor owns info["episode"] (r/l/t) for SB3 logging; the env's own summary under that
     # key would otherwise crash rollout logging after the first finished episode.
+    if novelty_counts is not None and parent is not None:
+        assert directory is not None
+        if parent.novelty_counts_file is None:
+            raise CheckpointError("Checkpoint has no novelty counts; cannot resume reward v11")
+        novelty_counts.load(directory / parent.novelty_counts_file)
     base_env = DummyVecEnv([lambda: Monitor(env_factory(seed))])
     try:
         if directory is not None:
@@ -499,6 +509,7 @@ def train(
                 reward_contract=reward_contract,
                 hyperparameters=hyper,
                 retention=retention,
+                novelty_counts=novelty_counts,
             )
             parent_id = manifest.checkpoint_id
             if on_progress is not None:

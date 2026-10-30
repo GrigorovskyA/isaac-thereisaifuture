@@ -58,10 +58,10 @@ def cell(col, row):
 
 
 def test_the_block_covers_the_largest_room_and_comes_last():
-    assert OBSERVATION_SCHEMA_VERSION == 8 and FRAME_SCHEMA_VERSION == 6
+    assert OBSERVATION_SCHEMA_VERSION == 9 and FRAME_SCHEMA_VERSION == 7
     assert (VISITED_COLS, VISITED_ROWS) == (26, 14)
     assert VISITED_OFFSET == STALL_OFFSET + 1
-    assert OBSERVATION_SIZE == VISITED_OFFSET + 26 * 14 == 9762
+    assert OBSERVATION_SIZE == VISITED_OFFSET + 26 * 14 == 11691
     assert encode(frame()).vector.shape == (OBSERVATION_SIZE,)
     # A 2x2 room interior, 1040 x 560 px from (60, 140), has its corner tiles on the grid corners.
     cells = VisitedCells()

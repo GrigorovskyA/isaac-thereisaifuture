@@ -39,6 +39,20 @@
 # now counts the rooms still to cross through the doors seen on the floor. The reward v9 schema 8
 # run (b26db425, final t102400) is kept as runs/pure-v4-reward-v9-schema8; its checkpoints are
 # refused (new contract hash).
+# Reward v11 (openspec change door-entry-fix-reward-v11) restarts the lineage after about 61k
+# steps of reward v10, kept as runs/pure-v4-reward-v10: 73% of the stalls were in a cleared room
+# near an open door to an unvisited room, because entering a new room paid about -2 under v10.
+# Blocked doors now cost 0 (`blocked_cost`). Its checkpoints are refused (new contract hash).
+# Same restart: n_epochs 4 -> 10, batch_size 256 -> 128 and target_kl 0.03. A 64k-step run made only
+# about 62 updates with approx_kl ~0.006 and clip_fraction ~0.04, and the policy stayed near
+# random. That is about 5x more gradient steps per sample; an update takes about 25-35 s with the
+# game paused. target_kl stops the epochs early if the policy moves too far.
+# Observation schema 9 (openspec change item-identity-observation-v9) is launched together with
+# reward v11 and restarts the lineage once, so the v11 run has not trained yet. Until now the
+# policy saw a pedestal item as one number and could not tell items apart. It now sees an identity
+# bucket, quality, type, max charges and transformation tags of every pedestal item and of the
+# active item, plus how many held items carry each tag (ItemConfig facts only). The schema 8
+# checkpoints are refused (new contract hash).
 # Only `contract` binds the lineage; `hyperparameters` may be tuned between sessions
 # and are recorded per checkpoint.
 config_version: 2
@@ -51,9 +65,9 @@ contract:
   # Linear + ReLU width in front of the LSTMs, shared by actor and critic.
   features_dim: 512
   action_repeat_game_updates: 6
-  observation_schema_version: 8
+  observation_schema_version: 9
   action_schema_version: 2
-  reward_version: 10
+  reward_version: 11
   # Initial P(no use press) of the use head, set at fresh model creation only.
   use_head_initial_none_probability: 0.85
 hyperparameters:
@@ -69,10 +83,14 @@ hyperparameters:
   # and did not help: stalls went 60% -> 70% and kills per 1000 steps 6.7 -> 5.4. Before that
   # 0.01 was too high for the fresh use head, which drifted from its prior toward uniform.
   ent_coef: 0.005
-  # 1024 (was 512) and 256 (was 128): fewer, cheaper updates, about one per 4 minutes of play.
+  # 1024 (was 512): fewer updates, about one per 4 minutes of play. batch_size 128 (256 earlier)
+  # and n_epochs 10 (4 earlier) give about 5x more gradient steps per sample: only ~62 updates in
+  # a 64k-step run left the policy near random (approx_kl ~0.006, clip_fraction ~0.04).
+  # target_kl 0.03 ends the epochs early when the policy moves too far. Not in the contract hash.
   n_steps: 1024
-  batch_size: 256
-  n_epochs: 4
+  batch_size: 128
+  n_epochs: 10
+  target_kl: 0.03
 live:
   # Press Esc around each optimizer update so the game does not run while the learner is busy.
   # Best effort: a failed pause is recorded and training goes on.

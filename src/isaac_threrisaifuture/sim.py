@@ -9,6 +9,7 @@ import uuid
 from dataclasses import dataclass
 
 from .entities import (
+    ITEM_TAGS,
     TEAR_FLAG_NAMES,
     WEAPON_NAMES,
     Entity,
@@ -255,6 +256,8 @@ class SyntheticRoomBackend:
                 active_item=0,
                 active_charge=0,
                 active_max_charge=0,
+                active_quality=0,
+                active_tags=0,
                 card=0,
                 pill=0,
                 trinket=0,
@@ -271,6 +274,7 @@ class SyntheticRoomBackend:
             weapons=[name == "tears" for name in WEAPON_NAMES],
             collectibles=[],
             collectible_overflow=0,
+            tag_counts=[0] * len(ITEM_TAGS),
             room=RoomFacts(
                 type=1,
                 stage=1,

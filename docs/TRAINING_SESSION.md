@@ -10,8 +10,13 @@ The 15-minute graph-label check passed. The earlier Continue-only startup failur
 and subsequent explicitly authorized file2 New Run are recorded separately.
 [Final report](../reports/2026-10-31-reward-v10-training.md).
 Reward v9 schema8 remains at `runs/pure-v4-reward-v9-schema8`, final t102400.
-Reward v11 is being prepared; no new training or initialization is authorized here.
-The October 31 09:00 CET deadline is superseded by the stop request.
+The human now authorizes one fresh reward v11 / observation schema9 initialization,
+with persisted novelty counts and an 18-minute passive native check. Minimum target
+300k; fixed stop November 1 09:00 CET (08:00 UTC). No automatic extension or manual
+retry after a fault. During training monitor files only and keep the dashboard closed.
+[Finite plan and milestone reporting](../reports/2026-10-30-reward-v11-schema9-native-plan.md).
+Native evidence remains pending; offline Check passed 1543 including Lua/no skips,
+strict OpenSpec28/28. The October31 deadline belongs to the stopped v10 run.
 
 ## Forever mode
 
@@ -29,6 +34,12 @@ The October 31 09:00 CET deadline is superseded by the stop request.
   with `--initialize`;
 - writes a fresh approval with unlimited restarts per session (New Run after death
   and after stall-watchdog restarts);
+- treats a stall as the end of the episode for learning (terminated; `episodes.csv` still says
+  truncated / stall), and keeps the reward v11 novelty counts across runs in
+  `novelty_counts.npz` inside every checkpoint directory (a v11 resume without it is refused;
+  evaluation never writes counts);
+- trains with `n_epochs` 10, `batch_size` 128 and `target_kl` 0.03 (an update takes about
+  25-35 s with the game paused);
 - stops on `runs\pure-v4\supervisor\stop.forever`, Ctrl+C, the disk cap
   (`budget.disk_limit_mb`), a refused lineage or config, or
   `budget.max_consecutive_faults` consecutive faulted sessions;
@@ -46,7 +57,7 @@ from the last snapshot before the restart, and are empty for deaths. They show w
 stalled: room clear flag, type and shape; alive enemies (observed and oracle counts);
 invulnerable, flying and boss enemies; the `type.variant` kinds present (`stall_enemy_kinds`,
 sorted, `;` separated); the distance in px to the nearest enemy; open doors and open doors into
-unexplored rooms; `stall_goal_hops` (reward v10: the best door term, rooms to cross plus the
+unexplored rooms; `stall_goal_hops` (reward v10/v11: the best door term, rooms to cross plus the
 in-room share, two digits; empty when unknown); half hearts; and `stall_seconds_in_room` (game updates since the last room
 change or the episode start, divided by 30). Metrics only, never policy inputs.
 An older `episodes.csv` header is rewritten once with the full header; old rows get empty cells.
@@ -140,7 +151,7 @@ game seed is not controlled, so differences within the intervals are not evidenc
 on how episodes end, so they compare policies that die at different rates; the stall
 share does not. `--baseline random-prior` adds a table of each run's rate difference to
 that root with a 95% bootstrap interval over episodes. One 3600 s session gives
-intervals about Р’В±3 wide on `damage_1k`; use two sessions per policy for acceptance.
+intervals about В±3 wide on `damage_1k`; use two sessions per policy for acceptance.
 `live_evaluation.py` / `evaluate-live` is superseded for pure lineages.
 
 ## Guards kept
