@@ -8,18 +8,22 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 - Pure self-learning since 2026-10-22 ([decision](UPDATE_DECISION.md)). RecurrentPPO
   learns from raw facts and outcome rewards, plus one potential-based door term since
   reward v9: no scripted setup, advice features or technique rewards. Archive content is history, not runtime authority.
-- Reward v11 / observation schema 9 are verified offline and authorized for one fresh
-  initialization. Contract `7c01606925675e6e7535a61ca75b26770e5aadecf8110dfc96bb251448dfcd7c`;
+- Reward v11 / observation schema 9 are training from the authorized fresh
+  initialization (October 30 13:13 UTC; source3264207). Contract `7c01606925675e6e7535a61ca75b26770e5aadecf8110dfc96bb251448dfcd7c`;
   11691 inputs, action 2; cross-run novelty counts persist with checkpoints; stalls
   terminate learning while episode CSVs retain truncated/stall. Windows Check:
   1543 passed including Lua, no skips; strict OpenSpec 28/28; one existing synthetic
-  AllNaN warning. Native item/count/statistics verification remains pending.
+  AllNaN warning. The18-minute audit passed for encountered item/count/statistics
+  cases; active/tagged/Blind cases remain unverified. First50k checkpoint
+  `7c016069-s1-t50176`:224 episodes/49963 observed steps. Exit-start70.5%, stalls67.0%,
+  rooms/episode1.795, stage2=0; no frozen/native gameplay acceptance.
+  [50k comparison report](../reports/2026-10-30-reward-v11-schema9-50k.md).
   [Finite launch, audit and milestone plan](../reports/2026-10-30-reward-v11-schema9-native-plan.md).
   Minimum target 300k; absolute stop November 1 09:00 CET, no automatic extension.
   Reports near 50k/150k/300k compare only equal available baseline step bounds.
 - Reward v10 stopped on human request October 30 13:26:04 CET, checkpoint
   `3043a54c-s1-t63488`, 290 completed episodes / 64430 observed steps. Learner 0,
-  fault null, cleanup empty; stopped root is being preserved as runs/pure-v4-reward-v10.
+  fault null, cleanup empty; root preserved as runs/pure-v4-reward-v10; all32 file hashes matched after moving.
   [Final report](../reports/2026-10-31-reward-v10-training.md).
   Graph-door native tasks 2.2/2.3 remain open; no frozen/gameplay acceptance.
 - Held live-status writes skip an exhausted Windows sharing retry and record

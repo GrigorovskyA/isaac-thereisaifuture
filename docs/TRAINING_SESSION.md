@@ -15,8 +15,12 @@ with persisted novelty counts and an 18-minute passive native check. Minimum tar
 300k; fixed stop November 1 09:00 CET (08:00 UTC). No automatic extension or manual
 retry after a fault. During training monitor files only and keep the dashboard closed.
 [Finite plan and milestone reporting](../reports/2026-10-30-reward-v11-schema9-native-plan.md).
-Native evidence remains pending; offline Check passed 1543 including Lua/no skips,
-strict OpenSpec28/28. The October31 deadline belongs to the stopped v10 run.
+Launched October30 13:13UTC, source3264207. The18-minute audit passed encountered
+item/count/statistics cases; active/tagged/Blind coverage remains open. First50k
+checkpoint7c016069-s1-t50176 has224 completed episodes/49963 observed steps;
+training continues unchanged. [50k report](../reports/2026-10-30-reward-v11-schema9-50k.md).
+Offline Check1543 including Lua/no skips, strict OpenSpec28/28. The October31 deadline
+belongs to the stopped v10 run.
 
 ## Forever mode
 
