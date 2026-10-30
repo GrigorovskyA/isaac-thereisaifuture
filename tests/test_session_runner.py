@@ -84,6 +84,23 @@ def test_atomic_status_unrelated_permission_refusal_is_not_retried(tmp_path, mon
     assert fail.call_count == 1
 
 
+def test_a_held_status_view_skips_the_write_instead_of_failing(tmp_path, monkeypatch):
+    # A dashboard holding status.json open for longer than the retry must not end training.
+    from pathlib import Path
+
+    error = PermissionError("Access denied")
+    error.winerror = 5
+    monkeypatch.setattr(runner, "atomic_json", Mock(side_effect=error))
+    assert runner.status_json(tmp_path / "status.json", {"value": 1}) is False
+    other = PermissionError("Not a Windows sharing failure")
+    monkeypatch.setattr(runner, "atomic_json", Mock(side_effect=other))
+    with pytest.raises(PermissionError):
+        runner.status_json(tmp_path / "status.json", {"value": 1})
+    monkeypatch.undo()
+    assert runner.status_json(tmp_path / "status.json", {"value": 2}) is True
+    assert json.loads(Path(tmp_path / "status.json").read_text()) == {"value": 2}
+
+
 def test_atomic_status_survives_actual_windows_open_reader(tmp_path):
     import sys
     import threading

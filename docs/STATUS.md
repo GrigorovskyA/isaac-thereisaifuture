@@ -1,6 +1,6 @@
 # Project status
 
-Updated 2026-10-29 (Europe/Amsterdam). Current state only; dated evidence is history.
+Updated 2026-10-30 (Europe/Amsterdam). Current state only; dated evidence is history.
 The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Direction
@@ -8,6 +8,13 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 - Pure self-learning since 2026-10-22 ([decision](UPDATE_DECISION.md)). RecurrentPPO
   learns from raw facts and outcome rewards, plus one potential-based door term since
   reward v9: no scripted setup, advice features or technique rewards. Archive content is history, not runtime authority.
+- Held live-status writes now skip a publication after the bounded Windows sharing
+  retry instead of faulting training; `result.json` remains strict. The terminal
+  result records `status_writes_skipped` for skipped live publications.
+  October 30 Check.ps1 passed: 1075 tests, 10 Lua module skips (isolated runtime
+  unavailable), strict OpenSpec 25/25; existing synthetic All-NaN warning.
+  Training remains stopped. Reward v10 is being prepared as a separate fresh lineage;
+  no initialization, new branch or training launch is part of this repair.
 - Train-statistics logger repair `fc80cd5` passed native recording: all nine statistics
   populated in 69/69 new rows; pause_ok 69/69, first hour 15/15. Check1428/Lua/no skips;
   strict 25/25. Contract/mod/config unchanged; live pause remains enabled.
@@ -135,7 +142,7 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Verification
 
-- Current Windows gate: 1428 tests passed with Lua, no skips; mypy passed,
+- Previous Windows gate: 1428 tests passed with Lua, no skips; mypy passed,
   lint/format/pip clean, strict OpenSpec 25/25. Synthetic CPU smoke passed:
   16 steps, 9762 inputs, [5,5,4] actions. Synthetic smoke is not gameplay evidence.
 - Closed-game deployment hashes matched source:

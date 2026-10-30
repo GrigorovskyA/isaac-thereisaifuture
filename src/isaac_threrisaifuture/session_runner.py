@@ -69,6 +69,17 @@ def atomic_json(path: Path, data: Any) -> None:
             time.sleep(0.01)
 
 
+def status_json(path: Path, data: Any) -> bool:
+    """Write a live status view; a reader that keeps the file open skips this write only."""
+    try:
+        atomic_json(path, data)
+        return True
+    except PermissionError as error:
+        if getattr(error, "winerror", None) not in (5, 32, 33):
+            raise
+        return False
+
+
 def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -530,6 +541,7 @@ def supervise(plan: SessionPlan, runtime: NativeRuntime | None = None) -> dict[s
     approval_hash: str | None = None
     cancelled, deadline_stop = False, False
     cleanup_errors: list[str] = []
+    status_skipped = 0
     peak = 0
 
     def stop_requested() -> bool:
@@ -538,7 +550,10 @@ def supervise(plan: SessionPlan, runtime: NativeRuntime | None = None) -> dict[s
         )
 
     def publish() -> None:
-        atomic_json(plan.output / "status.json", progress.snapshot(time.monotonic()))
+        # status.json is only a view for readers such as a dashboard; result.json is the record.
+        nonlocal status_skipped
+        if not status_json(plan.output / "status.json", progress.snapshot(time.monotonic())):
+            status_skipped += 1
 
     def drain() -> None:
         for item in tail.read():
@@ -692,11 +707,12 @@ def supervise(plan: SessionPlan, runtime: NativeRuntime | None = None) -> dict[s
             "state": state,
             "learner_exit": code,
             "cleanup_errors": cleanup_errors,
+            "status_writes_skipped": status_skipped,
             "sampled_peak_bytes": peak,
             "ended_at": time.time(),
         }
         atomic_json(plan.output / "result.json", result)
-        atomic_json(plan.output / "status.json", result)
+        status_json(plan.output / "status.json", result)
     try:
         atomic_json(
             plan.output / "metrics.json",
