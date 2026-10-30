@@ -13,12 +13,18 @@ Reward v9 schema8 remains at `runs/pure-v4-reward-v9-schema8`, final t102400.
 The human now authorizes one fresh reward v11 / observation schema9 initialization,
 with persisted novelty counts and an 18-minute passive native check. Minimum target
 300k; fixed stop November 1 09:00 CET (08:00 UTC). No automatic extension or manual
-retry after a fault. During training monitor files only and keep the dashboard closed.
+retry after a fault. During training read files and inspect processes read-only every15minutes; never
+open or activate windows or restart the dashboard.
 [Finite plan and milestone reporting](../reports/2026-10-30-reward-v11-schema9-native-plan.md).
 Launched October30 13:13UTC, source3264207. The18-minute audit passed encountered
-item/count/statistics cases; active/tagged/Blind coverage remains open. First50k
-checkpoint7c016069-s1-t50176 has224 completed episodes/49963 observed steps;
-training continues unchanged. [50k report](../reports/2026-10-30-reward-v11-schema9-50k.md).
+item/count/statistics cases; active/tagged/Blind coverage remains open. First150k
+checkpoint7c016069-s1-t150528 has700 completed episodes/150674 observed steps;
+exit-start81.9%, stalls61.9%, rooms/episode1.931, stage2=0. Recent~50k:249 episodes,
+50167 steps, exit-start90.4%, stalls55.0%, rooms1.988. The combined150k requirement
+is not met. Session1 ended normally at21:11:48UTC; automatic lease rollover resumed
+this lineage under the same deadline. Training continues unchanged.
+[150k report](../reports/2026-10-30-reward-v11-schema9-150k.md);
+[50k report](../reports/2026-10-30-reward-v11-schema9-50k.md).
 Offline Check1543 including Lua/no skips, strict OpenSpec28/28. The October31 deadline
 belongs to the stopped v10 run.
 

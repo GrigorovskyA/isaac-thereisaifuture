@@ -14,10 +14,14 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
   terminate learning while episode CSVs retain truncated/stall. Windows Check:
   1543 passed including Lua, no skips; strict OpenSpec 28/28; one existing synthetic
   AllNaN warning. The18-minute audit passed for encountered item/count/statistics
-  cases; active/tagged/Blind cases remain unverified. First50k checkpoint
-  `7c016069-s1-t50176`:224 episodes/49963 observed steps. Exit-start70.5%, stalls67.0%,
-  rooms/episode1.795, stage2=0; no frozen/native gameplay acceptance.
-  [50k comparison report](../reports/2026-10-30-reward-v11-schema9-50k.md).
+  cases; active/tagged/Blind cases remain unverified. First150k checkpoint
+  `7c016069-s1-t150528`:700 episodes/150674 observed steps. Exit-start81.9%,
+  stalls61.9%, rooms/episode1.931, stage2=0. Recent~50k:249 episodes/50167 steps,
+  exit-start90.4%, stalls55.0%, rooms1.988. Exit-start passes its goal; combined
+  150k gameplay requirement remains unmet. Normal automatic lease rollover resumed
+  the same lineage; no frozen/native gameplay acceptance.
+  [150k comparison report](../reports/2026-10-30-reward-v11-schema9-150k.md).
+  [50k report](../reports/2026-10-30-reward-v11-schema9-50k.md).
   [Finite launch, audit and milestone plan](../reports/2026-10-30-reward-v11-schema9-native-plan.md).
   Minimum target 300k; absolute stop November 1 09:00 CET, no automatic extension.
   Reports near 50k/150k/300k compare only equal available baseline step bounds.
@@ -171,9 +175,10 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Next
 
-1. Training remains stopped. Preserve v10 t63488, v9 schema8 archive t102400 and
-   failed-start evidence. The human is preparing reward v11; no new training is
-   authorized by this status or by the superseded October 31 deadline.
+1. Continue the authorized reward v11/schema9 run unchanged toward300k and the
+   November1 08:00UTC deadline. Check processes and fresh progress every15minutes
+   without opening windows; no manual retry or automatic extension. Preserve all
+   v10/v9 archives and failed-start evidence. Native OpenSpec tasks remain open.
 2. Schema 7 training is complete and archived with stop.forever and verified checkpoint hashes.
    Schema 6 remains separately stopped in `runs/pure-v4-reward-v9-schema6`.
 3. The ent_coef=0.01 trial ended at t588288 on October 28 at the user's request.
