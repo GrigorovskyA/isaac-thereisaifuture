@@ -80,11 +80,15 @@ def enter_file2(
     deadline: float,
     record: Callable[[str, object], None],
     *,
-    mode: Literal["continue", "new-run"] = "continue",
+    mode: Literal["continue", "new-run", "continue-or-new"] = "continue",
     replace_existing: bool = False,
 ) -> None:
-    """Enter one declared mode using fresh selected-slot evidence."""
-    if mode not in ("continue", "new-run"):
+    """Enter one declared mode using fresh selected-slot evidence.
+
+    `continue-or-new` continues an existing file2 run and starts a New Run only when the
+    log verifies that file2 has no game state.
+    """
+    if mode not in ("continue", "new-run", "continue-or-new"):
         raise MenuEntryError("Unknown automatic menu entry mode")
     if type(replace_existing) is not bool or (replace_existing and mode != "new-run"):
         raise MenuEntryError("Explicit replacement requires New Run mode and boolean intent")
@@ -169,6 +173,13 @@ def enter_file2(
     text = read()[offset:]
     available = re.search(r"Loading GameState 2[^\r\n]*\n[^\r\n]*GameState Version Loaded:", text)
     missing = re.search(r"rep\+gamestate2\.dat\.[^\r\n]*No Game State detected\.", text)
+    if mode == "continue-or-new":
+        if available and missing:
+            raise MenuEntryError("Contradictory file2 game state evidence; input stopped")
+        if not (available or missing):
+            raise MenuEntryError("File2 game state neither confirmed nor verified absent")
+        mode = "continue" if available else "new-run"
+        record("menu_entry_resolved", {"slot": 2, "mode": mode})
     if mode == "continue" and not available:
         raise MenuEntryError("Existing file2 game state not confirmed; no New Run fallback")
     if mode == "new-run" and not replace_existing and (available or not missing):
@@ -214,3 +225,12 @@ def new_run_file2(
     record: Callable[[str, object], None],
 ) -> None:
     enter_file2(journal, keyboard, deadline, record, mode="new-run")
+
+
+def continue_or_new_run_file2(
+    journal: FreshGameLog,
+    keyboard: MenuInput,
+    deadline: float,
+    record: Callable[[str, object], None],
+) -> None:
+    enter_file2(journal, keyboard, deadline, record, mode="continue-or-new")

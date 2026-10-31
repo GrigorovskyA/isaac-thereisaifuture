@@ -30,7 +30,7 @@ from .live import (
     run_live,
     write_training_approval,
 )
-from .menu_entry import FreshGameLog, continue_file2
+from .menu_entry import FreshGameLog, continue_or_new_run_file2
 from .training import (
     PURE_CONFIG,
     TEMPLATE_STATUS,
@@ -423,7 +423,7 @@ class NativeRuntime:
             hours=(seconds + 0.5) / 3600,
             now=wall_now,
             max_restarts=self.plan.max_restarts,
-            evidence="explicit finite session runner; Continue file2",
+            evidence="explicit finite session runner; Continue file2 or New Run on no game",
         )
         return digest(self.approval)
 
@@ -461,7 +461,9 @@ class NativeRuntime:
                 stream.write(json.dumps({"event": event, "data": data}) + "\n")
                 stream.flush()
 
-            continue_file2(journal, self.menu, min(deadline, time.monotonic() + 60), record)
+            continue_or_new_run_file2(
+                journal, self.menu, min(deadline, time.monotonic() + 60), record
+            )
 
     def size(self) -> int:
         roots = {self.plan.output.resolve(), self.plan.run_root.resolve()}

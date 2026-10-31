@@ -154,6 +154,60 @@ def test_no_existing_continue_has_no_new_run_fallback(clock):
     assert keyboard.keys == ["Enter"] * 3
 
 
+@pytest.mark.parametrize("initial", [1, 2])
+def test_continue_or_new_continues_an_existing_run(clock, initial):
+    journal = Journal()
+    keyboard = Keyboard(journal, slot=initial)
+    events = []
+    menu.continue_or_new_run_file2(journal, keyboard, 60, lambda n, d: events.append((n, d)))
+    assert ("menu_entry_resolved", {"slot": 2, "mode": "continue"}) in events
+    assert events[-1][0] == "menu_continue_verified"
+
+
+@pytest.mark.parametrize("initial", [1, 2, 3])
+def test_continue_or_new_starts_a_new_run_only_on_verified_absence(clock, initial):
+    journal = Journal()
+    keyboard = NewKeyboard(journal, slot=initial, available=False, result="New, 2")
+    events = []
+    menu.continue_or_new_run_file2(journal, keyboard, 60, lambda n, d: events.append((n, d)))
+    assert ("menu_entry_resolved", {"slot": 2, "mode": "new-run"}) in events
+    assert events[-1][0] == "menu_new_run_verified"
+    assert len(keyboard.keys) == (5 if initial == 2 else 8)
+
+
+def test_continue_or_new_stops_without_game_state_evidence(clock):
+    journal = Journal()
+    keyboard = Keyboard(journal, slot=2)
+    original = keyboard.press
+
+    def silent(key, stop):
+        before = journal.text
+        original(key, stop)
+        if keyboard.stage == 3:
+            journal.text = before + slot_record(2).split("Loading GameState")[0]
+
+    keyboard.press = silent
+    with pytest.raises(menu.MenuEntryError, match="neither confirmed nor verified absent"):
+        menu.continue_or_new_run_file2(journal, keyboard, 60, lambda *_: None)
+    assert keyboard.keys == ["Enter"] * 3
+
+
+def test_continue_or_new_stops_on_contradictory_game_state_evidence(clock):
+    journal = Journal()
+    keyboard = Keyboard(journal, slot=2)
+    original = keyboard.press
+
+    def contradictory(key, stop):
+        original(key, stop)
+        if keyboard.stage == 3:
+            journal.text += slot_record(2, available=False)
+
+    keyboard.press = contradictory
+    with pytest.raises(menu.MenuEntryError, match="Contradictory"):
+        menu.continue_or_new_run_file2(journal, keyboard, 60, lambda *_: None)
+    assert keyboard.keys == ["Enter"] * 3
+
+
 def test_failed_target_selection_does_not_confirm_continue(clock):
     journal = Journal()
     keyboard = Keyboard(journal)

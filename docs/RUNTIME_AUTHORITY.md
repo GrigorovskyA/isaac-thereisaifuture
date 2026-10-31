@@ -35,6 +35,10 @@ lineage `pure-v4`, `docs/UPDATE_DECISION.md`):
   40 s stall limit (`--initialize`).
 - New Run after death and after a stall-watchdog restart is authorized without a
   count limit (approval `max_restarts` 0). Restart pacing still applies.
+- Session start (user decision 2026-10-31): a supervisor session continues the file2 game,
+  or starts a New Run on file2 when the fresh native log verifies that file2 has no game
+  (for example after a death at the lease end). An existing Continue is never replaced
+  without separate authorization; missing or contradictory evidence stops the session.
 - Sessions stop on the stop file, Ctrl+C, the disk cap or the consecutive
   infrastructure-fault cap (default 5). Faults are never retried silently past it.
 - Tunable hyperparameters may change between sessions; contract changes need a new
