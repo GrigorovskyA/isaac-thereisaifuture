@@ -10,23 +10,24 @@ The 15-minute graph-label check passed. The earlier Continue-only startup failur
 and subsequent explicitly authorized file2 New Run are recorded separately.
 [Final report](../reports/2026-10-31-reward-v10-training.md).
 Reward v9 schema8 remains at `runs/pure-v4-reward-v9-schema8`, final t102400.
-The human now authorizes one fresh reward v11 / observation schema9 initialization,
-with persisted novelty counts and an 18-minute passive native check. Minimum target
-300k; fixed stop November 1 09:00 CET (08:00 UTC). No automatic extension or manual
-retry after a fault. During training read files and inspect processes read-only every15minutes; never
-open or activate windows or restart the dashboard.
-[Finite plan and milestone reporting](../reports/2026-10-30-reward-v11-schema9-native-plan.md).
-Launched October30 13:13UTC, source3264207. The18-minute audit passed encountered
-item/count/statistics cases; active/tagged/Blind coverage remains open. First150k
-checkpoint7c016069-s1-t150528 has700 completed episodes/150674 observed steps;
-exit-start81.9%, stalls61.9%, rooms/episode1.931, stage2=0. Recent~50k:249 episodes,
-50167 steps, exit-start90.4%, stalls55.0%, rooms1.988. The combined150k requirement
-is not met. Session1 ended normally at21:11:48UTC; automatic lease rollover resumed
-this lineage under the same deadline. Training continues unchanged.
-[150k report](../reports/2026-10-30-reward-v11-schema9-150k.md);
-[50k report](../reports/2026-10-30-reward-v11-schema9-50k.md).
-Offline Check1543 including Lua/no skips, strict OpenSpec28/28. The October31 deadline
-belongs to the stopped v10 run.
+Reward v11 / observation schema9 was initialized once October30 at13:13UTC,
+source3264207, then stopped early October31 at05:11:30UTC /06:11:30CET on a file2
+Continue confirmation fault during automatic lease rollover. Final t253952 is46048
+saved steps short of300000;1180 episodes/254782 observed steps/248 train rows.
+Sessions1/2 exited0 normally; startup sessions3/4 exited1 and required termination,
+so cooperative release remains unverified. The launcher's exit0 does not erase them.
+No game/worker/finite owner/Start-Pure/listener9528/deployed authorization remains;
+stop.forever is retained. Final model/normalizer/counts hashes and all32 archived
+v10 files were verified. No manual retry, fallback New Run or deadline extension.
+
+[Final report](../reports/2026-10-31-reward-v11-schema9-training.md),
+[150k report](../reports/2026-10-30-reward-v11-schema9-150k.md),
+[50k report](../reports/2026-10-30-reward-v11-schema9-50k.md),
+[finite plan](../reports/2026-10-30-reward-v11-schema9-native-plan.md).
+The initial18-minute passive check passed encountered item/count/statistics cases;
+active/tagged/Blind coverage remains unverified. Offline Check1543 including Lua/no
+skips, strict OpenSpec28/28. Native tasks remain open. The November1 deadline was
+not reached; monitoring is finished and further training needs a human decision.
 
 ## Forever mode
 

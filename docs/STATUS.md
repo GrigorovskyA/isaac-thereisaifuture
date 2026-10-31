@@ -1,6 +1,6 @@
 # Project status
 
-Updated 2026-10-30 (Europe/Amsterdam). Current state only; dated evidence is history.
+Updated 2026-10-31 (Europe/Amsterdam). Current state only; dated evidence is history.
 The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Direction
@@ -8,23 +8,23 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 - Pure self-learning since 2026-10-22 ([decision](UPDATE_DECISION.md)). RecurrentPPO
   learns from raw facts and outcome rewards, plus one potential-based door term since
   reward v9: no scripted setup, advice features or technique rewards. Archive content is history, not runtime authority.
-- Reward v11 / observation schema 9 are training from the authorized fresh
-  initialization (October 30 13:13 UTC; source3264207). Contract `7c01606925675e6e7535a61ca75b26770e5aadecf8110dfc96bb251448dfcd7c`;
-  11691 inputs, action 2; cross-run novelty counts persist with checkpoints; stalls
-  terminate learning while episode CSVs retain truncated/stall. Windows Check:
-  1543 passed including Lua, no skips; strict OpenSpec 28/28; one existing synthetic
-  AllNaN warning. The18-minute audit passed for encountered item/count/statistics
-  cases; active/tagged/Blind cases remain unverified. First150k checkpoint
-  `7c016069-s1-t150528`:700 episodes/150674 observed steps. Exit-start81.9%,
-  stalls61.9%, rooms/episode1.931, stage2=0. Recent~50k:249 episodes/50167 steps,
-  exit-start90.4%, stalls55.0%, rooms1.988. Exit-start passes its goal; combined
-  150k gameplay requirement remains unmet. Normal automatic lease rollover resumed
-  the same lineage; no frozen/native gameplay acceptance.
-  [150k comparison report](../reports/2026-10-30-reward-v11-schema9-150k.md).
-  [50k report](../reports/2026-10-30-reward-v11-schema9-50k.md).
-  [Finite launch, audit and milestone plan](../reports/2026-10-30-reward-v11-schema9-native-plan.md).
-  Minimum target 300k; absolute stop November 1 09:00 CET, no automatic extension.
-  Reports near 50k/150k/300k compare only equal available baseline step bounds.
+- Reward v11 / observation schema9 stopped October31 at05:11:30UTC /06:11:30CET
+  on a file2 Continue confirmation fault during automatic lease rollover.
+  Final `7c016069-s1-t253952`:253952/300000 saved steps (46048 short),1180 completed
+  episodes/254782 observed steps. Exit-start84.6%, stalls64.0%, rooms1.964, stage2=0;
+  latest~50k:211 episodes/50144 steps, exit88.6%, stalls72.5%, rooms2.033.
+  Sessions1/2 exited0 normally; sessions3/4 exited1 and required worker termination,
+  cooperative release unverified. Launcher exit0 does not erase these failures.
+  No game/worker/owner/Start-Pure/listener9528/deployed approval remains;
+  stop.forever retained. Model/normalizer/counts hashes verified, all32 v10 archive
+  files unchanged. No manual retry or extension; the300k milestone was not reached.
+  Source3264207 and contract7c016069 remain unchanged; Check1543/Lua/no skips,
+  strict OpenSpec28/28. Initial passive audit passed encountered cases; active,
+  nonzero tags and Blind remain unverified. Native tasks remain open.
+  [Final report](../reports/2026-10-31-reward-v11-schema9-training.md),
+  [150k report](../reports/2026-10-30-reward-v11-schema9-150k.md),
+  [50k report](../reports/2026-10-30-reward-v11-schema9-50k.md),
+  [finite plan](../reports/2026-10-30-reward-v11-schema9-native-plan.md).
 - Reward v10 stopped on human request October 30 13:26:04 CET, checkpoint
   `3043a54c-s1-t63488`, 290 completed episodes / 64430 observed steps. Learner 0,
   fault null, cleanup empty; root preserved as runs/pure-v4-reward-v10; all32 file hashes matched after moving.
@@ -175,10 +175,10 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Next
 
-1. Continue the authorized reward v11/schema9 run unchanged toward300k and the
-   November1 08:00UTC deadline. Check processes and fresh progress every15minutes
-   without opening windows; no manual retry or automatic extension. Preserve all
-   v10/v9 archives and failed-start evidence. Native OpenSpec tasks remain open.
+1. Training is stopped after the v11 lease-rollover startup fault. Preserve t253952,
+   stop.forever, all prior archives and failure evidence. No automatic/manual retry,
+   fallback initialization or extension; further training needs a human decision.
+   Native OpenSpec tasks remain open; recurring monitoring is finished.
 2. Schema 7 training is complete and archived with stop.forever and verified checkpoint hashes.
    Schema 6 remains separately stopped in `runs/pure-v4-reward-v9-schema6`.
 3. The ent_coef=0.01 trial ended at t588288 on October 28 at the user's request.
