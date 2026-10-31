@@ -20,7 +20,12 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
   Common(0,50000]:v12 exit64.4%,stalls73.9%,rooms1.692 versusv11 70.5%/67.0%/1.795;
   kills/1k4.102 versus2.942,stage2zero. No gameplay acceptance or stop-rule change.
   [50k report](../reports/2026-10-31-reward-v12-schema9-50k.md).
-  Native acceptance/first8hrollover remain open.
+  First150k checkpointt150528:882episodes/151375observedsteps/147trainrows.
+  Common(0,150000]:v12 exit79.8%,stalls71.7%,rooms1.876 versusv11 81.9%/61.9%/1.929;
+  kills/1k6.264 versus4.426,stage2zero. Gameplay goals remain unmet.
+  [150k report](../reports/2026-10-31-reward-v12-schema9-150k.md).
+  First8hrollover passed Continue/resume/latest and new checkpoint advancement;
+  death/no-game -> resumed New Run was unencountered. Native tasks remain open.
   [Audit](../reports/2026-10-31-reward-v12-schema9-native-audit.md).
   Stop first saved>=300k or November1 12:31:15UTC /13:31CET, whicheverfirst; fault
   stops/no manualretry. [Launch](../reports/2026-10-31-reward-v12-schema9-launch.md),

@@ -40,7 +40,14 @@ First50k checkpoint1a6d8146-s1-t50176:296episodes/50127observedsteps/48trainrows
 At common(0,50000],exit64.4%,stalls73.9%,rooms1.692,kills4.102/1k,stage2zero;
 v11 exit70.5%,stalls67.0%,rooms1.795,kills2.942/1k.
 [50k comparison](../reports/2026-10-31-reward-v12-schema9-50k.md).
-First8hrollover remains pending. [Audit report](../reports/2026-10-31-reward-v12-schema9-native-audit.md). Stop at firstsaved>=300k or November1 12:31:15UTC
+First150k checkpointt150528:882episodes/151375observedsteps/147trainrows.
+Common(0,150000]:v12 exit79.8%,stalls71.7%,rooms1.876,kills6.264/1k;
+v11 81.9%/61.9%/1.929/4.426,stage2zero. Goals remain unmet, not stop rules.
+[150k comparison](../reports/2026-10-31-reward-v12-schema9-150k.md).
+First8hrollover completed14:30:02UTC:exit0/faultnull/cleanup[]/writes_skipped0;
+Continue verified,resumeTrue,parentt126976,samehash,newcheckpoint128000.
+Conditional death/no-game -> resumed New Run unencountered, task still open.
+[Audit report](../reports/2026-10-31-reward-v12-schema9-native-audit.md). Stop at firstsaved>=300k or November1 12:31:15UTC
 /13:31CET, whicheverfirst; any fault stops/no manualretry. Native tasks remain open.
 [Launch receipt](../reports/2026-10-31-reward-v12-schema9-launch.md),
 [finite plan](../reports/2026-10-31-reward-v12-schema9-native-plan.md).
