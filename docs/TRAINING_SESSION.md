@@ -47,8 +47,14 @@ v11 81.9%/61.9%/1.929/4.426,stage2zero. Goals remain unmet, not stop rules.
 First8hrollover completed14:30:02UTC:exit0/faultnull/cleanup[]/writes_skipped0;
 Continue verified,resumeTrue,parentt126976,samehash,newcheckpoint128000.
 Conditional death/no-game -> resumed New Run unencountered, task still open.
-[Audit report](../reports/2026-10-31-reward-v12-schema9-native-audit.md). Stop at firstsaved>=300k or November1 12:31:15UTC
-/13:31CET, whicheverfirst; any fault stops/no manualretry. Native tasks remain open.
+[Audit report](../reports/2026-10-31-reward-v12-schema9-native-audit.md).
+Stopped by the human October31 at17:22:56UTC /18:22:56CET, before the target/deadline.
+Finalt173056:173056/300000 savedsteps (126944 short),1032episodes/173786observedsteps/
+169trainrows. Both sessions exit0/faultnull/cleanup[]/status_writes_skipped0;
+no game/worker/finite owner/launcher/listener9528/deployed authorization remains.
+stop.forever retained; all77v11archive hashes matched. No retry/extension.
+[Final report](../reports/2026-10-31-reward-v12-schema9-training.md).
+Native tasks remain open; further training needs a human decision.
 [Launch receipt](../reports/2026-10-31-reward-v12-schema9-launch.md),
 [finite plan](../reports/2026-10-31-reward-v12-schema9-native-plan.md).
 

@@ -8,7 +8,8 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 - Pure self-learning since 2026-10-22 ([decision](UPDATE_DECISION.md)). RecurrentPPO
   learns from raw facts and outcome rewards, plus one potential-based door term since
   reward v9: no scripted setup, advice features or technique rewards. Archive content is history, not runtime authority.
-- Reward v12/schema9 is training from one authorized fresh initialization October31
+- Reward v12/schema9 stopped by the human October31 at17:22:56UTC /18:22:56CET.
+  One authorized fresh initialization October31
   06:31:15UTC /07:31CET, source4c58937 (menu fix5627159), contract
   `1a6d8146f5e89b7bdad14fe21d3afa9cc1f5c4192b8e5f24cefb6bbab0e0c8d8`.
   Check1569includingLua/no skips;strictOpenSpec30/30. All77v11 archive hashes matched
@@ -27,8 +28,11 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
   First8hrollover passed Continue/resume/latest and new checkpoint advancement;
   death/no-game -> resumed New Run was unencountered. Native tasks remain open.
   [Audit](../reports/2026-10-31-reward-v12-schema9-native-audit.md).
-  Stop first saved>=300k or November1 12:31:15UTC /13:31CET, whicheverfirst; fault
-  stops/no manualretry. [Launch](../reports/2026-10-31-reward-v12-schema9-launch.md),
+  Finalt173056:173056/300000 savedsteps (126944 short),1032episodes/173786observedsteps.
+  Both sessions exit0/faultnull/cleanup[]/writes_skipped0; game/worker/owner/launcher/
+  listener9528/deployed authorization absent. stop.forever retained,77v11archive hashes
+  matched. [Final report](../reports/2026-10-31-reward-v12-schema9-training.md).
+  Human stop preceded target/deadline; no retry/extension. Further training needs a decision. [Launch](../reports/2026-10-31-reward-v12-schema9-launch.md),
   [finite plan](../reports/2026-10-31-reward-v12-schema9-native-plan.md).
 - Reward v11 / observation schema9 stopped October31 at05:11:30UTC /06:11:30CET
   on a file2 Continue confirmation fault during automatic lease rollover.
