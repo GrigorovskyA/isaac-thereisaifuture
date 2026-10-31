@@ -30,9 +30,16 @@ skips, strict OpenSpec28/28. Native tasks remain open. The November1 deadline wa
 not reached; monitoring is finished and further training needs a human decision.
 Sessions now start a New Run when the fresh log verifies that file2 has no game, as after the
 death 3 s before the session 2 lease end (openspec change `session-start-new-run-fallback`).
-Reward v12 (door pull 4, 30 s stall limit in the contract, observation schema 9) is prepared;
-v11 is to be kept as `runs/pure-v4-reward-v11-schema9`. No new training or initialization is
-authorized here.
+Reward v12/schema9 launched once October31 at06:31:15UTC /07:31CET, source4c58937,
+contract1a6d8146f5e89b7bdad14fe21d3afa9cc1f5c4192b8e5f24cefb6bbab0e0c8d8.
+The v11 root is now archived with all77file hashes unchanged. No mod redeployment.
+Check1569includingLua/no skips andstrictOpenSpec30/30 passed. Initial menu New Run
+on verified file2 absence passed; first2stalls paid-4 with-7.02 stagnation. Full18min
+audit and first8hrollover pending. Stop at firstsaved>=300k or November1 12:31:15UTC
+/13:31CET, whicheverfirst; any fault stops/no manualretry. Native tasks remain open.
+[Launch receipt](../reports/2026-10-31-reward-v12-schema9-launch.md),
+[finite plan](../reports/2026-10-31-reward-v12-schema9-native-plan.md).
+
 
 ## Forever mode
 

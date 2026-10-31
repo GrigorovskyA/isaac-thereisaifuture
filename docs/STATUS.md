@@ -8,9 +8,16 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 - Pure self-learning since 2026-10-22 ([decision](UPDATE_DECISION.md)). RecurrentPPO
   learns from raw facts and outcome rewards, plus one potential-based door term since
   reward v9: no scripted setup, advice features or technique rewards. Archive content is history, not runtime authority.
-- Reward v12 (door coefficient 4, death -11, stall restart -4, stagnation -0.39, 30 s stall limit;
-  openspec `door-pull-and-short-stall-reward-v12`) is implemented offline; native tasks are open and
-  `pure-v4` needs `--initialize` after the v11 run is kept as `runs/pure-v4-reward-v11-schema9`.
+- Reward v12/schema9 is training from one authorized fresh initialization October31
+  06:31:15UTC /07:31CET, source4c58937 (menu fix5627159), contract
+  `1a6d8146f5e89b7bdad14fe21d3afa9cc1f5c4192b8e5f24cefb6bbab0e0c8d8`.
+  Check1569includingLua/no skips;strictOpenSpec30/30. All77v11 archive hashes matched
+  before/after move to runs/pure-v4-reward-v11-schema9; deployed Lua unchanged.
+  Initial file2 New Run verified; first2stalls paid-4 and stagnation-7.02 each.
+  Full18-minute audit pending; native acceptance/first8hrollover remain open.
+  Stop first saved>=300k or November1 12:31:15UTC /13:31CET, whicheverfirst; fault
+  stops/no manualretry. [Launch](../reports/2026-10-31-reward-v12-schema9-launch.md),
+  [finite plan](../reports/2026-10-31-reward-v12-schema9-native-plan.md).
 - Reward v11 / observation schema9 stopped October31 at05:11:30UTC /06:11:30CET
   on a file2 Continue confirmation fault during automatic lease rollover.
   Final `7c016069-s1-t253952`:253952/300000 saved steps (46048 short),1180 completed
@@ -178,10 +185,9 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Next
 
-1. Training is stopped after the v11 lease-rollover startup fault. Preserve t253952,
-   stop.forever, all prior archives and failure evidence. No automatic/manual retry,
-   fallback initialization or extension; further training needs a human decision.
-   Native OpenSpec tasks remain open; recurring monitoring is finished.
+1. Monitor the authorized v12 run unchanged to first saved>=300k under its30h
+   ceiling.18-minute audit and first8hrollover need evidence; compare at50k/150k/300k
+   with archivedv11 at equal observed bounds. No manualretry or extension.
 2. Schema 7 training is complete and archived with stop.forever and verified checkpoint hashes.
    Schema 6 remains separately stopped in `runs/pure-v4-reward-v9-schema6`.
 3. The ent_coef=0.01 trial ended at t588288 on October 28 at the user's request.
