@@ -14,7 +14,10 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
   Check1569includingLua/no skips;strictOpenSpec30/30. All77v11 archive hashes matched
   before/after move to runs/pure-v4-reward-v11-schema9; deployed Lua unchanged.
   Initial file2 New Run verified; first2stalls paid-4 and stagnation-7.02 each.
-  Full18-minute audit pending; native acceptance/first8hrollover remain open.
+  18-minute audit passed:22/22 stalls at30.000..30.188s,stall-4,stagnation-7.02;
+  counts SHA valid,256keys/max21;1035 frames,max12501bytes;4 train rows filled.
+  Native acceptance/first8hrollover remain open.
+  [Audit](../reports/2026-10-31-reward-v12-schema9-native-audit.md).
   Stop first saved>=300k or November1 12:31:15UTC /13:31CET, whicheverfirst; fault
   stops/no manualretry. [Launch](../reports/2026-10-31-reward-v12-schema9-launch.md),
   [finite plan](../reports/2026-10-31-reward-v12-schema9-native-plan.md).
@@ -186,7 +189,7 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 ## Next
 
 1. Monitor the authorized v12 run unchanged to first saved>=300k under its30h
-   ceiling.18-minute audit and first8hrollover need evidence; compare at50k/150k/300k
+   ceiling.18-minute audit passed; first8hrollover needs evidence; compare at50k/150k/300k
    with archivedv11 at equal observed bounds. No manualretry or extension.
 2. Schema 7 training is complete and archived with stop.forever and verified checkpoint hashes.
    Schema 6 remains separately stopped in `runs/pure-v4-reward-v9-schema6`.

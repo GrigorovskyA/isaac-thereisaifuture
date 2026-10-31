@@ -34,8 +34,9 @@ Reward v12/schema9 launched once October31 at06:31:15UTC /07:31CET, source4c5893
 contract1a6d8146f5e89b7bdad14fe21d3afa9cc1f5c4192b8e5f24cefb6bbab0e0c8d8.
 The v11 root is now archived with all77file hashes unchanged. No mod redeployment.
 Check1569includingLua/no skips andstrictOpenSpec30/30 passed. Initial menu New Run
-on verified file2 absence passed; first2stalls paid-4 with-7.02 stagnation. Full18min
-audit and first8hrollover pending. Stop at firstsaved>=300k or November1 12:31:15UTC
+on verified file2 absence passed. The18-minute audit passed22/22 stalls at30.000..30.188s,
+col_stall-4/col_stagnation-7.02,counts SHA valid,1035 frames and4 filled train rows.
+First8hrollover remains pending. [Audit report](../reports/2026-10-31-reward-v12-schema9-native-audit.md). Stop at firstsaved>=300k or November1 12:31:15UTC
 /13:31CET, whicheverfirst; any fault stops/no manualretry. Native tasks remain open.
 [Launch receipt](../reports/2026-10-31-reward-v12-schema9-launch.md),
 [finite plan](../reports/2026-10-31-reward-v12-schema9-native-plan.md).
