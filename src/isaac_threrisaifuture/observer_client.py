@@ -25,6 +25,8 @@ from .observation import (
 
 DEATH_RESTART_CAPABILITY = "death_restart_v1"
 NATIVE_EPISODE_CAPABILITY = "entity_action_v1"
+# Live loop extension for level replay: run seed in the oracle block, seeded restarts.
+SEEDED_RESTART_CAPABILITY = "seeded_restart_v1"
 ORACLE_KINDS: tuple[NativeOracleKind, ...] = get_args(NativeOracleKind)
 
 
@@ -54,10 +56,16 @@ class ObserverConfig:
     native_episode_steps: bool = False
     live_loop: bool = False
     native_oracle_kinds: tuple[NativeOracleKind, ...] | None = None
+    # Level replay only (contract `level_replay: plr_v1`); needs the live loop.
+    seeded_restart: bool = False
 
     def __post_init__(self) -> None:
         if type(self.live_loop) is not bool:
             raise ValueError("Live loop opt-in must be boolean")
+        if type(self.seeded_restart) is not bool:
+            raise ValueError("Seeded restart opt-in must be boolean")
+        if self.seeded_restart and not self.live_loop:
+            raise ValueError("Seeded restarts require the live loop")
         if self.live_loop and (
             self.safe_actions
             or self.restart_after_death
@@ -207,6 +215,8 @@ class ObservationClient:
                 required.extend(map(oracle_kind_capability, self.config.native_oracle_kinds or ()))
             if self.config.live_loop:
                 required.extend(LIVE_LOOP_CAPABILITIES)
+            if self.config.seeded_restart:
+                required.append(SEEDED_RESTART_CAPABILITY)
             hello = Hello(session_id=self._session, required_capabilities=required)
             deadline = time.monotonic() + self.config.handshake_timeout
             self._peer.settimeout(self.config.handshake_timeout)

@@ -30,13 +30,35 @@ configured as `origin`. Dependencies and caches are ignored by Git.
 | pytest / Ruff / mypy | 9.1.1 / 0.17.1 / 1.20.2 | PyPI |
 
 The Python snapshot is requirements-lock.txt. Torch is pinned separately in
-Bootstrap so its CPU wheel source is explicit. Node transitive versions are in
+`scripts/TorchPin.ps1` (used by Bootstrap) so its wheel source is explicit. Node transitive versions are in
 pnpm-lock.yaml. Another machine needs Node 20.19+ and Python 3.12 available; this
 project does not install system Python or Node.
 
 Detected hardware: NVIDIA GeForce RTX 4070, 12 GiB, driver 610.88. The CPU torch
 build reports `cuda_available=false` as expected; this does not indicate a broken
 GPU. The exact CPU model was not verified because the initial environment denied CIM access.
+
+## GPU learner (2026-10-31)
+
+Since `rollout-advantage-and-gpu-learner` the training contract says `device: cuda`, and training
+refuses to start without CUDA (no CPU fallback). The pin is in `scripts/TorchPin.ps1`: torch
+`2.14.1+cu130` from `https://download.pytorch.org/whl/cu130` (CUDA 13.0 needs driver 580 or
+newer; the RTX 4070 has 610.88). The Windows wheel bundles its CUDA libraries; no CUDA toolkit
+is needed. The torch version is unchanged, so `requirements-lock.txt` stays as it is. On the
+Windows PC, from `D:\isaac` and with no training running:
+
+```powershell
+.\scripts\Bootstrap.ps1          # installs torch==2.14.1+cu130 over the CPU build
+# or only the torch step:
+.\.venv\Scripts\python.exe -m pip install torch==2.14.1+cu130 --index-url https://download.pytorch.org/whl/cu130 --cache-dir .cache/pip
+.\scripts\Check.ps1              # refuses another torch build; prints cuda_available
+.\scripts\Smoke-RL.ps1           # cuda_to_cpu_checkpoint must be passed
+```
+
+`Bootstrap.ps1 -CpuTorch` and `Check.ps1 -CpuTorch` keep the CPU build (`2.14.1+cpu`) for a
+machine without an NVIDIA GPU; it cannot train a `cuda` lineage. macOS development uses the
+PyPI CPU torch 2.14.1 and always tests on the CPU. Frozen evaluation loads checkpoints on the
+CPU whatever device trained them.
 
 ## OpenSpec
 

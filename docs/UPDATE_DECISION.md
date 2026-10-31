@@ -64,6 +64,9 @@ fresh model, and old lineages stay preserved.
    the rooms still to cross, through the doors seen on this floor, to reach an unvisited room or
    the boss room; since reward v11 (door-entry-fix-reward-v11) a blocked room costs 0, so room entry is free;
    since reward v12 (door-pull-and-short-stall-reward-v12) the coefficient is 4.
+   An automatic curriculum driven by the agent's own learning signal is allowed: level
+   replay (openspec change prioritized-level-replay, off by default) chooses which run seed to
+   play next from the agent's GAE advantages; it never says what to do and is no observation.
 3. The agent must see what it needs to learn about, but the observation should
    carry facts, not advice. Pickup types and item IDs are facts; "good target
    here" is advice.

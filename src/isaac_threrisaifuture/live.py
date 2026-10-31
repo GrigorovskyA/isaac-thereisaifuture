@@ -25,6 +25,7 @@ from .actions import Command, Direction, Use
 from .checkpoints import RewardContract
 from .entities import EntityFrame, OracleEvent, OracleKind
 from .episodes import ACTION_NVEC, DIRECTIONS, USES, Action, EpisodeFault, Scenario, StepResult
+from .level_replay import SeedBank
 from .live_wire import (
     CommandKind,
     LiveCommandAck,
@@ -57,6 +58,7 @@ LIVE_REWARD_CONTRACT: Literal["pure-v11"] = "pure-v11"
 _CONSUMABLES: tuple[Literal["coin", "bomb", "key"], ...] = ("coin", "bomb", "key")
 SNAPSHOT_BACKLOG = 512
 ACK_TIMEOUT = 1.0
+ARM_ATTEMPTS = 20  # next_seed refusals per run before its death restart is left fresh
 Text = Annotated[str, Field(min_length=1, max_length=128, pattern=r"\S")]
 
 
@@ -225,6 +227,7 @@ class LiveClient(ObservationClient):
         shoot: Direction = "none",
         use: Use = "none",
         frames: int = 0,
+        seed: str | None = None,
     ) -> LiveCommandAck:
         """Send once and await the matching ack; failures invalidate the peer."""
         try:
@@ -244,6 +247,7 @@ class LiveClient(ObservationClient):
                 shoot=shoot,
                 use=use,
                 frames=frames,
+                seed=seed,
             )
             try:
                 self._peer.sendall(command.wire_bytes())
@@ -453,6 +457,11 @@ class LiveBackend:
     progress: RunProgress = field(default_factory=RunProgress)
     on_stall: Callable[[], None] | None = None
     supports_seed: ClassVar[bool] = False
+    # Level replay (contract `plr_v1`): the bank plans the seed of each New Run; the client must
+    # have negotiated `seeded_restart_v1`. None (default, evaluation) never sends a seed.
+    level_replay: SeedBank | None = None
+    _seed_armed: bool = False
+    _arm_attempts: int = 0
     _current: LiveSnapshot | None = None
     _stall_fired: bool = False
     # (session, epoch) of the run a command restart was accepted for; reset waits it out.
@@ -509,6 +518,10 @@ class LiveBackend:
         if self.watchdog is not None:
             self.watchdog.reset()
         self._oracle_start = _oracle_counters(snap.oracle)
+        if self.level_replay is not None and self.level_replay.begin_run(
+            snap.oracle.run_seed, snap.game_epoch
+        ):
+            self._seed_armed, self._arm_attempts = False, 0
         frame = snap.entity_frame
         self.progress.reset(
             stage=frame.room.stage,
@@ -557,8 +570,33 @@ class LiveBackend:
         self._timed_steps = self._snapshots = 0
         return counters
 
+    @property
+    def level_replay_run(self) -> int | None:
+        """Run id of the current run for the learner's score attribution; None without PLR."""
+        return None if self.level_replay is None else self.level_replay.current_run
+
+    def level_replay_facts(self) -> dict[str, Any]:
+        """`run_seed` and `seed_replayed` of the current run (metrics only); empty without PLR."""
+        return {} if self.level_replay is None else self.level_replay.facts()
+
+    def _arm_seed(self) -> None:
+        """Arm the planned seed for the mod's next death restart; races are retried next step.
+
+        Bounded per run: after ARM_ATTEMPTS refusals the death restart starts a fresh run, which
+        the bank then records as such.
+        """
+        bank = self.level_replay
+        if bank is None or bank.planned_seed is None or self._seed_armed:
+            return
+        if self._arm_attempts >= ARM_ATTEMPTS or self._current is None:
+            return
+        self._arm_attempts += 1
+        ack = self._command("next_seed", self._current, seed=bank.planned_seed)
+        self._seed_armed = ack.status == "accepted"
+
     def step(self, action: Action, repeat: int) -> StepResult:
         self._timed_steps += 1
+        self._arm_seed()
         result = self._advance(action, repeat)
         if self._stall_fired:
             self._stall_fired = False
@@ -583,7 +621,8 @@ class LiveBackend:
         reference = self._current
         if reference is None:
             raise BridgeError("No live episode")
-        ack = self._command("restart", reference)
+        seed = None if self.level_replay is None else self.level_replay.planned_seed
+        ack = self._command("restart", reference, seed=seed)
         if ack.status != "accepted":
             self.restart_rejections += 1
             return False
@@ -889,6 +928,7 @@ def make_live_env(
     clock: Callable[[], float] = time.monotonic,
     max_consecutive_faults: int | None = None,
     novelty_counts: NoveltyCounts | None = None,
+    level_replay: SeedBank | None = None,
 ) -> FaultTolerantEnv:
     """Live env; the pure profile pays reward v9 to v12 (v1 stays for old comparisons).
 
@@ -901,6 +941,8 @@ def make_live_env(
     evaluation passes a frozen one, and without it v11 and v12 count only in memory.
     Reward v12 carries the stall limit (`stall.seconds`): a different `stall_seconds` raises
     ValueError, and without one the ledger uses the contract's limit.
+    `level_replay` (training with contract `plr_v1` only) plans the seed of each New Run and needs
+    a client that negotiates `seeded_restart_v1`; evaluation never passes it.
     """
     from .env import IsaacCombatEnv, RewardAccountant
     from .rewards import (
@@ -944,7 +986,11 @@ def make_live_env(
         else RewardLedger(CombatCoefficients.load())
     )
 
-    backend = LiveBackend(client, run_deadline=run_deadline, stop_file=stop_file)
+    if level_replay is not None and not client.config.seeded_restart:
+        raise ValueError("Level replay needs a client with seeded restarts")
+    backend = LiveBackend(
+        client, run_deadline=run_deadline, stop_file=stop_file, level_replay=level_replay
+    )
     if stall_seconds is not None:
         backend.watchdog = StallWatchdog(stall_seconds, clock=clock)
     env = IsaacCombatEnv(
@@ -1050,6 +1096,7 @@ def run_live(
                     max(0.001, (options.session_deadline or math.inf) - time.monotonic()),
                 ),
                 live_loop=True,
+                seeded_restart=_wants_seeded_restart(options),
             ),
         )
         with client:
@@ -1138,6 +1185,32 @@ def _random_run(
         env.close()
 
 
+def _seed_bank(config: Any) -> SeedBank | None:
+    """The seed bank of a `plr_v1` contract with the configured sampler; None otherwise."""
+    from .training import PureTrainingConfig
+
+    if not isinstance(config, PureTrainingConfig) or config.contract.level_replay != "plr_v1":
+        return None
+    hyper = config.hyperparameters
+    return SeedBank(
+        replay_probability=hyper.plr_replay_probability,
+        temperature=hyper.plr_temperature,
+        staleness=hyper.plr_staleness,
+        capacity=hyper.plr_bank_size,
+        seed=config.seed,
+    )
+
+
+def _wants_seeded_restart(options: "LiveRunOptions") -> bool:
+    """Training with contract `plr_v1` negotiates seeded restarts; evaluation never does."""
+    if options.mode != "train":
+        return False
+    from .training import PURE_CONFIG, load_training_config
+
+    config, _ = load_training_config(options.config_path or PURE_CONFIG)
+    return _seed_bank(config) is not None
+
+
 def _train_run(
     client: LiveClient,
     options: LiveRunOptions,
@@ -1166,6 +1239,7 @@ def _train_run(
         else None
     )
     writer = EpisodeMetricsWriter(options.out_dir / "metrics" / "episodes.csv") if pure else None
+    bank = _seed_bank(config)
     pause = (
         UpdatePause(options.keyboard, record)
         if isinstance(config, PureTrainingConfig) and config.live.pause_during_updates
@@ -1195,6 +1269,7 @@ def _train_run(
             if isinstance(config, PureTrainingConfig)
             else None,
             novelty_counts=counts,
+            level_replay=bank,
         )
         return EpisodeMetricsEnv(env, writer) if writer is not None else env
 
@@ -1213,6 +1288,7 @@ def _train_run(
             train_metrics_path=options.out_dir / "metrics" / "train.csv" if pure else None,
             update_pause=pause,
             novelty_counts=counts,
+            level_replay=bank,
         )
     except LiveBudgetExpired as exc:
         record("budget", f"{exc}; unfinished rollout has no new checkpoint")

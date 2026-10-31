@@ -170,6 +170,33 @@ MLP shared by all slots of an entity kind with masked mean and max pooling, smal
 13 x 13 x 14 minimap and the 14 x 26 visited-cell grid, an MLP over the other features, then
 Linear -> 512 + ReLU).
 
+Rollout advantages and GPU learner (openspec change `rollout-advantage-and-gpu-learner`; reward
+v12, schema 9 and the structured features unchanged). The full batch left at most 10 gradient
+steps per 1024-step rollout. `advantage_normalization: rollout` (`learner.PureRecurrentPPO`)
+normalizes the advantages once over the whole rollout buffer and never per minibatch, so
+`batch_size` 256 gives 4 minibatches per epoch (up to 40 gradient steps per rollout) without
+losing the between-episode signal; `target_kl` stops on the mean KL of an epoch's minibatches,
+after the whole epoch. `device: cuda` trains on the RTX 4070 (CUDA torch wheel, see
+`SETUP_REPORT.md`); a `cuda` contract without CUDA is refused, never run on the CPU. Checkpoints
+load on either device; frozen evaluation stays on the CPU.
+
+Auxiliary self-prediction (openspec change `auxiliary-self-prediction`; reward, observation,
+actions and the learner above unchanged). PPO uses each step about ten times and drops it. With
+`auxiliary: spr_reward_done_v1` (`auxiliary.py`) the shared structured features also learn, from a
+replay of the last 8 rollouts, to predict the agent's own next state, reward and episode end (SPR,
+Schwarzer et al. 2020, cut to one step; sample reuse as in PPG): a transition MLP over the
+features and the one-hot action predicts the projected features of the next observation under an
+EMA target (tau 0.99, cosine loss, never across an episode end), a reward head the
+VecNormalize-scaled reward (Huber) and a done head the death or stall ending (BCE). The heads are
+feed-forward, so no LSTM state is replayed. After the PPO epochs, with the game still paused, 64
+Adam steps of 256 replayed transitions train only the extractor and the heads, with their own Adam
+at `aux_coef` x the PPO learning rate (a loss weight would cancel out in a separate Adam).
+`aux_approx_kl` in `train.csv` is the policy KL that phase caused on the current rollout. The
+replay holds raw observations (binary and one-hot features as float16, about 215 MB) normalized
+when sampled, lives in memory only and starts empty after a resume; heads, EMA target and their
+Adam are saved per checkpoint as `auxiliary.pt`, which frozen evaluation never reads. No reward
+comes from these losses.
+
 Door shaping (the one term that is not an outcome, approved explicitly) follows Ng et al. 1999.
 In reward v9: Phi(s) = -coefficient * d / D, with d the distance from the player to the nearest open door
 whose room behind it has not been visited this run (oracle doors, reward label only) and D the
@@ -221,18 +248,57 @@ an unseen room or floor, a counter above its run peak, a new collectible. Walkin
 between known rooms does not count. Missing snapshots and
 disconnects are infrastructure faults, never stalls, and are not learning outcomes.
 
+## Level replay (off; openspec change `prioritized-level-replay`)
+
+Contract `level_replay: plr_v1` (default and shipped `none`, which keeps the contract hash)
+adds Prioritized Level Replay (Jiang et al. 2021, arXiv 2010.03548) over run seeds, an automatic
+curriculum driven by the agent's own learning signal. `level_replay.SeedBank` keeps up to
+`plr_bank_size` (500) seeds ("XXXX XXXX", as the game reports them) with a score: the mean |GAE
+advantage| over the trained steps of the seed's latest run, taken by `PureRecurrentPPO` from the
+rollout buffer before the rollout normalization (a run spanning rollouts accumulates; the env puts
+the run id into each step's info). At each run start the next New Run is planned: with
+probability `plr_replay_probability` (0.5) a scored bank seed drawn from (1 - rho) P_score + rho
+P_staleness (rank prioritization, temperature `plr_temperature` 0.1; rho `plr_staleness` 0.1),
+otherwise an unseeded run whose seed joins the bank (eviction: lowest score, oldest first). The
+mod restarts a replay with `seed XXXX XXXX` instead of `restart` (capability `seeded_restart_v1`:
+oracle `run_seed`, a validated `seed` on the stall `restart` command and `next_seed`, which arms
+the mod's own death restart for the current epoch; same guards and pacing). The seed is metadata:
+never an observation, normalizer input or recurrent state. The bank is saved per checkpoint as
+`level_replay.json` (hashed; resume refuses a checkpoint without it); evaluation never uses it.
+`episodes.csv` has `run_seed` and `seed_replayed` (empty when off). Turning it on is a new lineage,
+needs the redeployed observer mod, and replayed runs are seeded runs, which disable achievements.
+Whether `seed` from Lua behaves like `restart` natively is still to be verified.
+
+## E3B intrinsic bonus (off; openspec change `e3b-count-intrinsic`)
+
+Contract `intrinsic: e3b_count_v1` (default and shipped `none`, which keeps the contract hash)
+adds the episodic E3B bonus (Henaff et al. 2022, arXiv 2210.05805) multiplied by the cross-run
+cell count, the combination of Henaff, Jiang and Raileanu 2023 (arXiv 2306.03236): r_int =
+`e3b_beta` (0.05) x clip(b / std(b) x max(1 / sqrt(N), `e3b_floor` 0.1), 0, 1). b = phi^T C^-1 phi
+for the next observation, C = `e3b_lambda` I plus the outer products of the episode's embeddings
+(reset at each episode start, Sherman-Morrison); N is the reward v12 cross-run count of the next
+cell, read and never counted. phi (`e3b.py`) is its own copy of the structured extractor plus
+Linear to 128, over the raw observation with the stall clock and the visited-cell grid zeroed,
+trained as an inverse-dynamics model (three softmax heads) on the replay after the PPO epochs. The
+env adds r_int to the reward as column `e3b` (`col_e3b` in `episodes.csv`); evaluation never pays
+it. Per step it is at most 0.05; a fresh embedding pays about 3.5-5.4 per 300-600-step episode on
+new cells and 0.5-0.8 at the floor, against +5 per new room. State in `e3b.pt` per checkpoint;
+`train.csv` has `e3b_idm_loss`, `e3b_bonus_mean`, `e3b_seconds`. Turning it on is a new lineage.
+
 ## Continuous training
 
 `configs/training-pure-v4.yaml` (lineage `pure-v4`): the `contract` section (seed, algorithm, LSTM
 size, features extractor width `features_dim` and kind `policy_features`, observation
 normalization, action repeat, observation/action/reward versions, use-head prior) is the lineage
-hash; `hyperparameters` (n_steps 1024, batch size 1024) may be tuned between sessions and are
+hash, with the learner device, the advantage normalization and the auxiliary losses;
+`hyperparameters` (n_steps 1024, batch size 256, the auxiliary phase) may be tuned between sessions and are
 recorded per checkpoint. The extractor exists because each LSTM applied its input matrix to the
 whole observation for every padded step: at observation size 7522 one update took 55 s on CPU.
 One full-batch update with the structured extractor takes about 19 s on the development Mac
 (`policy.py`, one helper for training, resume, evaluation and the checkpoint policy; the
 continuous-only normalizer is saved as `vecnormalize.pkl` and checked on resume and frozen
-evaluation). The `live` section (`pause_during_updates`, not
+evaluation); with batch 256 and rollout-level advantages it takes about 31-33 s there, and the
+Windows learner runs on the GPU. The `live` section (`pause_during_updates`, not
 hashed) makes the live backend pause the game with Esc while each update and checkpoint run
 (`update_pause.py`); a failed pause is recorded in `events.jsonl` and never faults the session.
 Weights, optimizer state, normalizer and RNG always resume from `latest`. A

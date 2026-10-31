@@ -50,9 +50,11 @@ def synthetic_env(_: int = 0) -> IsaacCombatEnv:
 def write_config(path: Path, **changes: dict[str, Any]) -> Path:
     """Tiny pure profile; `changes` update whole sections by key."""
     raw = yaml.safe_load(yaml.safe_dump(RAW))
+    raw["contract"]["device"] = "cpu"  # the shipped lineage trains on cuda; tests have no GPU
     raw["contract"]["lstm_hidden_size"] = 16
     raw["contract"]["features_dim"] = 24
-    raw["hyperparameters"].update(n_steps=32, batch_size=32, n_epochs=1)
+    # A short auxiliary phase keeps the shipped `auxiliary` contract exercised but cheap.
+    raw["hyperparameters"].update(n_steps=32, batch_size=32, n_epochs=1, aux_steps=2, aux_batch=16)
     for section, values in changes.items():
         raw[section].update(values)
     path.write_text(yaml.safe_dump(raw), "utf-8")
@@ -160,7 +162,7 @@ def test_use_head_prior_sets_only_the_use_head_probabilities():
     from stable_baselines3.common.vec_env import DummyVecEnv
 
     env = DummyVecEnv([synthetic_env])
-    kwargs: dict[str, Any] = {"policy_kwargs": {"lstm_hidden_size": 16}, "seed": 3}
+    kwargs: dict[str, Any] = {"policy_kwargs": {"lstm_hidden_size": 16}, "seed": 3, "device": "cpu"}
     fresh = RecurrentPPO("MlpLstmPolicy", env, **kwargs)
     reference = RecurrentPPO("MlpLstmPolicy", env, **kwargs)
     obs = np.random.default_rng(0).normal(size=(8, OBSERVATION_SIZE)).astype(np.float32)
@@ -181,7 +183,11 @@ def test_use_head_prior_holds_with_the_structured_features():
     from isaac_threrisaifuture.policy import policy_kwargs
 
     model = RecurrentPPO(
-        "MlpLstmPolicy", DummyVecEnv([synthetic_env]), policy_kwargs=policy_kwargs(16, 24), seed=3
+        "MlpLstmPolicy",
+        DummyVecEnv([synthetic_env]),
+        policy_kwargs=policy_kwargs(16, 24),
+        seed=3,
+        device="cpu",
     )
     apply_use_head_prior(model, 0.85)
     obs = np.random.default_rng(0).normal(size=(8, OBSERVATION_SIZE)).astype(np.float32)
@@ -227,12 +233,14 @@ def test_features_dim_binds_the_lineage_but_the_live_section_does_not(tmp_path):
         load_training_config(write_config(tmp_path / "e.yaml", live={"pause_during_updates": 1}))
 
 
-def test_shipped_config_uses_structured_features_and_one_full_batch_per_epoch():
+def test_shipped_config_uses_structured_features_rollout_advantages_and_the_gpu():
     config, _ = load_training_config(SHIPPED_PURE_CONFIG)
     assert config.features_dim == 512 and config.lstm_hidden_size == 256
     assert config.contract.policy_features == "structured_v1"
     assert config.contract.observation_normalization == "continuous_only"
-    assert config.hyperparameters.n_steps == 1024 and config.hyperparameters.batch_size == 1024
+    assert config.contract.advantage_normalization == "rollout"
+    assert config.device == "cuda"
+    assert config.hyperparameters.n_steps == 1024 and config.hyperparameters.batch_size == 256
     assert config.hyperparameters.n_epochs == 10 and config.hyperparameters.target_kl == 0.03
     assert config.hyperparameters.ent_coef == 0.005
     assert config.live.pause_during_updates is True
@@ -856,11 +864,11 @@ def test_train_csv_bridge_timing_columns_come_from_backend_counters_when_present
     assert row["game_wait_seconds"] == row["command_seconds"] == row["snapshots_per_step"] == ""
 
 
-@pytest.mark.parametrize("generation", [0, 1])
+@pytest.mark.parametrize("generation", [0, 1, 2])
 def test_train_csv_with_an_old_header_is_upgraded_to_the_new_columns(tmp_path, generation):
     from isaac_threrisaifuture.training_metrics import LEGACY_HEADERS
 
-    fields = LEGACY_HEADERS[generation]  # 0: before bridge timing, 1: before pause columns
+    fields = LEGACY_HEADERS[generation]  # 0: before bridge timing, 1: pause, 2: auxiliary
     path = tmp_path / "train.csv"
     old_row = ["2026-10-24T00:00:00+00:00", "512", "0", "100.0"] + [""] * (len(fields) - 4)
     path.write_text(",".join(fields) + "\n" + ",".join(old_row) + "\n", "utf-8")

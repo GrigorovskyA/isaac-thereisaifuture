@@ -414,7 +414,9 @@ def test_real_resume_restores_optimizer_normalizer_rng_then_saves_update(actual,
     assert observed == [True] and result.timesteps == 64
     child = cp.read_manifest(out / "checkpoints" / result.checkpoint_id)
     assert child.parent_checkpoint_id == manifest.checkpoint_id
-    updated = RecurrentPPO.load(out / "checkpoints" / result.checkpoint_id / "model.zip")
+    updated = RecurrentPPO.load(
+        out / "checkpoints" / result.checkpoint_id / "model.zip", device="cpu"
+    )
     assert any(
         not torch.equal(value, updated.policy.state_dict()[key])
         for key, value in reference.policy.state_dict().items()

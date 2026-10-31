@@ -37,6 +37,7 @@ from .training import (
     PureTrainingConfig,
     TrainingConfig,
     load_training_config,
+    require_device,
 )
 from .windows_menu import WindowsMenu
 
@@ -787,6 +788,11 @@ def run_forever(
                 return finish()
             if not isinstance(config, PureTrainingConfig):
                 reason = "config refused: forever mode needs a config version 2 profile"
+                return finish()
+            try:
+                require_device(config.device)  # before any game launch, not inside the worker
+            except ValueError as error:
+                reason = f"config refused: {error}"
                 return finish()
             cap = options.disk_bytes or config.budget.disk_limit_mb * 1_000_000
             _prune_session_logs(options.output, options.keep_sessions)

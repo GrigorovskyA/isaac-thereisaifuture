@@ -2,6 +2,7 @@
 
 Faults raise EpisodeFault out of step()/reset(); they are never returned as transitions.
 Oracle events leave through `oracle_sink`, never through the observation or `info`.
+Training may set `intrinsic` (contract `intrinsic: e3b_count_v1`); evaluation never does.
 """
 
 import math
@@ -118,6 +119,14 @@ class StateAwareAccountant(RewardAccountant, Protocol):
     def stagnation(self, before: float, after: float) -> float: ...
 
 
+class IntrinsicReward(Protocol):
+    """Episodic intrinsic bonus of the learner (`e3b.E3BLearner`), paid on the next observation."""
+
+    def start_episode(self, observation: NDArray[np.float32]) -> None: ...
+
+    def reward(self, observation: NDArray[np.float32], count: int | None) -> float: ...
+
+
 class IsaacCombatEnv(gym.Env[NDArray[np.float32], NDArray[np.int64]]):
     metadata: dict[str, Any] = {"render_modes": []}
 
@@ -147,6 +156,9 @@ class IsaacCombatEnv(gym.Env[NDArray[np.float32], NDArray[np.int64]]):
         self._room_key: tuple[Any, ...] | None = None  # room of the last frame
         self._room_since = 0  # game updates at the last room change or episode start
         self._visited = VisitedCells()  # run-long; a new session or game epoch clears it
+        # Set by training only. It pays only with a writable cross-run novelty table on the
+        # accountant, so frozen evaluation (frozen table) never pays it even when set.
+        self.intrinsic: IntrinsicReward | None = None
         self._reset_cap_stats()
 
     def _backend_idle_seconds(self) -> float:
@@ -191,7 +203,10 @@ class IsaacCombatEnv(gym.Env[NDArray[np.float32], NDArray[np.int64]]):
         info["game_seed"] = game_seed
         backend = self.controller.backend
         info["game_seed_supported"] = bool(getattr(backend, "supports_seed", False))
-        return self._observe(transition.frame, info), info
+        obs = self._observe(transition.frame, info)
+        if self.intrinsic is not None and self._novelty_counts() is not None:
+            self.intrinsic.start_episode(obs)  # C starts with s_0; the reset pays nothing
+        return obs, info
 
     def step(
         self, action: NDArray[np.int64]
@@ -242,11 +257,30 @@ class IsaacCombatEnv(gym.Env[NDArray[np.float32], NDArray[np.int64]]):
             self._columns[name] = self._columns.get(name, 0.0) + value
         info = self._info(transition)
         info["reward_components"] = components
+        run = getattr(self.controller.backend, "level_replay_run", None)
+        if run is not None:
+            info["level_replay_run"] = run  # score attribution of this step (learner only)
         obs = self._observe(transition.frame, info)  # before the summary: it counts this frame
+        counts = self._novelty_counts()
+        if self.intrinsic is not None and counts is not None:
+            # Own column `e3b`, beside the ledger's: phi(s_t+1) times the cross-run count of the
+            # cell s_t+1 is in, looked up and never counted (the ledger counted it above).
+            key_of = getattr(self.accountant, "novelty_key", None)
+            cell = key_of() if callable(key_of) else None
+            paid = self.intrinsic.reward(obs, None if cell is None else counts.get(cell))
+            reward += paid
+            components["e3b"] = paid
+            self._return += paid
+            self._columns["e3b"] = self._columns.get("e3b", 0.0) + paid
         if transition.outcome is not None:
             info["episode"] = {**asdict(transition.summary), "return": self._return}
             info["episode_summary"] = self._summary(transition)
         return obs, reward, ends, transition.truncated and not stalled, info
+
+    def _novelty_counts(self) -> Any:
+        """The accountant's writable cross-run novelty table, or None (absent or frozen)."""
+        counts = getattr(self.accountant, "novelty_counts", None)
+        return None if counts is None or counts.frozen else counts
 
     @staticmethod
     def _room_of(transition: Transition) -> tuple[Any, ...]:
@@ -293,7 +327,13 @@ class IsaacCombatEnv(gym.Env[NDArray[np.float32], NDArray[np.int64]]):
             **self._cap_facts(),
             "last_room_clear": int(transition.frame.room.clear),
             **self._stall_context(transition),
+            **self._level_replay_facts(),
         }
+
+    def _level_replay_facts(self) -> dict[str, Any]:
+        """Run seed and replay flag under level replay (metrics only); empty otherwise."""
+        facts = getattr(self.controller.backend, "level_replay_facts", None)
+        return dict(facts()) if facts is not None else {}
 
     def _stall_context(self, transition: Transition) -> dict[str, Any]:
         """Room context for stall truncations only; empty for every other end."""

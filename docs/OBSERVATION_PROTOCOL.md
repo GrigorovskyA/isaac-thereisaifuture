@@ -123,6 +123,8 @@ are bounded to 0..2^53-1; booleans/strings do not substitute for numbers.
 
 Only the first player and current visible-room visit are read. No seed, level
 map, undiscovered secret room, entity dump or oracle channel is sent.
+(The live loop's separate oracle block carries the run's start seed `run_seed` only with the
+opt-in capability `seeded_restart_v1`, for level replay; it is metadata and never encoded.)
 
 Unavailable example:
 

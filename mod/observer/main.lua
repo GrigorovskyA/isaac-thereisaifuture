@@ -31,6 +31,16 @@ local actions = {
 }
 -- Live loop: entity observation, actions and restarts in one approved session.
 local live = { on = false }
+-- Level replay (opt-in seeded_restart_v1, live loop only): the run's start seed in the oracle
+-- block and an optional validated seed on restarts. `next` arms the seed of the next death
+-- restart for one game epoch; `run` caches the start seed string per epoch.
+local seeded = { on = false, next = nil, run = nil }
+-- Isaac seed strings: "XXXX XXXX" over A-Z and 0-9 without I, O, U and 5 (wiki "Seeds").
+local SEED_CHAR = "[A-HJ-NP-TV-Z0-46-9]"
+local SEED_SHAPE = "^" .. SEED_CHAR:rep(4) .. " " .. SEED_CHAR:rep(4) .. "$"
+local function valid_seed(value)
+    return type(value) == "string" and #value == 9 and value:match(SEED_SHAPE) ~= nil
+end
 local diagnostic = nil
 
 -- Opt-in read-only entity export; these tables never contain oracle/reward data.
@@ -248,6 +258,7 @@ close = function(reason)
     if state.tcp then pcall(function() state.tcp:close() end) end
     state.tcp, state.session = nil, nil
     entities.requested, live.on = false, false
+    seeded.on, seeded.next = false, nil
     state.phase, state.rx, state.tx, state.offset = "closed", "", "", 1
     state.next_retry = Isaac.GetTime() + Config.retry_ms
     if reason then note(reason) end
@@ -286,6 +297,7 @@ local function hello(raw, now)
         advertised[#advertised + 1] = "safe_actions_v1"
         if training_mode() and entity_capable() then
             advertised[#advertised + 1] = "live_loop_v1"
+            advertised[#advertised + 1] = "seeded_restart_v1"
         end
     end
     local supported = {}
@@ -302,6 +314,9 @@ local function hello(raw, now)
         .. '"session_id":"' .. request.session_id .. '","required_capabilities":['
         .. table.concat(names, ",") .. ']}'
     if raw:gsub("%s+", "") ~= canonical then error("Noncanonical hello") end
+    if seen.seeded_restart_v1 and not seen.live_loop_v1 then
+        error("Seeded restarts require the live loop")
+    end
     if seen.live_loop_v1 then
         if not (seen.entity_observation_v1 and seen.safe_actions_v1 and seen.death_restart_v1)
             or seen.entity_action_v1 then
@@ -317,6 +332,7 @@ local function hello(raw, now)
         end
     end
     live.on = seen.live_loop_v1 == true
+    seeded.on, seeded.next = seen.seeded_restart_v1 == true, nil
     entities.requested = seen.entity_observation_v1 == true
     actions.requested = seen.safe_actions_v1 == true
     restart.requested = seen.death_restart_v1 == true
@@ -681,6 +697,17 @@ local function enemy_facts(entity)
     }
 end
 
+-- Start seed string of the current run, cached per game epoch once read; nil (read again next
+-- time) when unavailable or not in the seed alphabet. Level replay metadata only, never part of
+-- the entity frame.
+local function run_seed()
+    if seeded.run and seeded.run.epoch == state.epoch then return seeded.run.seed end
+    local ok, value = pcall(function() return Game():GetSeeds():GetStartSeedString() end)
+    if not (ok and valid_seed(value)) then return nil end
+    seeded.run = { epoch = state.epoch, seed = value }
+    return value
+end
+
 local function capture_entities(room, player, data)
     local list = Isaac.GetRoomEntities()
     assert(type(list) == "table" and #list <= 1024, "Room entity scan exceeds 1024")
@@ -850,6 +877,7 @@ local function capture_entities(room, player, data)
         if #doors > 0 then oracle.doors = doors end
         for i, id in ipairs(metrics.killed) do oracle.killed[i] = id end
         for _, name in ipairs(HIT_CLASSES) do oracle.player_hits[name] = metrics.hits[name] end
+        if seeded.on then oracle.run_seed = run_seed() or json.null end
     end
     local map, off_grid = minimap()
     local held, held_overflow, tag_counts = collectible_list(player, data.frame)
@@ -939,11 +967,17 @@ local function command(raw, now)
         or c.sequence <= actions.sequence
         or not directions[c.move] or not directions[c.shoot] or not uses[c.use]
         or (c.kind ~= "action" and c.kind ~= "heartbeat" and c.kind ~= "release"
-            and not (c.kind == "restart" and live.on))
+            and not (c.kind == "restart" and live.on)
+            and not (c.kind == "next_seed" and seeded.on))
         or (c.kind == "action" and (c.frames < 1 or c.frames > 15))
         or (c.kind ~= "action" and (c.frames ~= 0 or c.move ~= "none" or c.shoot ~= "none"
             or c.use ~= "none"))
         then error("Stale or incompatible command") end
+    -- Only restart and next_seed carry a seed, only after seeded_restart_v1, and only a valid one.
+    if (c.seed ~= nil or c.kind == "next_seed") and (not seeded.on or not valid_seed(c.seed)
+        or (c.kind ~= "restart" and c.kind ~= "next_seed")) then
+        error("Invalid or unnegotiated seed")
+    end
     -- The live loop may reference any already-sent frame of this room visit; the
     -- strictly increasing sequence and the 15-frame window below still bound replay.
     local stale = c.game_epoch ~= state.epoch or c.room_visit ~= state.visit
@@ -956,7 +990,9 @@ local function command(raw, now)
         .. ',"room_visit":' .. string.format("%.0f", c.room_visit)
         .. ',"frame_id":' .. string.format("%.0f", c.frame_id)
         .. ',"kind":"' .. c.kind .. '","move":"' .. c.move
-        .. '","shoot":"' .. c.shoot .. '","use":"' .. c.use .. '","frames":' .. string.format("%.0f", c.frames) .. '}'
+        .. '","shoot":"' .. c.shoot .. '","use":"' .. c.use .. '","frames":' .. string.format("%.0f", c.frames)
+        -- The whitespace-free comparison below also drops the space inside the seed.
+        .. (c.seed ~= nil and (',"seed":"' .. c.seed:gsub(" ", "") .. '"') or "") .. '}'
     if raw:gsub("%s+", "") ~= canonical then error("Noncanonical command") end
     local game, player = Game(), Isaac.GetPlayer(0)
     local frame = game:GetFrameCount()
@@ -965,6 +1001,8 @@ local function command(raw, now)
         or restart.awaiting or not authorized(now)
         or (restart.last_dispatch
             and now - restart.last_dispatch < Config.live_restart_interval_ms))
+        -- Too late to arm a seed once a restart is scheduled or running.
+        or (c.kind == "next_seed" and (restart.pending or restart.awaiting))
     if stale or frame < c.frame_id or frame - c.frame_id > 15 or game:IsPaused()
         or game:GetNumPlayers() ~= 1 or not player or player:IsDead() or refuse_restart then
         if not live.on then error("Command state unavailable or stale") end
@@ -981,8 +1019,13 @@ local function command(raw, now)
         -- Dispatched by lifecycle() after the ack has left the buffer.
         release("restart")
         restart.pending = { session = state.session, epoch = state.epoch, since = now,
-            source = "command" }
-        note("Command restart accepted session=" .. state.session .. " epoch=" .. state.epoch)
+            source = "command", seed = c.seed }
+        note("Command restart accepted session=" .. state.session .. " epoch=" .. state.epoch
+            .. (c.seed and (" seed=" .. c.seed) or ""))
+    elseif c.kind == "next_seed" then
+        -- Used by the death restart of this epoch only; a game start or disconnect clears it.
+        seeded.next = { epoch = state.epoch, seed = c.seed }
+        note("Next run seed armed epoch=" .. state.epoch .. " seed=" .. c.seed)
     elseif c.kind == "release" then release("explicit_release")
     elseif c.kind == "action" then
         release("replaced")
@@ -1156,13 +1199,21 @@ local function lifecycle()
             return
         end
     end
+    -- A seeded restart is the same guarded dispatch with "seed XXXX XXXX" instead of "restart";
+    -- the seed was validated on arrival and is checked again here.
+    if pending.seed ~= nil and not (seeded.on and valid_seed(pending.seed)) then
+        note("Death restart cancelled: invalid or unnegotiated seed")
+        return
+    end
+    local text = pending.seed and ("seed " .. pending.seed) or "restart"
     restart.attempts = restart.attempts + 1
     restart.awaiting = { epoch = pending.epoch, deadline = now + 5000 }
     restart.last_dispatch = now
     note("Death restart dispatch session=" .. pending.session .. " epoch="
         .. pending.epoch .. " attempt=" .. restart.attempts
-        .. " source=" .. (pending.source or "death"))
-    local dispatched, err = pcall(Isaac.ExecuteCommand, "restart")
+        .. " source=" .. (pending.source or "death")
+        .. (pending.seed and (" seed=" .. pending.seed) or ""))
+    local dispatched, err = pcall(Isaac.ExecuteCommand, text)
     if not dispatched then
         restart.awaiting, restart.disabled, restart.armed = nil, true, false
         note("Death restart fault: command failed; disabled: " .. tostring(err))
@@ -1190,6 +1241,7 @@ mod:AddCallback(ModCallbacks.MC_POST_GAME_STARTED, function(_, continued)
     state.snapshot_frame, state.pending_frame = nil, nil
     state.active, state.epoch, state.visit = true, state.epoch + 1, 0
     restart.pending = nil
+    seeded.next, seeded.run = nil, nil
     local awaiting = restart.awaiting
     if awaiting then
         restart.awaiting = nil
@@ -1211,8 +1263,11 @@ local function game_end(game_over)
     if not authorized(Isaac.GetTime()) or restart.awaiting
         or restart.seen_epoch == state.epoch then return end
     restart.seen_epoch = state.epoch
+    -- Level replay: the seed Python armed for this epoch, if any; else a plain restart.
+    local armed = seeded.on and seeded.next and seeded.next.epoch == state.epoch
+        and seeded.next.seed or nil
     restart.pending = {
-        session = state.session, epoch = state.epoch, since = Isaac.GetTime(),
+        session = state.session, epoch = state.epoch, since = Isaac.GetTime(), seed = armed,
     }
     note("Death restart scheduled session=" .. state.session .. " epoch=" .. state.epoch)
 end

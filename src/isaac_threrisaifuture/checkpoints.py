@@ -13,12 +13,13 @@ import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Annotated, Any, Literal, Self
+from typing import Annotated, Any, Literal, Protocol, Self
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from .entities import OBSERVATION_SCHEMA_VERSION
+from .level_replay import LEVEL_REPLAY_FILE
 from .novelty_counts import COUNTS_FILE, NoveltyCounts
 
 CHECKPOINT_SCHEMA_VERSION: Literal[2] = 2
@@ -29,6 +30,20 @@ RewardContract = Literal["combat-v1", "pure-v11"]
 MANIFEST_NAME = "manifest.json"
 LATEST_POINTER = "latest.txt"
 PINNED_FILE = "pinned.txt"
+AUXILIARY_FILE = "auxiliary.pt"
+E3B_FILE = "e3b.pt"
+
+
+class AuxiliaryState(Protocol):
+    """Learner state saved beside the model (`auxiliary.AuxiliaryLearner`); torch-free here."""
+
+    def save(self, path: Path) -> None: ...
+
+
+class LevelReplayState(Protocol):
+    """Seed bank of level replay (`level_replay.SeedBank`), saved beside the model."""
+
+    def save(self, path: Path) -> None: ...
 
 
 class CheckpointError(Exception):
@@ -61,6 +76,18 @@ class CheckpointManifest(BaseModel):
     # Reward v11 cross-run novelty counts: reward state, saved and hashed like the other files.
     novelty_counts_file: str | None = None
     novelty_counts_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")] | None = None
+    # Auxiliary heads, EMA target and their optimizer (contract `auxiliary`); learner state that
+    # resume needs and frozen evaluation never reads.
+    auxiliary_file: str | None = None
+    auxiliary_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")] | None = None
+    # Level replay seed bank with scores (contract `level_replay: plr_v1`); learner state that
+    # resume needs and frozen evaluation never reads.
+    level_replay_file: str | None = None
+    level_replay_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")] | None = None
+    # E3B embedding, inverse dynamics, their optimizer and the bonus std (contract `intrinsic`);
+    # learner state that resume needs and frozen evaluation never reads.
+    e3b_file: str | None = None
+    e3b_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")] | None = None
 
     @model_validator(mode="after")
     def complete_hashes(self) -> Self:
@@ -137,17 +164,23 @@ def read_manifest(directory: Path) -> CheckpointManifest:
             raise CheckpointError(f"Checkpoint file missing: {directory / name}")
         if (directory / name).resolve().parent != directory.resolve():
             raise CheckpointError("Checkpoint artifact escapes its directory")
-    counts = manifest.novelty_counts_file
-    if counts is not None:
-        _component(counts)
-        if manifest.novelty_counts_sha256 is None or not (directory / counts).is_file():
-            raise CheckpointError(f"Checkpoint file missing: {directory / counts}")
     hashed = [
         (manifest.model_file, manifest.model_sha256),
         (manifest.normalizer_file, manifest.normalizer_sha256),
     ]
-    if counts is not None:
-        hashed.append((counts, manifest.novelty_counts_sha256))
+    optional = (
+        (manifest.novelty_counts_file, manifest.novelty_counts_sha256),
+        (manifest.auxiliary_file, manifest.auxiliary_sha256),
+        (manifest.level_replay_file, manifest.level_replay_sha256),
+        (manifest.e3b_file, manifest.e3b_sha256),
+    )
+    for extra, digest in optional:
+        if extra is None:
+            continue
+        _component(extra)
+        if digest is None or not (directory / extra).is_file():
+            raise CheckpointError(f"Checkpoint file missing: {directory / extra}")
+        hashed.append((extra, digest))
     for name, expected in hashed:
         if expected is not None and _sha256(directory / name) != expected:
             raise CheckpointError(f"Checkpoint artifact hash mismatch: {name}")
@@ -173,10 +206,16 @@ def save_checkpoint(
     hyperparameters: dict[str, Any] | None = None,
     retention: tuple[int, int] | None = None,
     novelty_counts: NoveltyCounts | None = None,
+    auxiliary: AuxiliaryState | None = None,
+    level_replay: LevelReplayState | None = None,
+    e3b: AuxiliaryState | None = None,
 ) -> CheckpointManifest:
     """Publish one complete immutable checkpoint, then atomically advance latest.
 
     With `retention=(keep_latest, keep_every)`, older checkpoints are pruned afterwards.
+    `auxiliary` (learner state outside the model file) is saved as `auxiliary.pt` and hashed,
+    `level_replay` (the seed bank) as `level_replay.json` and `e3b` (the E3B learner state) as
+    `e3b.pt`.
     """
     root.mkdir(parents=True, exist_ok=True)
     with _writer_lock(root):
@@ -219,6 +258,9 @@ def save_checkpoint(
             rollout_index=rollout_index,
             hyperparameters=hyperparameters,
             novelty_counts=novelty_counts,
+            auxiliary=auxiliary,
+            level_replay=level_replay,
+            e3b=e3b,
         )
         if retention is not None:
             prune_checkpoints(root, keep_latest=retention[0], keep_every=retention[1])
@@ -295,6 +337,9 @@ def _publish_checkpoint(
     rollout_index: int,
     hyperparameters: dict[str, Any] | None,
     novelty_counts: NoveltyCounts | None = None,
+    auxiliary: AuxiliaryState | None = None,
+    level_replay: LevelReplayState | None = None,
+    e3b: AuxiliaryState | None = None,
 ) -> CheckpointManifest:
     checkpoint_id = f"{cfg_hash[:8]}-s{seed}-t{timesteps}"
     _component(checkpoint_id)
@@ -314,6 +359,15 @@ def _publish_checkpoint(
         if novelty_counts is not None:
             novelty_counts.save(stage / COUNTS_FILE)
             names.append(COUNTS_FILE)
+        if auxiliary is not None:
+            auxiliary.save(stage / AUXILIARY_FILE)
+            names.append(AUXILIARY_FILE)
+        if level_replay is not None:
+            level_replay.save(stage / LEVEL_REPLAY_FILE)
+            names.append(LEVEL_REPLAY_FILE)
+        if e3b is not None:
+            e3b.save(stage / E3B_FILE)
+            names.append(E3B_FILE)
         for name in names:
             _sync_file(stage / name)
         manifest = CheckpointManifest(
@@ -339,6 +393,14 @@ def _publish_checkpoint(
             novelty_counts_sha256=(
                 _sha256(stage / COUNTS_FILE) if novelty_counts is not None else None
             ),
+            auxiliary_file=AUXILIARY_FILE if auxiliary is not None else None,
+            auxiliary_sha256=_sha256(stage / AUXILIARY_FILE) if auxiliary is not None else None,
+            level_replay_file=LEVEL_REPLAY_FILE if level_replay is not None else None,
+            level_replay_sha256=(
+                _sha256(stage / LEVEL_REPLAY_FILE) if level_replay is not None else None
+            ),
+            e3b_file=E3B_FILE if e3b is not None else None,
+            e3b_sha256=_sha256(stage / E3B_FILE) if e3b is not None else None,
         )
         write_manifest(stage, manifest)
         _sync_file(stage / MANIFEST_NAME)

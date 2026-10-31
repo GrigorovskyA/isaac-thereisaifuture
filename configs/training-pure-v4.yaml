@@ -74,13 +74,34 @@
 # visited-cell CNNs feed the LSTMs (`policy_features: structured_v1`). The reward v12 schema 9
 # run (stopped at t173056) is kept as runs/pure-v4-reward-v12-schema9; its checkpoints are
 # refused (new contract hash).
+# Rollout advantages and GPU learner (openspec change rollout-advantage-and-gpu-learner) restarts
+# the lineage with reward v12, observation schema 9 and the structured features unchanged. Rewards
+# v9-v12 plateaued at about 2 rooms per episode; the full-batch fix above repaired the
+# per-minibatch advantage normalization but left only 10 gradient steps per 1024-step rollout.
+# Now the advantages are normalized once over the whole rollout (`advantage_normalization:
+# rollout`), so batch_size 256 again gives 4 minibatches per epoch and up to 40 gradient steps per
+# rollout, and target_kl judges the mean KL of an epoch, not a single minibatch. The learner runs
+# on the RTX 4070 (`device: cuda`, CUDA torch wheel), which makes these and larger updates and
+# later auxiliary losses affordable. The full-batch structured run is kept as
+# runs/pure-v4-full-batch-structured; its checkpoints are refused (new contract hash).
+# Auxiliary self-prediction (openspec change auxiliary-self-prediction) restarts the lineage with
+# reward v12, observation schema 9, the structured features, rollout advantages, batch 256 and
+# cuda unchanged. PPO uses each step about ten times and drops it, and the learner idles while the
+# game plays. Now the shared features also learn, from a replay of the last 8 rollouts, to predict
+# the projected features of the next observation (one-step SPR against an EMA target), the scaled
+# reward and the terminal outcome of each step (`auxiliary: spr_reward_done_v1`). These predict the
+# agent's own observations and rewards; no reward term, hint or observation changes. The phase
+# runs after the PPO epochs while the game is paused; the replay starts empty after each resume.
+# The rollout-advantage contract (5eb6f93a...) never trained natively; its checkpoints would be
+# refused (new contract hash).
 # Only `contract` binds the lineage; `hyperparameters` may be tuned between sessions
 # and are recorded per checkpoint.
 config_version: 2
 status: pure_v4
 contract:
   algorithm: RecurrentPPO
-  device: cpu
+  # Learner and rollout inference on the GPU; training refuses to start without CUDA (no fallback).
+  device: cuda
   seed: 1
   lstm_hidden_size: 256
   # Features extractor output width in front of the LSTMs, shared by actor and critic.
@@ -89,6 +110,15 @@ contract:
   policy_features: structured_v1
   # Binary and one-hot features pass through; only continuous features are normalized.
   observation_normalization: continuous_only
+  # Advantages are normalized once over the whole rollout, never per minibatch.
+  advantage_normalization: rollout
+  # Latent next-state (one-step SPR), reward and termination prediction on the shared features.
+  auxiliary: spr_reward_done_v1
+  # Prioritized Level Replay over run seeds (openspec change prioritized-level-replay) is off:
+  # `level_replay` is absent, which means `none` and keeps this hash. `plr_v1` is a new lineage,
+  # needs the redeployed observer mod and disables achievements in replayed (seeded) runs.
+  # The E3B x count intrinsic bonus (openspec change e3b-count-intrinsic) is off: `intrinsic` is
+  # absent, which means `none` and keeps this hash. `e3b_count_v1` is a new lineage.
   action_repeat_game_updates: 6
   observation_schema_version: 9
   action_schema_version: 2
@@ -110,16 +140,45 @@ hyperparameters:
   ent_coef: 0.005
   # 1024 (was 512): fewer updates, about one per 4 minutes of play. n_epochs 10 (4 earlier): only
   # ~62 updates in a 64k-step run left the policy near random (approx_kl ~0.006, clip_fraction
-  # ~0.04). batch_size 1024 = n_steps (128 and 256 earlier): one minibatch per epoch, so the
-  # advantages are normalized over the whole rollout, BPTT covers each episode inside it and
-  # target_kl sees the whole rollout. With batch 128 sb3-contrib cut the rollout into contiguous
-  # slices of one episode each and target_kl stopped after 2-3.5 epochs; explained variance was
-  # 0.43 against 0.7-0.88 with batch 256. target_kl 0.03 ends the epochs early when the policy
-  # moves too far. Not in the contract hash.
+  # ~0.04). batch_size 256 (1024 in the full-batch run, 128 before): with the advantages
+  # normalized over the whole rollout (contract) a minibatch no longer needs to span the rollout,
+  # so 4 minibatches per epoch give 4x the gradient steps of the full batch. With batch 128 and
+  # per-minibatch normalization sb3-contrib cut the rollout into slices of one episode each and
+  # target_kl stopped after 2-3.5 epochs; explained variance was 0.43 against 0.7-0.88 with
+  # batch 256. target_kl 0.03 ends the epochs early when the mean KL of an epoch is over 1.5x.
+  # Not in the contract hash.
   n_steps: 1024
-  batch_size: 1024
+  batch_size: 256
   n_epochs: 10
   target_kl: 0.03
+  # Auxiliary phase after the PPO epochs: 64 Adam steps of 256 transitions sampled uniformly from
+  # the last 8 rollouts (about 215 MB of raw observations, in memory only), step size aux_coef x
+  # learning_rate, EMA target rate 0.99. aux_approx_kl in train.csv shows how far the phase moved
+  # the policy on the current rollout; lower aux_coef if it rivals approx_kl. Not hashed.
+  aux_coef: 1.0
+  aux_steps: 64
+  aux_batch: 256
+  replay_rollouts: 8
+  target_ema: 0.99
+  # Level replay sampler, used only with contract `level_replay: plr_v1` (otherwise ignored and not
+  # recorded): replay a bank seed on half of the New Runs, rank temperature 0.1, staleness mix
+  # 0.1, at most 500 seeds in the bank. Not hashed.
+  plr_replay_probability: 0.5
+  plr_temperature: 0.1
+  plr_staleness: 0.1
+  plr_bank_size: 500
+  # E3B bonus, used only with contract `intrinsic: e3b_count_v1` (otherwise ignored and not
+  # recorded): r_int = e3b_beta x clip(b / std(b) x max(1 / sqrt(N), e3b_floor), 0, 1) with b the
+  # episodic elliptical bonus of a 128-d inverse-dynamics embedding (ridge e3b_lambda) and N the
+  # cross-run novelty count of the next cell. 64 Adam steps of 256 replayed pairs per update. Not
+  # hashed; a different e3b_embed_dim cannot load the saved E3B state.
+  e3b_beta: 0.05
+  e3b_lambda: 0.1
+  e3b_floor: 0.1
+  e3b_embed_dim: 128
+  e3b_idm_steps: 64
+  e3b_idm_batch: 256
+  e3b_idm_lr: 0.0003
 live:
   # Press Esc around each optimizer update so the game does not run while the learner is busy.
   # Best effort: a failed pause is recorded and training goes on.

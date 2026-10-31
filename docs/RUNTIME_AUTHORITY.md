@@ -32,11 +32,19 @@ lineage `pure-v4`, `docs/UPDATE_DECISION.md`):
   as `runs/pure-v4-reward-v8`, the reward v9 schema 7 run as `runs/pure-v4-reward-v9-schema7`
   the reward v9 schema 8 run as `runs/pure-v4-reward-v9-schema8` and the reward v10 run as
   `runs/pure-v4-reward-v10` and the reward v11 schema 9 run as `runs/pure-v4-reward-v11-schema9`
-  and the reward v12 schema 9 run as `runs/pure-v4-reward-v12-schema9`; `pure-v4` restarts with
-  reward v12, observation schema 9, continuous-only observation normalization, structured
-  features and batch 1024 (`--initialize`).
+  and the reward v12 schema 9 run as `runs/pure-v4-reward-v12-schema9` and the full-batch
+  structured run as `runs/pure-v4-full-batch-structured`; `pure-v4` restarts with reward v12,
+  observation schema 9, continuous-only observation normalization, structured features,
+  rollout-level advantage normalization with batch 256, the learner on the GPU
+  (`device: cuda`) and auxiliary self-prediction (`auxiliary: spr_reward_done_v1`)
+  (`--initialize`).
 - New Run after death and after a stall-watchdog restart is authorized without a
   count limit (approval `max_restarts` 0). Restart pacing still applies.
+- Level replay (contract `level_replay: plr_v1`, off by default; openspec change
+  `prioritized-level-replay`) starts some New Runs with the console command `seed XXXX XXXX`
+  through the same guarded restart path. Seeded runs disable achievements for that run; this is
+  covered by the accepted file-2/achievement risk above. It needs a new lineage plan and the
+  redeployed observer mod; the native `seed` command check comes first.
 - Session start (user decision 2026-10-31): a supervisor session continues the file2 game,
   or starts a New Run on file2 when the fresh native log verifies that file2 has no game
   (for example after a death at the lease end). An existing Continue is never replaced

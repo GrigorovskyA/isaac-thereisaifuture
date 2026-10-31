@@ -368,6 +368,7 @@ class RewardLedgerV4:
     _dead: bool = False
     _graph: RoomGraph = field(default_factory=RoomGraph)
     _goal_hops: float | None = None  # best door term at the last step, for stall metrics
+    _key: tuple[int, int, int, int] | None = None  # novelty key of the last consumed frame
 
     def reset(self, episode_id: int) -> None:
         self._dead = False  # run state survives a reset; `begin` decides about a new run
@@ -388,6 +389,7 @@ class RewardLedgerV4:
         self._graph.clear()  # the room graph is per episode and per floor
         # every episode starts here
         self._phi = self._potential(frame, doors, enemies_present, room_grid)
+        self._key = None
         if run == self._run:
             return
         self._run = run
@@ -428,6 +430,7 @@ class RewardLedgerV4:
             self._room_type = frame.room.type
         for event in events:
             self._apply(event, parts)
+        self._key = None
         if frame is not None and room_index is not None:
             self._room = room_index
             cell = (
@@ -437,6 +440,7 @@ class RewardLedgerV4:
                 math.floor((frame.player_position.x - ROOM_ORIGIN[0]) / c.novelty_cell_size),
                 math.floor((frame.player_position.y - ROOM_ORIGIN[1]) / c.novelty_cell_size),
             )
+            self._key = cell
             if cell not in self._novelty:  # first visit of a cell per run; revisits pay nothing
                 self._novelty.add(cell)
                 parts["novelty"] = c.novelty_coefficient
@@ -540,6 +544,13 @@ class RewardLedgerV4:
             return 1.0 + cap
         self._goal_hops = round(min(terms), 2)
         return min(terms)
+
+    def novelty_key(self) -> tuple[int, int, int, int] | None:
+        """(stage, room, cell x, cell y) of the last consumed frame, or None without a room.
+
+        Read by the E3B bonus (`e3b.py`) to look up the cross-run count; it never counts.
+        """
+        return self._key
 
     def goal_hops(self) -> float | None:
         """Best door term of the last state (v10), or None when unknown. Metrics only."""

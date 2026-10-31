@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from .checkpoints import (
     ACTION_SCHEMA_VERSION,
     CheckpointError,
+    CheckpointManifest,
     RewardContract,
     capture_rng_state,
     config_hash,
@@ -28,6 +29,7 @@ from .checkpoints import (
     save_checkpoint,
 )
 from .entities import OBSERVATION_SCHEMA_VERSION
+from .level_replay import LevelReplayError, SeedBank
 from .novelty_counts import NoveltyCounts
 
 if TYPE_CHECKING:
@@ -90,7 +92,8 @@ class PureContract(BaseModel):
     model_config = ConfigDict(strict=True, frozen=True, extra="forbid")
 
     algorithm: Literal["RecurrentPPO"]
-    device: Literal["cpu"]
+    # Torch device of the learner and of rollout inference; `cuda` never falls back to the CPU.
+    device: Literal["cpu", "cuda"]
     seed: int
     lstm_hidden_size: Annotated[int, Field(gt=0)]
     # Width of the features extractor output in front of the LSTMs (shared by actor and critic).
@@ -99,6 +102,17 @@ class PureContract(BaseModel):
     policy_features: Literal["structured_v1"]
     # Only continuous observation features are normalized (normalization.ContinuousVecNormalize).
     observation_normalization: Literal["continuous_only"]
+    # Advantages are normalized once over the whole rollout (learner.PureRecurrentPPO).
+    advantage_normalization: Literal["rollout"]
+    # Self-supervised auxiliary losses on the shared features (auxiliary.py). Absent means
+    # `none`, which keeps the hashes of the earlier contracts.
+    auxiliary: Literal["none", "spr_reward_done_v1"] = "none"
+    # Prioritized Level Replay over run seeds (level_replay.py). `none`, absent or explicit, is
+    # left out of the hash, so the earlier contracts keep their hashes.
+    level_replay: Literal["none", "plr_v1"] = "none"
+    # Episodic E3B bonus times the cross-run count novelty (e3b.py). `none`, absent or explicit,
+    # is left out of the hash, so the earlier contracts keep their hashes.
+    intrinsic: Literal["none", "e3b_count_v1"] = "none"
     action_repeat_game_updates: Annotated[int, Field(gt=0)]
     observation_schema_version: int
     action_schema_version: int
@@ -120,6 +134,52 @@ class Hyperparameters(BaseModel):
     batch_size: Annotated[int, Field(gt=0)]
     n_epochs: Annotated[int, Field(gt=0)]
     target_kl: Annotated[float, Field(gt=0)] | None = None  # early stop of the epochs
+    # Auxiliary phase after the PPO epochs (contract `auxiliary`; ignored with `none`): step size
+    # aux_coef x learning_rate (0 skips the phase), aux_steps minibatches of aux_batch replayed
+    # transitions from the last replay_rollouts rollouts, EMA rate target_ema of the target.
+    aux_coef: Annotated[float, Field(ge=0)] = 1.0
+    aux_steps: Annotated[int, Field(ge=0)] = 64
+    aux_batch: Annotated[int, Field(gt=0)] = 256
+    replay_rollouts: Annotated[int, Field(gt=0)] = 8
+    target_ema: Annotated[float, Field(ge=0, lt=1)] = 0.99
+    # Level replay sampler (contract `level_replay`; ignored and not recorded with `none`): replay
+    # probability per New Run, rank temperature, staleness mix and the seed bank capacity.
+    plr_replay_probability: Annotated[float, Field(ge=0, le=1)] = 0.5
+    plr_temperature: Annotated[float, Field(gt=0)] = 0.1
+    plr_staleness: Annotated[float, Field(ge=0, le=1)] = 0.1
+    plr_bank_size: Annotated[int, Field(ge=1, le=100_000)] = 500
+    # E3B bonus (contract `intrinsic`; ignored and not recorded with `none`): r_int = e3b_beta x
+    # clip(b / std(b) x max(1 / sqrt(N), e3b_floor), 0, 1), ridge e3b_lambda, embedding width
+    # e3b_embed_dim, and e3b_idm_steps Adam steps of e3b_idm_batch replayed pairs at e3b_idm_lr
+    # per update. A different e3b_embed_dim cannot load the saved E3B state.
+    e3b_beta: Annotated[float, Field(ge=0)] = 0.05
+    e3b_lambda: Annotated[float, Field(gt=0)] = 0.1
+    e3b_floor: Annotated[float, Field(ge=0, le=1)] = 0.1
+    e3b_embed_dim: Annotated[int, Field(gt=0)] = 128
+    e3b_idm_steps: Annotated[int, Field(ge=0)] = 64
+    e3b_idm_batch: Annotated[int, Field(gt=0)] = 256
+    e3b_idm_lr: Annotated[float, Field(gt=0)] = 0.0003
+
+
+# Only the pure learner takes these; version 1 configs never pass them to SB3.
+AUXILIARY_HYPERPARAMETERS = ("aux_coef", "aux_steps", "aux_batch", "replay_rollouts", "target_ema")
+# The seed bank takes these, never SB3; recorded per checkpoint only with `plr_v1`.
+LEVEL_REPLAY_HYPERPARAMETERS = (
+    "plr_replay_probability",
+    "plr_temperature",
+    "plr_staleness",
+    "plr_bank_size",
+)
+# The pure learner takes these; recorded per checkpoint only with `intrinsic: e3b_count_v1`.
+E3B_HYPERPARAMETERS = (
+    "e3b_beta",
+    "e3b_lambda",
+    "e3b_floor",
+    "e3b_embed_dim",
+    "e3b_idm_steps",
+    "e3b_idm_batch",
+    "e3b_idm_lr",
+)
 
 
 class LiveConfig(BaseModel):
@@ -175,7 +235,7 @@ class PureTrainingConfig(BaseModel):
         return self.contract.algorithm
 
     @property
-    def device(self) -> Literal["cpu"]:
+    def device(self) -> Literal["cpu", "cuda"]:
         return self.contract.device
 
     @property
@@ -227,7 +287,7 @@ def load_training_config(path: Path = DEFAULT_CONFIG) -> tuple[AnyTrainingConfig
                 )
             if pure.hyperparameters.batch_size > pure.hyperparameters.n_steps:
                 raise TrainingConfigError("batch_size must not exceed n_steps")
-            return pure, config_hash(raw["contract"])
+            return pure, contract_hash(raw["contract"])
         config = TrainingConfig.model_validate(raw)
     except (OSError, yaml.YAMLError, ValidationError) as error:
         raise TrainingConfigError(f"Invalid training configuration {path}: {error}") from error
@@ -236,6 +296,36 @@ def load_training_config(path: Path = DEFAULT_CONFIG) -> tuple[AnyTrainingConfig
     if config.evaluation.split == "test":
         raise TrainingConfigError("The test split is held out for final evaluation only")
     return config, config_hash(raw)
+
+
+def contract_hash(contract: dict[str, Any]) -> str:
+    """Lineage hash of a contract section; `level_replay: none` and `intrinsic: none` are left
+    out (absent = none)."""
+    hashed = dict(contract)
+    for name in ("level_replay", "intrinsic"):
+        if hashed.get(name) == "none":
+            del hashed[name]
+    return config_hash(hashed)
+
+
+def require_device(device: str) -> str:
+    """Return the configured torch device; refuse `cuda` when torch cannot use a GPU.
+
+    SB3 would silently train on the CPU instead (`get_device`); a lineage configured for the GPU
+    must fail before any environment or model exists. Torch is imported only for `cuda`.
+    """
+    if device != "cuda":
+        return device
+    import torch
+
+    if not torch.cuda.is_available():
+        build = torch.version.cuda or "none (CPU-only wheel)"
+        raise TrainingConfigError(
+            f"contract.device is cuda but CUDA is not available: torch {torch.__version__}, "
+            f"CUDA build {build}. Install the CUDA wheel (docs/SETUP_REPORT.md) and check the "
+            "NVIDIA driver; the device is part of the contract, so cpu would be a new lineage."
+        )
+    return device
 
 
 def apply_use_head_prior(model: Any, none_probability: float) -> None:
@@ -259,9 +349,20 @@ def apply_use_head_prior(model: Any, none_probability: float) -> None:
 
 
 def _hyperparameters(config: AnyTrainingConfig) -> dict[str, Any]:
-    names = tuple(Hyperparameters.model_fields)
-    source = config.hyperparameters if isinstance(config, PureTrainingConfig) else config
-    return {name: getattr(source, name, None) for name in names}
+    """Hyperparameters recorded per checkpoint; the PLR ones only under `plr_v1`, the E3B ones
+    only under `e3b_count_v1`."""
+    if isinstance(config, PureTrainingConfig):
+        values = config.hyperparameters.model_dump()
+        if config.contract.level_replay == "none":
+            for name in LEVEL_REPLAY_HYPERPARAMETERS:
+                del values[name]
+        if config.contract.intrinsic == "none":
+            for name in E3B_HYPERPARAMETERS:
+                del values[name]
+        return values
+    skipped = (*AUXILIARY_HYPERPARAMETERS, *LEVEL_REPLAY_HYPERPARAMETERS, *E3B_HYPERPARAMETERS)
+    names = [name for name in Hyperparameters.model_fields if name not in skipped]
+    return {name: getattr(config, name, None) for name in names}
 
 
 # --- selection rule -------------------------------------------------------------------------
@@ -368,20 +469,40 @@ def train(
     train_metrics_path: Path | None = None,
     update_pause: "UpdatePause | None" = None,
     novelty_counts: NoveltyCounts | None = None,
+    level_replay: SeedBank | None = None,
 ) -> TrainingResult:
     """Train in n_steps chunks; checkpoint after each chunk; stop on any hard budget limit.
 
     With a version 2 config, the hyperparameters are applied to the resumed model (the
     rollout buffer is rebuilt for a new n_steps; weights and Adam state are kept) and
     recorded in each manifest. Old checkpoints are pruned per the retention section.
-    A version 2 config uses the continuous-only normalizer and the contract's features extractor;
-    a resumed normalizer must be continuous-only over the current layout.
+    A version 2 config uses the continuous-only normalizer, the contract's features extractor and
+    `PureRecurrentPPO` (rollout-level advantage normalization) on the contract's device; a resumed
+    normalizer must be continuous-only over the current layout. A `cuda` contract without a
+    usable GPU is refused before an environment is created; checkpoints load on any device.
     With `update_pause` (live backend), the game is paused while each update and checkpoint run.
     With `novelty_counts` (reward v11), the table the env's ledger fills is saved with each
     checkpoint and loaded on resume; a resume from a checkpoint without that file is an error.
+    With contract `auxiliary` other than `none`, the auxiliary heads, EMA target and their
+    optimizer are saved per checkpoint and restored on resume (missing state is an error); the
+    replay is in memory only and starts empty in each session.
+    With contract `level_replay: plr_v1`, `level_replay` (the seed bank the env plans New Runs
+    with) is required: the learner scores it from each rollout, it is saved with each checkpoint
+    and loaded on resume (a checkpoint without it is refused). Other contracts refuse a bank.
+    With contract `intrinsic: e3b_count_v1` the env (an `IsaacCombatEnv` whose ledger fills
+    `novelty_counts`) gets the learner's E3B bonus; its state is saved per checkpoint and restored
+    on resume (missing state is an error). Frozen evaluation never builds or pays it.
     """
     pure = isinstance(config, PureTrainingConfig)
     hyper = _hyperparameters(config)
+    plr = isinstance(config, PureTrainingConfig) and config.contract.level_replay == "plr_v1"
+    if plr != (level_replay is not None):
+        raise TrainingConfigError("A seed bank is required with level_replay plr_v1 and only then")
+    e3b = isinstance(config, PureTrainingConfig) and config.contract.intrinsic == "e3b_count_v1"
+    if e3b and novelty_counts is None:
+        raise TrainingConfigError("The E3B bonus needs the cross-run novelty counts")
+    # What SB3 builds the model from; the seed bank alone reads the PLR hyperparameters.
+    learner_hyper = {k: v for k, v in hyper.items() if k not in LEVEL_REPLAY_HYPERPARAMETERS}
     if config.status == TEMPLATE_STATUS and not allow_template:
         raise TrainingConfigError("Configuration is a template; refusing to run without opt-in")
     checkpoints = out_dir / "checkpoints"
@@ -403,6 +524,7 @@ def train(
         if directory is not None
         else None
     )
+    device = require_device(config.device)
     import torch
     from stable_baselines3.common.monitor import Monitor
     from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
@@ -412,8 +534,10 @@ def train(
     from .training_metrics import TrainMetricsCallback
     from .update_pause import UpdatePauseCallback
 
-    if config.algorithm == "RecurrentPPO":
-        from sb3_contrib import RecurrentPPO as Algo
+    if pure:
+        from .learner import PureRecurrentPPO as Algo
+    elif config.algorithm == "RecurrentPPO":
+        from sb3_contrib import RecurrentPPO as Algo  # type: ignore[assignment]
     else:
         from stable_baselines3 import PPO as Algo  # type: ignore[assignment]
 
@@ -428,6 +552,14 @@ def train(
         if parent.novelty_counts_file is None:
             raise CheckpointError("Checkpoint has no novelty counts; cannot resume reward v11")
         novelty_counts.load(directory / parent.novelty_counts_file)
+    if level_replay is not None and parent is not None:
+        assert directory is not None
+        if parent.level_replay_file is None:
+            raise CheckpointError("Checkpoint has no seed bank; cannot resume level replay")
+        try:
+            level_replay.load(directory / parent.level_replay_file)
+        except LevelReplayError as error:
+            raise CheckpointError(str(error)) from error
     base_env = DummyVecEnv([lambda: Monitor(env_factory(seed))])
     try:
         if directory is not None:
@@ -437,15 +569,18 @@ def train(
                 check_continuous_only(venv)
             # custom_objects overrides saved values before the model is rebuilt, so the new
             # schedule, clip range and n_steps (rollout buffer) take effect; the weights and
-            # optimizer state are loaded afterwards by SB3.
+            # optimizer state are loaded afterwards by SB3, mapped onto `device` whichever device
+            # saved them.
             model = Algo.load(
                 directory / parent.model_file,
                 env=venv,
-                device=config.device,
-                custom_objects=dict(hyper) if pure else None,
+                device=device,
+                custom_objects=dict(learner_hyper) if pure else None,
             )
             if pure:
                 venv.gamma = hyper["gamma"]
+                _restore_auxiliary(model, config, directory, parent)
+                _restore_e3b(model, config, directory, parent)
             restore_rng_state(parent.rng_state)
             if "torch" in parent.rng_state:
                 torch.set_rng_state(torch.tensor(parent.rng_state["torch"], dtype=torch.uint8))
@@ -461,20 +596,27 @@ def train(
                     config.features_dim,
                     features=config.contract.policy_features,
                 )
+                kwargs["advantage_normalization"] = config.contract.advantage_normalization
+                kwargs["auxiliary"] = config.contract.auxiliary
+                kwargs["intrinsic"] = config.contract.intrinsic
             elif config.algorithm == "RecurrentPPO":
                 kwargs["policy_kwargs"] = policy_kwargs(config.lstm_hidden_size, None)
             model = Algo(
                 "MlpLstmPolicy" if config.algorithm == "RecurrentPPO" else "MlpPolicy",
                 venv,
-                **hyper,
+                **learner_hyper,
                 seed=seed,
-                device=config.device,
+                device=device,
                 verbose=0,
                 **kwargs,
             )
             if isinstance(config, PureTrainingConfig):
                 apply_use_head_prior(model, config.use_head_initial_none_probability)
 
+        if level_replay is not None:
+            model.level_replay = level_replay  # scored from each rollout, never saved in the model
+        if e3b:
+            _attach_e3b(model, base_env, novelty_counts)
     except BaseException:
         base_env.close()
         raise
@@ -531,6 +673,9 @@ def train(
                 hyperparameters=hyper,
                 retention=retention,
                 novelty_counts=novelty_counts,
+                auxiliary=getattr(model, "auxiliary_learner", None),
+                level_replay=level_replay,
+                e3b=getattr(model, "e3b_learner", None),
             )
             parent_id = manifest.checkpoint_id
             if on_progress is not None:
@@ -542,6 +687,55 @@ def train(
             metrics_callback.flush()  # the last row waited for that resume
         venv.close()
     return TrainingResult(seed, reason, done, parent_id, time.monotonic() - started)
+
+
+def _restore_auxiliary(
+    model: Any, config: AnyTrainingConfig, directory: Path, parent: CheckpointManifest
+) -> None:
+    """Load the auxiliary state of a resumed pure model; refuse a checkpoint without it."""
+    assert isinstance(config, PureTrainingConfig)
+    if getattr(model, "auxiliary", "none") != config.contract.auxiliary:
+        raise CheckpointError("Checkpoint model was trained with other auxiliary losses")
+    learner = getattr(model, "auxiliary_learner", None)
+    if learner is None:
+        return
+    if parent.auxiliary_file is None:
+        raise CheckpointError("Checkpoint has no auxiliary state; cannot resume auxiliary losses")
+    try:
+        learner.load(directory / parent.auxiliary_file)
+    except (OSError, ValueError, RuntimeError, KeyError) as error:
+        raise CheckpointError(f"Cannot load auxiliary state: {error}") from error
+
+
+def _restore_e3b(
+    model: Any, config: AnyTrainingConfig, directory: Path, parent: CheckpointManifest
+) -> None:
+    """Load the E3B state of a resumed pure model; refuse a checkpoint without it."""
+    assert isinstance(config, PureTrainingConfig)
+    if getattr(model, "intrinsic", "none") != config.contract.intrinsic:
+        raise CheckpointError("Checkpoint model was trained with another intrinsic reward")
+    learner = getattr(model, "e3b_learner", None)
+    if learner is None:
+        return
+    if parent.e3b_file is None:
+        raise CheckpointError("Checkpoint has no E3B state; cannot resume the E3B bonus")
+    try:
+        learner.load(directory / parent.e3b_file)
+    except (OSError, ValueError, RuntimeError, KeyError) as error:
+        raise CheckpointError(f"Cannot load E3B state: {error}") from error
+
+
+def _attach_e3b(model: Any, venv: Any, novelty_counts: NoveltyCounts | None) -> None:
+    """Give the training env the learner's E3B bonus; its ledger must fill `novelty_counts`."""
+    from .env import IsaacCombatEnv
+
+    env = venv.envs[0].unwrapped
+    accountant = getattr(env, "accountant", None)
+    if not isinstance(env, IsaacCombatEnv) or getattr(accountant, "novelty_counts", None) is None:
+        raise TrainingConfigError("The E3B bonus needs an IsaacCombatEnv with a novelty ledger")
+    if accountant.novelty_counts is not novelty_counts:  # type: ignore[union-attr]
+        raise TrainingConfigError("The E3B bonus must read the counts the checkpoints save")
+    env.intrinsic = model.e3b_learner
 
 
 def run_seeds(

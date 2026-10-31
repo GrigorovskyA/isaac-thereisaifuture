@@ -8,7 +8,7 @@ from typing import Annotated, Literal, Self
 
 from pydantic import Field, model_validator
 
-from .live_wire import CommandKind
+from .live_wire import CommandKind, RunSeed
 from .observation import (
     BridgeError,
     BridgeTimeout,
@@ -53,12 +53,19 @@ class Command(WireModel):
     shoot: Direction = "none"
     use: Use = "none"
     frames: Annotated[int, Field(ge=0, le=15)] = 0
+    # Optional run seed (capability `seeded_restart_v1`): a `restart` with it starts that seed,
+    # `next_seed` arms it for the mod's next death restart. Omitted from the wire when None.
+    seed: RunSeed | None = None
 
     @model_validator(mode="after")
     def valid_payload(self) -> Self:
         """Reject semantic inconsistencies at both encode and decode boundaries."""
         if self.sequence < 1:
             raise ProtocolError("Command sequence must start at one")
+        if self.seed is not None and self.kind not in ("restart", "next_seed"):
+            raise ProtocolError("Only restart and next_seed carry a seed")
+        if self.kind == "next_seed" and self.seed is None:
+            raise ProtocolError("next_seed needs a seed")
         if self.kind == "action":
             if self.frames < 1:
                 raise ProtocolError("Action needs 1..15 frames")
@@ -67,8 +74,12 @@ class Command(WireModel):
         return self
 
     def wire_bytes(self) -> bytes:
-        """Lua admits this exact canonical field order, with optional whitespace."""
-        return self.model_dump_json().encode() + b"\n"
+        """Lua admits this exact canonical field order, with optional whitespace.
+
+        Without a seed the bytes are exactly those of the earlier protocol.
+        """
+        exclude = {"seed"} if self.seed is None else None
+        return self.model_dump_json(exclude=exclude).encode() + b"\n"
 
 
 class CommandAck(WireModel):

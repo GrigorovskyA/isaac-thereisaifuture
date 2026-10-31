@@ -8,15 +8,16 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 - Pure self-learning since 2026-10-22 ([decision](UPDATE_DECISION.md)). RecurrentPPO
   learns from raw facts and outcome rewards, plus one potential-based door term since
   reward v9: no scripted setup, advice features or technique rewards. Archive content is history, not runtime authority.
-- `full-batch-structured-learner` launched once October31 at18:48:31UTC /19:48CET (reward v12,
-  schema 9 unchanged; batch 1024, continuous-only observation normalization, structured
-  features), contract `ee4f65999d3a8cf0c85dabd5d887e360fd0823a164814bd20753d6dca91ac703`.
-  Source2b475b9;Check1583/Lua/no skips,Smoke passed,strict31/31. All52v12archive
-  hashes identical before/after move; Lua unchanged,no deployment;dashboard closed.
-  Initial Continue verified,training/faultnull. Audit20min due19:08:31UTC /20:08CET.
-  Stop firstsaved>=150k or November1 18:48:31UTC /19:48CET,whicheverfirst.
-  Reports75k/150k:3+roomshare(goal>=25%),rooms/episode,growthafter75k vs bothbaselines.
-  [Launch/limits](../reports/2026-10-31-full-batch-structured-launch.md). Native tasks open.
+- Full-batch structured learner stopped by the human October31 at20:15:18UTC /21:15CET.
+  Final `ee4f6599-s1-t22528`:22528/150000savedsteps,127episodes/22535observedsteps/22trainrows.
+  Source2b475b9,contractee4f65999d3a8cf0c85dabd5d887e360fd0823a164814bd20753d6dca91ac703.
+  Check1583/Lua/no skips,Smoke passed,strict31/31;rewardv12/schema9/action2 unchanged.
+  3+rooms8/127=6.3%,rooms1.614;equalboundsv11 12.5%/1.750,v12 2.3%/1.553.
+  Updates21/21<60s,median13.234s;22/22rollouts entered10epochs. Post75kgrowth unmeasured.
+  One sessionexit0/faultnull/cleanup[]/writes_skipped0;actualprocesses/listener/approval
+  absent,stop.forever retained. All52v12archive hashes unchanged. One-hourtask2.2complete;
+  150k/gameplaytasksopen,noarchive. [Final report](../reports/2026-10-31-full-batch-structured-training.md).
+  [Launch/limits](../reports/2026-10-31-full-batch-structured-launch.md). Further training needs a decision.
 - Reward v12/schema9 stopped by the human October31 at17:22:56UTC /18:22:56CET.
   One authorized fresh initialization October31
   06:31:15UTC /07:31CET, source4c58937 (menu fix5627159), contract
@@ -93,6 +94,12 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
   `runs/pure-v4-reward-v8`. The reward-v7 run is preserved as `runs/pure-v4-reward-v7`. The reward-v5 trial is preserved separately as
   `runs/pure-v4-pre`; it is not resumed.
 - Active changes (not archived):
+  - `prioritized-level-replay`: PLR over run seeds, contract `level_replay: plr_v1` (off; shipped `none` keeps `0399c37d...`); Lua `seed` restart needs redeploy + native check. Offline only.
+  - `e3b-count-intrinsic`: E3B x cross-run count bonus, contract `intrinsic: e3b_count_v1` (off; shipped `none` keeps `0399c37d...`); `col_e3b`, `e3b.pt`. Offline only.
+  - `rollout-advantage-and-gpu-learner`: advantages normalized once per rollout, batch 256, epoch-mean
+    target_kl, `device: cuda` (torch 2.14.1+cu130), contract `5eb6f93a...`. Offline only; not launched.
+  - `auxiliary-self-prediction`: one-step SPR, reward and done heads on the shared features, replay of
+    8 rollouts, aux phase after the PPO epochs, contract `0399c37d...` (supersedes `5eb6f93a...`). Offline only; not launched.
   - `full-batch-structured-learner`: batch_size 1024 = n_steps, binary/one-hot features not
     normalized, shared slot MLPs + minimap/visited CNNs (one update ~19 s on the Mac). Offline
     gate passed; native run open.

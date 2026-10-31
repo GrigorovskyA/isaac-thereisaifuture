@@ -5,10 +5,14 @@ from typing import Annotated, Literal, Self
 from pydantic import Field, model_validator
 
 from .entities import DOOR_SLOTS, EntitySnapshot, OracleDoor
+from .level_replay import SEED_PATTERN
 from .observation import Counter, SessionId, WireModel
 
-CommandKind = Literal["action", "heartbeat", "release", "restart"]
+# `next_seed` (capability `seeded_restart_v1`) arms the seed of the mod's next death restart.
+CommandKind = Literal["action", "heartbeat", "release", "restart", "next_seed"]
 MAX_ORACLE_ENEMIES = 64
+# Start seed string of a run ("XXXX XXXX", the game's seed alphabet). Metadata only.
+RunSeed = Annotated[str, Field(pattern=SEED_PATTERN)]
 
 
 class OracleEnemy(WireModel):
@@ -54,6 +58,9 @@ class LiveOracle(WireModel):
     doors: Annotated[list[OracleDoor], Field(max_length=DOOR_SLOTS)]
     # Level grid index of the current room (13x13 grid), -1 when off the grid. Reward label only.
     room_grid: Annotated[int, Field(ge=-1, le=168)]
+    # Start seed of the current run, only with capability `seeded_restart_v1` (null when the game
+    # gives none). Level replay metadata: never an input of the encoder, policy or normalizer.
+    run_seed: RunSeed | None = None
 
     @model_validator(mode="after")
     def door_slots_unique(self) -> Self:

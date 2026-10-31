@@ -53,6 +53,9 @@ STALL_FIELDS = (
     "stall_half_hearts",
     "stall_seconds_in_room",  # game updates since the room change (or episode start) / 30
 )
+# Level replay (contract `plr_v1`), metrics only: the run's start seed and 1 when it was a bank
+# seed at the run start; both empty without level replay.
+LEVEL_REPLAY_FIELDS = ("run_seed", "seed_replayed")
 EXTRA_FIELDS = (
     "use_bomb",
     "use_active",
@@ -65,20 +68,34 @@ EXTRA_FIELDS = (
     *CAP_FIELDS,
     "last_room_clear",  # clear flag of the room the episode ended in
     *STALL_FIELDS,
+    *LEVEL_REPLAY_FIELDS,
 )
+# Intrinsic reward columns beside the ledger's, per-episode sums; empty when off (contract
+# `intrinsic: e3b_count_v1` pays `e3b`).
+INTRINSIC_COLUMNS = ("e3b",)
 FIELDS = (
     *BASE_FIELDS,
     *(f"pickups_{name}" for name in PICKUPS),
     *(f"col_{name}" for name in REWARD_V4_COLUMNS),
+    *(f"col_{name}" for name in INTRINSIC_COLUMNS),
     *EXTRA_FIELDS,
     "wall_time",  # UTC ISO-8601, seconds precision, stamped when the row is written
 )
 
 NEW_FIELDS = frozenset(("last_room_clear", *STALL_FIELDS))
-LEGACY_HEADERS = (
-    tuple(name for name in FIELDS if name not in NEW_FIELDS),  # before the stall columns
-    tuple(name for name in FIELDS if name != "stall_goal_hops"),  # before reward v10
+# The full header before the intrinsic columns and the one before the level replay columns; both
+# are upgraded once, as are the older ones.
+PRE_INTRINSIC_HEADER = tuple(
+    name for name in FIELDS if name not in {f"col_{n}" for n in INTRINSIC_COLUMNS}
 )
+PRE_LEVEL_REPLAY_HEADER = tuple(
+    name for name in PRE_INTRINSIC_HEADER if name not in LEVEL_REPLAY_FIELDS
+)
+LEGACY_HEADERS = (
+    tuple(name for name in PRE_LEVEL_REPLAY_HEADER if name not in NEW_FIELDS),  # before stall
+    tuple(name for name in PRE_LEVEL_REPLAY_HEADER if name != "stall_goal_hops"),  # before v10
+)
+UPGRADED_HEADERS = (*LEGACY_HEADERS, PRE_LEVEL_REPLAY_HEADER, PRE_INTRINSIC_HEADER)
 
 
 def summary_row(summary: Mapping[str, Any]) -> dict[str, Any]:
@@ -86,7 +103,7 @@ def summary_row(summary: Mapping[str, Any]) -> dict[str, Any]:
     row: dict[str, Any] = {name: summary.get(name) for name in BASE_FIELDS}
     for name in PICKUPS:
         row[f"pickups_{name}"] = summary.get("pickups", {}).get(name)
-    for name in REWARD_V4_COLUMNS:
+    for name in (*REWARD_V4_COLUMNS, *INTRINSIC_COLUMNS):
         row[f"col_{name}"] = summary.get("columns", {}).get(name)
     for name in EXTRA_FIELDS:
         row[name] = summary.get(name)
@@ -103,7 +120,7 @@ class EpisodeMetricsWriter:
             with path.open(encoding="utf-8", newline="") as handle:
                 rows = list(csv.reader(handle))
             header = tuple(rows[0]) if rows else ()
-            if header in LEGACY_HEADERS:
+            if header in UPGRADED_HEADERS:
                 self._upgrade(rows)
             elif header != FIELDS:
                 raise ValueError(f"Existing metrics file has a different header: {path}")

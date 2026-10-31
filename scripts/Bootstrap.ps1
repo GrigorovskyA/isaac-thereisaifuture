@@ -1,4 +1,4 @@
-param([string]$PythonExe)
+param([string]$PythonExe, [switch]$CpuTorch)
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 function Invoke-Checked {
@@ -23,8 +23,12 @@ try {
     }
     Invoke-Checked $venvPython @('-c', 'import sys; assert sys.version_info[:2] == (3,12)')
     Invoke-Checked $venvPython @('-m', 'pip', '--version')
-    # Keep the CPU wheel source explicit; do not add it as an extra PyPI index.
-    Invoke-Checked $venvPython @('-m', 'pip', 'install', 'torch==2.14.1+cpu', '--index-url', 'https://download.pytorch.org/whl/cpu', '--cache-dir', '.cache/pip')
+    # Keep the wheel source explicit; do not add it as an extra PyPI index. The CUDA build
+    # replaces an installed CPU build of the same torch version.
+    . (Join-Path $PSScriptRoot 'TorchPin.ps1')
+    if ($CpuTorch) { $torchVersion = $TorchCpuVersion; $torchIndex = $TorchCpuIndex }
+    else { $torchVersion = $TorchCudaVersion; $torchIndex = $TorchCudaIndex }
+    Invoke-Checked $venvPython @('-m', 'pip', 'install', "torch==$torchVersion", '--index-url', $torchIndex, '--cache-dir', '.cache/pip')
     if (Test-Path -LiteralPath 'requirements-lock.txt') {
         Invoke-Checked $venvPython @('-m', 'pip', 'install', '-r', 'requirements-lock.txt', '--cache-dir', '.cache/pip')
         Invoke-Checked $venvPython @('-m', 'pip', 'install', '-e', '.[dev]', '--no-deps', '--cache-dir', '.cache/pip')

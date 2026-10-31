@@ -47,12 +47,27 @@ BRIDGE_TIMING = ("game_wait_seconds", "command_seconds", "snapshots_per_step")
 # resumed cleanly, else 0. Both are empty when pausing is off or the backend cannot pause.
 PAUSE = ("pause_seconds", "pause_ok")
 TIMING = ("rollout_seconds", "update_seconds", *BRIDGE_TIMING)
-TRAIN_FIELDS = ("wall_time", "timesteps", "rollout_index", *TIMING, *PAUSE, *STATS, *SHARES)
+# Auxiliary phase (contract `auxiliary`): mean latent, reward and done loss over its steps, the
+# approximate KL of the policy on the current rollout before vs after the phase, and its seconds.
+# Empty without auxiliary losses.
+AUXILIARY = ("aux_latent_loss", "aux_reward_loss", "aux_done_loss", "aux_approx_kl", "aux_seconds")
+# E3B phase (contract `intrinsic: e3b_count_v1`): mean inverse-dynamics loss over its steps, mean
+# intrinsic reward the env paid per step since the previous update, and its seconds. Empty
+# without the E3B bonus.
+E3B = ("e3b_idm_loss", "e3b_bonus_mean", "e3b_seconds")
+TRAIN_FIELDS = (
+    "wall_time", "timesteps", "rollout_index", *TIMING, *PAUSE, *STATS, *AUXILIARY, *E3B, *SHARES,
+)  # fmt: skip
 # Headers of older files; such files are rewritten once with the full header, old rows keeping
-# empty cells. The oldest has no bridge timing columns, the next no pause columns.
+# empty cells. The oldest has no bridge timing columns, the next no pause columns, then one
+# without auxiliary columns and the last without E3B columns.
+_PRE_E3B = tuple(name for name in TRAIN_FIELDS if name not in E3B)
+_CURRENT = tuple(name for name in _PRE_E3B if name not in AUXILIARY)
 LEGACY_HEADERS = (
-    tuple(name for name in TRAIN_FIELDS if name not in BRIDGE_TIMING and name not in PAUSE),
-    tuple(name for name in TRAIN_FIELDS if name not in PAUSE),
+    tuple(name for name in _CURRENT if name not in BRIDGE_TIMING and name not in PAUSE),
+    tuple(name for name in _CURRENT if name not in PAUSE),
+    _CURRENT,
+    _PRE_E3B,
 )
 
 
@@ -178,7 +193,7 @@ class TrainMetricsCallback(BaseCallback):
 
     def _read_stats(self, row: dict[str, Any]) -> None:
         logged = self.model.logger.name_to_value
-        for name in STATS:
+        for name in (*STATS, *AUXILIARY, *E3B):
             value = logged.get(f"train/{name}")
             row[name] = None if value is None else float(value)
 

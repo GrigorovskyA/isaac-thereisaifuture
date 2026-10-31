@@ -62,11 +62,20 @@ Native tasks remain open; further training needs a human decision.
 Full-batch structured learner launched once October31 at18:48:31UTC /19:48CET,
 source2b475b9,contractee4f65999d3a8cf0c85dabd5d887e360fd0823a164814bd20753d6dca91ac703.
 Check1583/Lua/no skips,Smoke passed,strict31/31;v12archive52files hashes unchanged.
-Lua unchanged,dashboardclosed,Continue verified;native20minute audit pending19:08:31UTC.
-Stop firstsaved>=150k or November1 18:48:31UTC,whicheverfirst;no retries/extensions.
-Reports75k/150k compare3+roomshare/roomsper episode/post75kgrowth withv11 andv12.
+Lua unchanged,dashboardclosed,Continue verified;20minute audit captured4rows/t4096.
+Stopped by the human October31 at20:15:18UTC /21:15CET;finalt22528,127episodes/
+22535observedsteps/22trainrows. One session5206s,exit0/faultnull/cleanup[]/writes_skipped0;
+processes/listener9528/deployedauthorization absent,stop.forever retained. No retry.
+Updates21/21<60s,median13.234s;3+roomshare6.3%,rooms1.614,post75kgrowth unmeasured.
+All52v12archive hashes unchanged. One-hourtask2.2complete,150k/gameplaytasksopen.
+[Final report](../reports/2026-10-31-full-batch-structured-training.md).
 [Launch receipt](../reports/2026-10-31-full-batch-structured-launch.md),
 [finite plan](../reports/2026-10-31-full-batch-structured-native-plan.md).
+Next lineage (not launched): `rollout-advantage-and-gpu-learner`, contract `5eb6f93af48955b55130c410fff59d109bea133d81688a023bbd6c59687c4f14`,
+needs the CUDA torch wheel first (`docs/SETUP_REPORT.md`), then `runs\pure-v4` -> `runs\pure-v4-full-batch-structured` and `--initialize`.
+It now includes `auxiliary-self-prediction` (`auxiliary: spr_reward_done_v1`), contract `0399c37db311f00df37cea79a66385ff6cd7150dfcfa0c9e3e46415f577da79a`; the replay starts empty after each resume.
+Level replay (`prioritized-level-replay`, contract `level_replay: plr_v1`) is off and does not change that hash; turning it on is a new lineage and needs the redeployed observer mod.
+The E3B intrinsic bonus (`e3b-count-intrinsic`, contract `intrinsic: e3b_count_v1`) is off and does not change that hash; turning it on is a new lineage.
 
 
 ## Forever mode
