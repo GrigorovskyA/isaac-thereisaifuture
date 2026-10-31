@@ -36,6 +36,10 @@ The v11 root is now archived with all77file hashes unchanged. No mod redeploymen
 Check1569includingLua/no skips andstrictOpenSpec30/30 passed. Initial menu New Run
 on verified file2 absence passed. The18-minute audit passed22/22 stalls at30.000..30.188s,
 col_stall-4/col_stagnation-7.02,counts SHA valid,1035 frames and4 filled train rows.
+First50k checkpoint1a6d8146-s1-t50176:296episodes/50127observedsteps/48trainrows.
+At common(0,50000],exit64.4%,stalls73.9%,rooms1.692,kills4.102/1k,stage2zero;
+v11 exit70.5%,stalls67.0%,rooms1.795,kills2.942/1k.
+[50k comparison](../reports/2026-10-31-reward-v12-schema9-50k.md).
 First8hrollover remains pending. [Audit report](../reports/2026-10-31-reward-v12-schema9-native-audit.md). Stop at firstsaved>=300k or November1 12:31:15UTC
 /13:31CET, whicheverfirst; any fault stops/no manualretry. Native tasks remain open.
 [Launch receipt](../reports/2026-10-31-reward-v12-schema9-launch.md),
