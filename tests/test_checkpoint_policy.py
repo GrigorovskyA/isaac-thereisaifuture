@@ -409,3 +409,31 @@ def test_non_finite_normalized_input_never_reaches_predict(checkpoint: Path, bad
         policy.act(observations(1)[0])
     assert spy.calls == []
     assert all(np.array_equal(a, b) for a, b in zip(state, policy._state or (), strict=True))
+
+
+def test_continuous_only_contract_refuses_a_plain_normalizer(checkpoint: Path) -> None:
+    with pytest.raises(CheckpointError, match="continuous-only"):
+        load(checkpoint, observation_normalization="continuous_only")
+
+
+def test_a_saved_continuous_only_normalizer_is_checked_against_the_layout(
+    checkpoint: Path, tmp_path: Path
+) -> None:
+    from isaac_threrisaifuture.encoding import continuous_mask
+    from isaac_threrisaifuture.normalization import ContinuousVecNormalize
+
+    def convert(n: Any) -> None:
+        n.__class__ = ContinuousVecNormalize
+        n.continuous = continuous_mask()
+
+    resave_normalizer(checkpoint, convert)
+    policy = load(checkpoint, observation_normalization="continuous_only")
+    assert isinstance(policy._normalizer, ContinuousVecNormalize)
+    binary = ~continuous_mask()
+    obs = np.where(binary, 1.0, 0.5).astype(np.float32)
+    assert np.array_equal(policy._normalizer.normalize_obs(obs[None, :])[0][binary], obs[binary])
+    stale = tmp_path / "stale" / checkpoint.name
+    shutil.copytree(checkpoint, stale)
+    resave_normalizer(stale, lambda n: setattr(n, "continuous", ~n.continuous))
+    with pytest.raises(CheckpointError, match="mask"):
+        load(stale)  # checked even without the contract argument

@@ -60,6 +60,20 @@
 # restart -4, stagnation -0.39 per second, and the stall limit 40 s -> 30 s, which is now part of
 # the reward contract (`watchdog.stall_seconds` must equal it). The reward v11 schema 9 run is
 # kept as runs/pure-v4-reward-v11-schema9; its checkpoints are refused (new contract hash).
+# Full-batch structured learner (openspec change full-batch-structured-learner) restarts the
+# lineage with reward v12 and observation schema 9 unchanged: rewards v9-v12 all plateaued at
+# about 2 rooms per episode (7-12% of the episodes reached 3+ rooms, slope ~0 after 75k steps)
+# although the returns ranked rooms correctly. Three learner faults: (1) sb3-contrib does not
+# shuffle recurrent minibatches, so with batch 128 each minibatch was part of one episode, the
+# per-minibatch advantage normalization erased the differences between episodes, BPTT stopped
+# at 128 steps and target_kl ended the update after 2-3.5 of 10 epochs; (2) VecNormalize scaled
+# binary and one-hot features, so a rare bit (new minimap cell, rare room class, item bucket)
+# jumped to about +10 when first seen; (3) one Linear(11691, 512) gave every minimap cell and
+# entity slot its own weights. Now batch_size equals n_steps, only continuous features are
+# normalized (`observation_normalization: continuous_only`) and shared slot MLPs, minimap and
+# visited-cell CNNs feed the LSTMs (`policy_features: structured_v1`). The reward v12 schema 9
+# run (stopped at t173056) is kept as runs/pure-v4-reward-v12-schema9; its checkpoints are
+# refused (new contract hash).
 # Only `contract` binds the lineage; `hyperparameters` may be tuned between sessions
 # and are recorded per checkpoint.
 config_version: 2
@@ -69,8 +83,12 @@ contract:
   device: cpu
   seed: 1
   lstm_hidden_size: 256
-  # Linear + ReLU width in front of the LSTMs, shared by actor and critic.
+  # Features extractor output width in front of the LSTMs, shared by actor and critic.
   features_dim: 512
+  # Shared per-slot MLPs with masked mean/max pooling, minimap and visited-cell CNNs, scalar MLP.
+  policy_features: structured_v1
+  # Binary and one-hot features pass through; only continuous features are normalized.
+  observation_normalization: continuous_only
   action_repeat_game_updates: 6
   observation_schema_version: 9
   action_schema_version: 2
@@ -90,12 +108,16 @@ hyperparameters:
   # and did not help: stalls went 60% -> 70% and kills per 1000 steps 6.7 -> 5.4. Before that
   # 0.01 was too high for the fresh use head, which drifted from its prior toward uniform.
   ent_coef: 0.005
-  # 1024 (was 512): fewer updates, about one per 4 minutes of play. batch_size 128 (256 earlier)
-  # and n_epochs 10 (4 earlier) give about 5x more gradient steps per sample: only ~62 updates in
-  # a 64k-step run left the policy near random (approx_kl ~0.006, clip_fraction ~0.04).
-  # target_kl 0.03 ends the epochs early when the policy moves too far. Not in the contract hash.
+  # 1024 (was 512): fewer updates, about one per 4 minutes of play. n_epochs 10 (4 earlier): only
+  # ~62 updates in a 64k-step run left the policy near random (approx_kl ~0.006, clip_fraction
+  # ~0.04). batch_size 1024 = n_steps (128 and 256 earlier): one minibatch per epoch, so the
+  # advantages are normalized over the whole rollout, BPTT covers each episode inside it and
+  # target_kl sees the whole rollout. With batch 128 sb3-contrib cut the rollout into contiguous
+  # slices of one episode each and target_kl stopped after 2-3.5 epochs; explained variance was
+  # 0.43 against 0.7-0.88 with batch 256. target_kl 0.03 ends the epochs early when the policy
+  # moves too far. Not in the contract hash.
   n_steps: 1024
-  batch_size: 128
+  batch_size: 1024
   n_epochs: 10
   target_kl: 0.03
 live:

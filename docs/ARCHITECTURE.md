@@ -20,7 +20,7 @@ protocol), `archive/` holds that code.
 | `rewards.py` | Reward v1 (offline sim) and reward v4/v5 ledger |
 | `episode_metrics.py` | Per-episode CSV rows |
 | `training.py`, `checkpoints.py` | Continuous RecurrentPPO training, lineage, retention, use-head prior at model creation |
-| `policy.py`, `update_pause.py` | Policy architecture (shared input projection before the LSTMs); game pause during optimizer updates |
+| `policy.py`, `normalization.py`, `update_pause.py` | Policy architecture (shared structured features extractor before the LSTMs); continuous-only observation normalizer; game pause during optimizer updates |
 | `session_runner.py` | Windows supervisor, single session or forever |
 | `launcher.py`, `menu_entry.py`, `windows_menu.py` | Steam launch and guarded file-2 menu entry |
 | `checkpoint_policy.py`, `live_evaluation.py`, `evaluation.py`, `baselines.py` | Frozen and offline evaluation |

@@ -173,7 +173,7 @@ def test_use_head_prior_sets_only_the_use_head_probabilities():
     assert torch.equal(reference.policy.action_net.bias[:10], fresh.policy.action_net.bias[:10])
 
 
-def test_use_head_prior_holds_with_the_input_projection():
+def test_use_head_prior_holds_with_the_structured_features():
     import numpy as np
     from sb3_contrib import RecurrentPPO
     from stable_baselines3.common.vec_env import DummyVecEnv
@@ -188,16 +188,20 @@ def test_use_head_prior_holds_with_the_input_projection():
     assert np.allclose(_head_probabilities(model, obs)[2], [0.85, 0.05, 0.05, 0.05], atol=1e-3)
 
 
-def test_fresh_model_has_the_shared_input_projection_and_resume_refuses_another_width(tmp_path):
-    from isaac_threrisaifuture.policy import InputProjection
+def test_fresh_model_has_the_shared_structured_features_and_resume_refuses_another_width(
+    tmp_path,
+):
+    from isaac_threrisaifuture.normalization import ContinuousVecNormalize
+    from isaac_threrisaifuture.policy import StructuredFeatures
 
     out = tmp_path / "run"
     run(write_config(tmp_path / "one.yaml"), out, 32)
-    model, _, _ = load_latest(out)
+    model, _, venv = load_latest(out)
     policy = model.policy
-    assert isinstance(policy.features_extractor, InputProjection)
+    assert isinstance(policy.features_extractor, StructuredFeatures)
+    assert isinstance(venv, ContinuousVecNormalize)
     assert policy.features_extractor.features_dim == 24
-    assert policy.features_extractor.net[0].in_features == OBSERVATION_SIZE
+    assert policy.features_extractor.head[0].out_features == 24
     assert policy.share_features_extractor and policy.lstm_actor.input_size == 24
     assert policy.lstm_critic is not None and policy.lstm_critic.input_size == 24
     assert policy.lstm_actor.hidden_size == 16
@@ -223,10 +227,12 @@ def test_features_dim_binds_the_lineage_but_the_live_section_does_not(tmp_path):
         load_training_config(write_config(tmp_path / "e.yaml", live={"pause_during_updates": 1}))
 
 
-def test_shipped_config_projects_to_512_and_pauses_updates_with_longer_rollouts():
+def test_shipped_config_uses_structured_features_and_one_full_batch_per_epoch():
     config, _ = load_training_config(SHIPPED_PURE_CONFIG)
     assert config.features_dim == 512 and config.lstm_hidden_size == 256
-    assert config.hyperparameters.n_steps == 1024 and config.hyperparameters.batch_size == 128
+    assert config.contract.policy_features == "structured_v1"
+    assert config.contract.observation_normalization == "continuous_only"
+    assert config.hyperparameters.n_steps == 1024 and config.hyperparameters.batch_size == 1024
     assert config.hyperparameters.n_epochs == 10 and config.hyperparameters.target_kl == 0.03
     assert config.hyperparameters.ent_coef == 0.005
     assert config.live.pause_during_updates is True

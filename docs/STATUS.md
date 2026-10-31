@@ -8,6 +8,10 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 - Pure self-learning since 2026-10-22 ([decision](UPDATE_DECISION.md)). RecurrentPPO
   learns from raw facts and outcome rewards, plus one potential-based door term since
   reward v9: no scripted setup, advice features or technique rewards. Archive content is history, not runtime authority.
+- Next lineage prepared offline, not launched: `full-batch-structured-learner` (reward v12,
+  schema 9 unchanged; batch 1024, continuous-only observation normalization, structured
+  features), contract `ee4f65999d3a8cf0c85dabd5d887e360fd0823a164814bd20753d6dca91ac703`.
+  Keep `runs/pure-v4` as `runs/pure-v4-reward-v12-schema9`, then `--initialize`. Native tasks open.
 - Reward v12/schema9 stopped by the human October31 at17:22:56UTC /18:22:56CET.
   One authorized fresh initialization October31
   06:31:15UTC /07:31CET, source4c58937 (menu fix5627159), contract
@@ -84,6 +88,9 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
   `runs/pure-v4-reward-v8`. The reward-v7 run is preserved as `runs/pure-v4-reward-v7`. The reward-v5 trial is preserved separately as
   `runs/pure-v4-pre`; it is not resumed.
 - Active changes (not archived):
+  - `full-batch-structured-learner`: batch_size 1024 = n_steps, binary/one-hot features not
+    normalized, shared slot MLPs + minimap/visited CNNs (one update ~19 s on the Mac). Offline
+    gate passed; native run open.
   - `rich-room-observation-v8`: door facts per slot (exists, open, locked, target room class,
     target visited), 11 room classes on doors and minimap, trapdoor/crawlspace/pressure
     plate/lock block/teleporter grid classes, `interactable` kind (slot machines, beggars,

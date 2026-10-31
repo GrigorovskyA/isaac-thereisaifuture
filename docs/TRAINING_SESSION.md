@@ -55,6 +55,8 @@ no game/worker/finite owner/launcher/listener9528/deployed authorization remains
 stop.forever retained; all77v11archive hashes matched. No retry/extension.
 [Final report](../reports/2026-10-31-reward-v12-schema9-training.md).
 Native tasks remain open; further training needs a human decision.
+Next (offline only): `full-batch-structured-learner`, contract `ee4f6599...ac703`; rename
+`runs\pure-v4` to `runs\pure-v4-reward-v12-schema9`, then `--initialize`.
 [Launch receipt](../reports/2026-10-31-reward-v12-schema9-launch.md),
 [finite plan](../reports/2026-10-31-reward-v12-schema9-native-plan.md).
 
@@ -79,8 +81,9 @@ Native tasks remain open; further training needs a human decision.
   truncated / stall), and keeps the reward v11 novelty counts across runs in
   `novelty_counts.npz` inside every checkpoint directory (a v11 resume without it is refused;
   evaluation never writes counts);
-- trains with `n_epochs` 10, `batch_size` 128 and `target_kl` 0.03 (an update takes about
-  25-35 s with the game paused);
+- trains with `n_epochs` 10, `batch_size` 1024 (one minibatch of the whole rollout per epoch)
+  and `target_kl` 0.03 (an update took about 19 s on the development Mac; native time is
+  unmeasured), with the game paused;
 - stops on `runs\pure-v4\supervisor\stop.forever`, Ctrl+C, the disk cap
   (`budget.disk_limit_mb`), a refused lineage or config, or
   `budget.max_consecutive_faults` consecutive faulted sessions;

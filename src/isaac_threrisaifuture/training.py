@@ -93,8 +93,12 @@ class PureContract(BaseModel):
     device: Literal["cpu"]
     seed: int
     lstm_hidden_size: Annotated[int, Field(gt=0)]
-    # Width of the linear input projection in front of the LSTMs (shared by actor and critic).
+    # Width of the features extractor output in front of the LSTMs (shared by actor and critic).
     features_dim: Annotated[int, Field(gt=0)]
+    # Shared slot MLPs, grid CNNs and a scalar MLP (policy.StructuredFeatures).
+    policy_features: Literal["structured_v1"]
+    # Only continuous observation features are normalized (normalization.ContinuousVecNormalize).
+    observation_normalization: Literal["continuous_only"]
     action_repeat_game_updates: Annotated[int, Field(gt=0)]
     observation_schema_version: int
     action_schema_version: int
@@ -370,6 +374,8 @@ def train(
     With a version 2 config, the hyperparameters are applied to the resumed model (the
     rollout buffer is rebuilt for a new n_steps; weights and Adam state are kept) and
     recorded in each manifest. Old checkpoints are pruned per the retention section.
+    A version 2 config uses the continuous-only normalizer and the contract's features extractor;
+    a resumed normalizer must be continuous-only over the current layout.
     With `update_pause` (live backend), the game is paused while each update and checkpoint run.
     With `novelty_counts` (reward v11), the table the env's ledger fills is saved with each
     checkpoint and loaded on resume; a resume from a checkpoint without that file is an error.
@@ -401,6 +407,7 @@ def train(
     from stable_baselines3.common.monitor import Monitor
     from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 
+    from .normalization import ContinuousVecNormalize, check_continuous_only
     from .policy import policy_kwargs
     from .training_metrics import TrainMetricsCallback
     from .update_pause import UpdatePauseCallback
@@ -426,6 +433,8 @@ def train(
         if directory is not None:
             assert parent is not None
             venv = VecNormalize.load(str(directory / parent.normalizer_file), base_env)
+            if pure:
+                check_continuous_only(venv)
             # custom_objects overrides saved values before the model is rebuilt, so the new
             # schedule, clip range and n_steps (rollout buffer) take effect; the weights and
             # optimizer state are loaded afterwards by SB3.
@@ -443,13 +452,17 @@ def train(
         else:
             if (checkpoints / "latest.txt").exists():
                 raise CheckpointError(f"Checkpoints exist in {checkpoints}; pass resume explicitly")
-            venv = VecNormalize(base_env, norm_obs=True, norm_reward=True, gamma=hyper["gamma"])
+            normalizer = ContinuousVecNormalize if pure else VecNormalize
+            venv = normalizer(base_env, norm_obs=True, norm_reward=True, gamma=hyper["gamma"])
             kwargs: dict[str, Any] = {}
-            if config.algorithm == "RecurrentPPO":
+            if isinstance(config, PureTrainingConfig):
                 kwargs["policy_kwargs"] = policy_kwargs(
                     config.lstm_hidden_size,
-                    config.features_dim if isinstance(config, PureTrainingConfig) else None,
+                    config.features_dim,
+                    features=config.contract.policy_features,
                 )
+            elif config.algorithm == "RecurrentPPO":
+                kwargs["policy_kwargs"] = policy_kwargs(config.lstm_hidden_size, None)
             model = Algo(
                 "MlpLstmPolicy" if config.algorithm == "RecurrentPPO" else "MlpPolicy",
                 venv,

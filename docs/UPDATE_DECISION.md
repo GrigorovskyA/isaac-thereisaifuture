@@ -67,6 +67,9 @@ fresh model, and old lineages stay preserved.
 3. The agent must see what it needs to learn about, but the observation should
    carry facts, not advice. Pickup types and item IDs are facts; "good target
    here" is advice.
+   The learner may change how it reads the same facts without becoming advice: since
+   full-batch-structured-learner only continuous features are normalized and shared slot MLPs
+   and grid CNNs read the observation; no feature, reward or action changed.
 4. Every reward term gets an exploit test: repeated entry, healed damage, item
    drop and re-pickup cycling and resource farming.
 5. Reward during training is not proof of better play. Better play is measured on

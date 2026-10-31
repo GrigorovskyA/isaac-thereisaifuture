@@ -110,6 +110,9 @@ class CheckpointPolicy:
 
     Deterministic (argmax) by default. `deterministic=False` samples actions like training
     does; `sampling_seed` then fixes the torch generator so a run can be reproduced.
+    `observation_normalization="continuous_only"` (the pure contract) requires the
+    continuous-only normalizer; a saved continuous-only normalizer is always checked against the
+    current layout.
     """
 
     label = "frozen-recurrentppo"
@@ -123,8 +126,10 @@ class CheckpointPolicy:
         expected_reward_contract: RewardContract | None = None,
         deterministic: bool = True,
         sampling_seed: int | None = None,
+        observation_normalization: str | None = None,
     ) -> None:
         self.deterministic = deterministic
+        self._continuous_only = observation_normalization == "continuous_only"
         directory = Path(directory)
         if directory.name == LATEST_POINTER or (directory / LATEST_POINTER).exists():
             raise CheckpointError("Name one checkpoint directory, not the latest pointer root")
@@ -187,6 +192,10 @@ class CheckpointPolicy:
             raise CheckpointError(f"Cannot load checkpoint artifacts: {error}") from error
         if not isinstance(normalizer, VecNormalize):
             raise CheckpointError("Normalizer file is not a VecNormalize state")
+        from .normalization import ContinuousVecNormalize, check_continuous_only
+
+        if self._continuous_only or isinstance(normalizer, ContinuousVecNormalize):
+            check_continuous_only(normalizer)
         normalizer.training = False  # freeze observation statistics
         normalizer.norm_reward = False  # rewards are never seen at inference
         _validate_normalizer(normalizer, self.observation_size)

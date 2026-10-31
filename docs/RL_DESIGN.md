@@ -6,7 +6,7 @@ Current since 2026-10-22 (`docs/UPDATE_DECISION.md`, OpenSpec change
 
 ## Problem definition
 
-One RecurrentPPO agent (`MlpLstmPolicy`, CPU; a shared `Linear(obs, 512)` + ReLU feeds the 256-unit actor and critic LSTMs) plays Repentance+ on file 2 through
+One RecurrentPPO agent (`MlpLstmPolicy`, CPU; a shared structured features extractor with 512 outputs feeds the 256-unit actor and critic LSTMs) plays Repentance+ on file 2 through
 the Lua bridge and learns from experience only. It is trained continuously as one
 lineage (`pure-v4`; `pure-v3` and older are preserved, not resumed). The long-term goal is Dead God; the honest near-term goal is
 learning to damage and kill enemies, survive rooms, pick up items and progress.
@@ -156,6 +156,20 @@ all steps were the idle tail of a stall. Balance: a full stall costs -4 - 0.39 *
 death -11.5 with one half heart of hits and -14 from full health, so a death never pays better
 than a stall (under v11 a death at one half heart, -10.5, was cheaper than a stall, -12.3).
 
+Full-batch structured learner (openspec change `full-batch-structured-learner`; reward v12 and
+observation schema 9 unchanged). Rewards v9-v12 all plateaued at about 2 rooms per episode
+(7-12% of the episodes reached 3+ rooms) although the returns ranked rooms correctly (1 room
+-9.9, 2 rooms +3.7, 3 rooms +16.1, 4+ rooms +41.2), so the learner, not the reward, was the
+bottleneck. Three changes: `batch_size` = `n_steps` = 1024 (sb3-contrib keeps recurrent
+minibatches as contiguous slices, so batch 128 was part of one episode: the per-minibatch
+advantage normalization erased the differences between episodes and target_kl stopped after 2-3.5
+epochs); `observation_normalization: continuous_only` (`normalization.py`: binary and one-hot
+features, listed per index in `encoding.FEATURE_BLOCKS`, are not centred, scaled or clipped, so a
+rare bit no longer jumps to about +10); and `policy_features: structured_v1` (`policy.py`: one
+MLP shared by all slots of an entity kind with masked mean and max pooling, small CNNs over the
+13 x 13 x 14 minimap and the 14 x 26 visited-cell grid, an MLP over the other features, then
+Linear -> 512 + ReLU).
+
 Door shaping (the one term that is not an outcome, approved explicitly) follows Ng et al. 1999.
 In reward v9: Phi(s) = -coefficient * d / D, with d the distance from the player to the nearest open door
 whose room behind it has not been visited this run (oracle doors, reward label only) and D the
@@ -210,12 +224,15 @@ disconnects are infrastructure faults, never stalls, and are not learning outcom
 ## Continuous training
 
 `configs/training-pure-v4.yaml` (lineage `pure-v4`): the `contract` section (seed, algorithm, LSTM
-size, input projection width `features_dim`, action repeat, observation/action/reward versions,
-use-head prior) is the lineage hash; `hyperparameters` (n_steps 1024, batch size 256) may be
-tuned between sessions and are recorded per checkpoint. The projection exists because each LSTM
-applied its input matrix to the whole observation for every padded step: at observation size 7522
-one update took 55 s on CPU and takes about 7 s with it (`policy.py`, one helper for training,
-resume, evaluation and the checkpoint policy). The `live` section (`pause_during_updates`, not
+size, features extractor width `features_dim` and kind `policy_features`, observation
+normalization, action repeat, observation/action/reward versions, use-head prior) is the lineage
+hash; `hyperparameters` (n_steps 1024, batch size 1024) may be tuned between sessions and are
+recorded per checkpoint. The extractor exists because each LSTM applied its input matrix to the
+whole observation for every padded step: at observation size 7522 one update took 55 s on CPU.
+One full-batch update with the structured extractor takes about 19 s on the development Mac
+(`policy.py`, one helper for training, resume, evaluation and the checkpoint policy; the
+continuous-only normalizer is saved as `vecnormalize.pkl` and checked on resume and frozen
+evaluation). The `live` section (`pause_during_updates`, not
 hashed) makes the live backend pause the game with Esc while each update and checkpoint run
 (`update_pause.py`); a failed pause is recorded in `events.jsonl` and never faults the session.
 Weights, optimizer state, normalizer and RNG always resume from `latest`. A

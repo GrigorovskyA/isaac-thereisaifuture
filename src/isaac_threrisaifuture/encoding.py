@@ -2,6 +2,7 @@
 
 import math
 from dataclasses import dataclass, field
+from typing import Literal
 
 import numpy as np
 from numpy.typing import NDArray
@@ -121,6 +122,12 @@ SLOT_WIDTH: dict[EntityKind, int] = {
 INVENTORY_OFFSET = PLAYER_FEATURES
 ROOM_OFFSET = INVENTORY_OFFSET + INVENTORY_FEATURES
 ENEMY_OFFSET = ROOM_OFFSET + ROOM_FEATURES  # entity blocks follow in BASE_KINDS order
+# Start of each entity kind's slot block: the base kinds follow the room block, the extra kinds
+# follow the held tag counts.
+ENTITY_OFFSETS: dict[EntityKind, int] = {
+    kind: ENEMY_OFFSET + sum(CAPACITY[k] * SLOT_WIDTH[k] for k in BASE_KINDS[:i])
+    for i, kind in enumerate(BASE_KINDS)
+}
 COLLECTIBLE_OFFSET = ENEMY_OFFSET + sum(CAPACITY[k] * SLOT_WIDTH[k] for k in BASE_KINDS)
 STATS_OFFSET = COLLECTIBLE_OFFSET + COLLECTIBLE_ID_MAX
 TEAR_FLAG_OFFSET = STATS_OFFSET + len(STAT_SCALES)
@@ -128,6 +135,10 @@ WEAPON_OFFSET = TEAR_FLAG_OFFSET + len(TEAR_FLAG_NAMES)
 HELD_TAG_OFFSET = WEAPON_OFFSET + len(WEAPON_NAMES)  # held collectibles per tag / 3, clipped
 HELD_TAG_SCALE = 3.0  # three items complete a transformation
 EXTRA_OFFSET = HELD_TAG_OFFSET + TAG_FEATURES  # then EXTRA_KINDS blocks
+ENTITY_OFFSETS.update(
+    (kind, EXTRA_OFFSET + sum(CAPACITY[k] * SLOT_WIDTH[k] for k in EXTRA_KINDS[:i]))
+    for i, kind in enumerate(EXTRA_KINDS)
+)
 MAP_OFFSET = EXTRA_OFFSET + sum(CAPACITY[k] * SLOT_WIDTH[k] for k in EXTRA_KINDS)
 # Minimap channels per level grid cell: known, visited, current, then the room class one-hot
 # (all zero while the room's type is hidden).
@@ -175,6 +186,119 @@ SHAPE_TILES: dict[int, tuple[int, int]] = {
 }
 assert set(SHAPE_TILES) == set(SHAPE_CELLS)
 assert set(BASE_KINDS + EXTRA_KINDS) == set(ENTITY_KINDS)
+
+# Kind of every observation index, in encoding order. Only "continuous" features are normalized
+# by the learner (`observation_normalization: continuous_only`); "binary" flags and "one_hot"
+# groups (at most one 1, all zero when unknown) reach the policy as the encoder wrote them.
+FeatureKind = Literal["continuous", "binary", "one_hot"]
+
+
+@dataclass(frozen=True)
+class FeatureBlock:
+    name: str
+    offset: int
+    size: int
+    kind: FeatureKind
+
+
+def _feature_blocks() -> tuple[FeatureBlock, ...]:
+    blocks: list[FeatureBlock] = []
+
+    def add(name: str, size: int, kind: FeatureKind) -> None:
+        end = blocks[-1].offset + blocks[-1].size if blocks else 0
+        blocks.append(FeatureBlock(name, end, size, kind))
+
+    def anchor(offset: int) -> None:  # the table must follow the layout constants
+        assert blocks[-1].offset + blocks[-1].size == offset
+
+    def item(prefix: str) -> None:  # pedestal item block, without its quality
+        add(f"{prefix}.type", len(ITEM_TYPE_ONEHOT), "one_hot")
+        add(f"{prefix}.max_charges", 1, "continuous")
+        add(f"{prefix}.tags", TAG_FEATURES, "binary")
+        add(f"{prefix}.bucket", ITEM_BUCKETS, "one_hot")
+
+    def slots(kind: EntityKind) -> None:
+        anchor(ENTITY_OFFSETS[kind])
+        for slot in range(CAPACITY[kind]):
+            at = f"{kind}[{slot}]"
+            add(f"{at}.present", 1, "binary")
+            add(f"{at}.position", 2, "continuous")
+            add(f"{at}.velocity_valid", 1, "binary")
+            add(f"{at}.velocity", 2, "continuous")
+            add(f"{at}.hp_valid", 1, "binary")
+            add(f"{at}.hp_fraction", 1, "continuous")
+            if kind == "enemy":
+                add(f"{at}.identity_flags", 5, "binary")  # valid, boss, champion, flying, invuln.
+                add(f"{at}.max_hp", 1, "continuous")
+                add(f"{at}.identity_bucket", IDENTITY_BUCKETS, "one_hot")
+            if kind == "obstacle":
+                add(f"{at}.class", len(OBSTACLE_CLASSES), "one_hot")
+            if kind == "pickup":
+                add(f"{at}.variant_class", len(VARIANT_CLASSES), "one_hot")
+                add(f"{at}.subtype", 1, "continuous")
+                add(f"{at}.shop", 1, "binary")
+                add(f"{at}.item_quality", 1, "continuous")
+                item(f"{at}.item")
+            if kind == "bomb":
+                add(f"{at}.age", 1, "continuous")
+            if kind == "interactable":
+                add(f"{at}.class", len(INTERACTABLE_CLASSES), "one_hot")
+
+    add("player.position", 2, "continuous")
+    add("player.velocity_valid", 1, "binary")
+    add("player.velocity", 2, "continuous")
+    add("player.hearts", 4, "continuous")
+    anchor(INVENTORY_OFFSET)
+    add("inventory.counters", 3, "continuous")  # coins, bombs, keys
+    add("inventory.active_present", 1, "binary")
+    add("inventory.active_id", 1, "continuous")
+    add("inventory.active_charge", 1, "continuous")
+    add("inventory.consumables", 3, "binary")  # card, pill, trinket
+    add("inventory.active_quality", 1, "continuous")
+    add("inventory.active_tags", TAG_FEATURES, "binary")
+    add("inventory.active_bucket", ITEM_BUCKETS, "one_hot")
+    anchor(ROOM_OFFSET)
+    add("room.type", ROOM_TYPES, "one_hot")
+    add("room.stage", 2, "continuous")  # stage, stage type
+    add("room.clear", 1, "binary")
+    for slot in range(DOOR_SLOTS):
+        add(f"room.door[{slot}].flags", 4, "binary")  # exists, open, locked, target visited
+        add(f"room.door[{slot}].target_class", len(ROOM_CLASSES), "one_hot")
+    add("room.shape", ROOM_SHAPES, "one_hot")
+    for kind in BASE_KINDS:
+        slots(kind)
+    anchor(COLLECTIBLE_OFFSET)
+    add("collectibles", COLLECTIBLE_ID_MAX, "binary")
+    add("stats", len(STAT_SCALES), "continuous")
+    add("tear_flags", len(TEAR_FLAG_NAMES), "binary")
+    add("weapons", len(WEAPON_NAMES), "binary")
+    add("held_tags", TAG_FEATURES, "continuous")  # count / 3: four levels
+    for kind in EXTRA_KINDS:
+        slots(kind)
+    anchor(MAP_OFFSET)
+    for cell in range(LEVEL_GRID_CELLS):
+        add(f"map[{cell}].flags", 3, "binary")  # known, visited, current
+        add(f"map[{cell}].room_class", len(ROOM_CLASSES), "one_hot")
+    add("map.off_grid", 1, "binary")
+    anchor(STALL_OFFSET)
+    add("stall", 1, "continuous")
+    anchor(VISITED_OFFSET)
+    add("visited_cells", VISITED_COLS * VISITED_ROWS, "binary")
+    anchor(OBSERVATION_SIZE)
+    return tuple(blocks)
+
+
+FEATURE_BLOCKS = _feature_blocks()
+
+
+def feature_kinds() -> tuple[FeatureKind, ...]:
+    """Kind of each observation index, from FEATURE_BLOCKS."""
+    return tuple(block.kind for block in FEATURE_BLOCKS for _ in range(block.size))
+
+
+def continuous_mask() -> NDArray[np.bool_]:
+    """True for the observation indices the learner normalizes (a fresh array)."""
+    return np.array([kind == "continuous" for kind in feature_kinds()], dtype=np.bool_)
 
 
 def room_class(room_type: int) -> int:

@@ -31,9 +31,10 @@ lineage `pure-v4`, `docs/UPDATE_DECISION.md`):
   `runs/pure-v4-reward-v6`, the reward v7 run as `runs/pure-v4-reward-v7` and the reward v8 run
   as `runs/pure-v4-reward-v8`, the reward v9 schema 7 run as `runs/pure-v4-reward-v9-schema7`
   the reward v9 schema 8 run as `runs/pure-v4-reward-v9-schema8` and the reward v10 run as
-  `runs/pure-v4-reward-v10` and the reward v11 schema 9 run as `runs/pure-v4-reward-v11-schema9`;
-  `pure-v4` restarts with reward v12, observation schema 9 and a 30 s stall limit
-  (`--initialize`).
+  `runs/pure-v4-reward-v10` and the reward v11 schema 9 run as `runs/pure-v4-reward-v11-schema9`
+  and the reward v12 schema 9 run as `runs/pure-v4-reward-v12-schema9`; `pure-v4` restarts with
+  reward v12, observation schema 9, continuous-only observation normalization, structured
+  features and batch 1024 (`--initialize`).
 - New Run after death and after a stall-watchdog restart is authorized without a
   count limit (approval `max_restarts` 0). Restart pacing still applies.
 - Session start (user decision 2026-10-31): a supervisor session continues the file2 game,

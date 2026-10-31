@@ -1247,6 +1247,7 @@ def _evaluate_run(
             expected_reward_contract=LIVE_REWARD_CONTRACT,
             deterministic=False,  # sample like training does
             sampling_seed=seed,
+            observation_normalization=config.contract.observation_normalization,
         )
         policy = checkpoint
         identity = checkpoint.identity

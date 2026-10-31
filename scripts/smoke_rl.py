@@ -9,10 +9,12 @@ import numpy as np
 import torch
 from sb3_contrib import RecurrentPPO
 from stable_baselines3.common.env_checker import check_env
+from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 
 from isaac_threrisaifuture.encoding import OBSERVATION_SIZE
 from isaac_threrisaifuture.episodes import ACTION_NVEC
-from isaac_threrisaifuture.policy import policy_kwargs
+from isaac_threrisaifuture.normalization import ContinuousVecNormalize, check_continuous_only
+from isaac_threrisaifuture.policy import StructuredFeatures, policy_kwargs
 
 
 class StackSmokeEnv(gym.Env):
@@ -43,11 +45,14 @@ class StackSmokeEnv(gym.Env):
 def main():
     torch.set_num_threads(1)
     env = StackSmokeEnv()
+    # The pure profile's stack: continuous-only normalizer, structured features, one
+    # full-rollout minibatch per epoch.
+    venv = ContinuousVecNormalize(DummyVecEnv([StackSmokeEnv]), gamma=0.998)
     try:
         check_env(env, warn=True)
         model = RecurrentPPO(
             "MlpLstmPolicy",
-            env,
+            venv,
             n_steps=8,
             batch_size=8,
             n_epochs=1,
@@ -56,12 +61,20 @@ def main():
             device="cpu",
             verbose=0,
         )
+        assert isinstance(model.policy.features_extractor, StructuredFeatures)
         model.learn(total_timesteps=16)
         with tempfile.TemporaryDirectory() as folder:
             checkpoint = Path(folder) / "stack-smoke.zip"
             model.save(checkpoint)
+            venv.save(str(Path(folder) / "vecnormalize.pkl"))
+            normalizer = VecNormalize.load(
+                str(Path(folder) / "vecnormalize.pkl"), DummyVecEnv([StackSmokeEnv])
+            )
+            check_continuous_only(normalizer)
+            normalizer.training = False
             loaded = RecurrentPPO.load(checkpoint, env=env, device="cpu")
             obs, _ = env.reset(seed=42)
+            obs = normalizer.normalize_obs(obs[None, :])[0]
             action, _ = loaded.predict(obs, episode_start=np.array([True]), deterministic=True)
             assert env.action_space.contains(action), f"Invalid predicted action: {action}"
             assert loaded.action_space == env.action_space
@@ -83,6 +96,7 @@ def main():
         )
     finally:
         env.close()
+        venv.close()
 
 
 if __name__ == "__main__":
