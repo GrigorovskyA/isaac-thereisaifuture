@@ -25,7 +25,7 @@ ROOT = Path(__file__).parents[1]
 TRAINING = ROOT / "configs" / "training-pure-v4.yaml"
 CONFIG, _ = load_training_config(TRAINING)
 GAMMA = CONFIG.hyperparameters.gamma
-STALL_SECONDS = CONFIG.watchdog.stall_seconds
+STALL_SECONDS = 40.0  # the stall limit v9 was sized for
 COEF = RewardV4Coefficients.load(DEFAULT_CONFIG_V9)
 DIAGONAL = room_diagonal(1)
 
@@ -117,8 +117,8 @@ def test_the_v9_sections_are_required_and_strict(tmp_path):
 
 
 def test_the_training_config_pins_the_current_contract_and_the_entropy_coefficient():
-    assert CONFIG.contract.reward_version == 11 and CONFIG.contract.observation_schema_version == 9
-    assert CONFIG.hyperparameters.ent_coef == 0.005 and STALL_SECONDS == 40.0
+    assert CONFIG.contract.reward_version == 12 and CONFIG.contract.observation_schema_version == 9
+    assert CONFIG.hyperparameters.ent_coef == 0.005 and CONFIG.watchdog.stall_seconds == 30.0
 
 
 def test_a_full_stall_still_never_pays_more_than_death_from_full_health():

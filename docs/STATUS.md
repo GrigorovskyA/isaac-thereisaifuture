@@ -8,6 +8,9 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 - Pure self-learning since 2026-10-22 ([decision](UPDATE_DECISION.md)). RecurrentPPO
   learns from raw facts and outcome rewards, plus one potential-based door term since
   reward v9: no scripted setup, advice features or technique rewards. Archive content is history, not runtime authority.
+- Reward v12 (door coefficient 4, death -11, stall restart -4, stagnation -0.39, 30 s stall limit;
+  openspec `door-pull-and-short-stall-reward-v12`) is implemented offline; native tasks are open and
+  `pure-v4` needs `--initialize` after the v11 run is kept as `runs/pure-v4-reward-v11-schema9`.
 - Reward v11 / observation schema9 stopped October31 at05:11:30UTC /06:11:30CET
   on a file2 Continue confirmation fault during automatic lease rollover.
   Final `7c016069-s1-t253952`:253952/300000 saved steps (46048 short),1180 completed

@@ -87,7 +87,7 @@ def test_schema_6_frames_are_refused():
 def test_the_config_pins_9_and_schema_8_changes_the_contract_hash():
     config, digest = load_training_config(ROOT / "configs/training-pure-v4.yaml")
     raw = yaml.safe_load((ROOT / "configs/training-pure-v4.yaml").read_text("utf-8"))
-    assert config.contract.observation_schema_version == 9 and config.contract.reward_version == 11
+    assert config.contract.observation_schema_version == 9 and config.contract.reward_version == 12
     assert config_hash(raw["contract"]) == digest
     raw["contract"]["observation_schema_version"] = 8
     assert config_hash(raw["contract"]) != digest

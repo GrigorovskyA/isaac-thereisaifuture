@@ -53,6 +53,13 @@
 # bucket, quality, type, max charges and transformation tags of every pedestal item and of the
 # active item, plus how many held items carry each tag (ItemConfig facts only). The schema 8
 # checkpoints are refused (new contract hash).
+# Reward v12 (openspec change door-pull-and-short-stall-reward-v12) restarts the lineage with
+# observation schema 9 unchanged: after 254k steps of reward v11 the agent left the start room
+# (88.6%) but 64% of the episodes still stalled, floor 2 was never reached, and a death at one
+# half heart was cheaper than a stall. Door shaping coefficient 4 (was 2), death -11, stall
+# restart -4, stagnation -0.39 per second, and the stall limit 40 s -> 30 s, which is now part of
+# the reward contract (`watchdog.stall_seconds` must equal it). The reward v11 schema 9 run is
+# kept as runs/pure-v4-reward-v11-schema9; its checkpoints are refused (new contract hash).
 # Only `contract` binds the lineage; `hyperparameters` may be tuned between sessions
 # and are recorded per checkpoint.
 config_version: 2
@@ -67,7 +74,7 @@ contract:
   action_repeat_game_updates: 6
   observation_schema_version: 9
   action_schema_version: 2
-  reward_version: 11
+  reward_version: 12
   # Initial P(no use press) of the use head, set at fresh model creation only.
   use_head_initial_none_probability: 0.85
 hyperparameters:
@@ -107,4 +114,4 @@ retention:
   # change is pinned in checkpoints/pinned.txt and never pruned.
   keep_every: 100
 watchdog:
-  stall_seconds: 40
+  stall_seconds: 30

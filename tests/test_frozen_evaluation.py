@@ -25,7 +25,7 @@ def snapshot(root: Path) -> dict[str, bytes]:
 def trained(tmp_path_factory: pytest.TempPathFactory) -> SimpleNamespace:
     """A tiny real pure checkpoint (lstm 16) and the config that produced it."""
     base = tmp_path_factory.mktemp("frozen-eval")
-    config = write_config(base / "pure.yaml", watchdog={"stall_seconds": 45.0})
+    config = write_config(base / "pure.yaml", watchdog={"stall_seconds": 30.0})
     run(config, base / "train", 64)
     directory = latest_checkpoint_dir(base / "train/checkpoints")
     return SimpleNamespace(config=config, checkpoint=directory, root=base / "train")
@@ -118,8 +118,8 @@ def test_random_evaluation_writes_episodes_only_and_stops_on_deadline(tmp_path, 
             lambda _: None,
         )
     # Built like the pure training env.
-    assert seen["action_repeat"] == 6 and seen["stall_seconds"] == 45.0
-    assert seen["reward_version"] == 11 and seen["max_consecutive_faults"] >= 1
+    assert seen["action_repeat"] == 6 and seen["stall_seconds"] == 30.0
+    assert seen["reward_version"] == 12 and seen["max_consecutive_faults"] >= 1
     assert seen["max_faults"] > 1000 and seen["run_deadline"] is not None
     names = [name for name, _ in records]
     assert names[0] == "evaluation" and names[-1] == "evaluation_result"

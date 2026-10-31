@@ -19,7 +19,7 @@ ROOT = Path(__file__).parents[1]
 ARCHIVED_V8 = ROOT / "archive" / "configs" / "reward-v8.yaml"
 ARCHIVED_V7 = ROOT / "archive" / "configs" / "reward-v7.yaml"
 TRAINING = ROOT / "configs" / "training-pure-v4.yaml"
-STALL_SECONDS = float(yaml.safe_load(TRAINING.read_text("utf-8"))["watchdog"]["stall_seconds"])
+STALL_SECONDS = 40.0  # the stall limit v8 to v11 were sized for
 COEF = RewardV4Coefficients.load(ARCHIVED_V8)
 
 
@@ -36,10 +36,10 @@ def test_v8_differs_from_v7_only_in_the_stagnation_rate_and_grace():
     assert v8 == v7  # stall_restart -5, damage -0.5, death -10 and the rest are unchanged
 
 
-def test_the_training_config_keeps_the_short_stall_limit_under_the_current_contract():
+def test_the_training_config_keeps_a_stall_limit_not_longer_than_v8_under_the_current_contract():
     config, digest = load_training_config(TRAINING)
-    assert STALL_SECONDS == 40.0 and config.watchdog.stall_seconds == 40.0
-    assert config.contract.reward_version == 11
+    assert config.watchdog.stall_seconds == 30.0 <= STALL_SECONDS  # reward v12 shortens it again
+    assert config.contract.reward_version == 12
     assert digest != "d62dc21baf19941b0484e857f2124e8fbffb3d564ab9763a2e13619230c63bc4"
 
 

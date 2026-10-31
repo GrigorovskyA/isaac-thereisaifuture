@@ -465,6 +465,7 @@ def test_loopback_stall_truncates_and_restarts_through_the_production_lua(loop_g
         client,
         max_faults=0,
         run_deadline=time.monotonic() + 120,
+        reward_version=11,
         stall_seconds=90,
         clock=lambda: clock[0],
     )

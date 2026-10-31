@@ -1,0 +1,62 @@
+# Outcome-only reward for the pure profile (openspec change door-pull-and-short-stall-reward-v12).
+# Terms describe what happened, never how to play. "First" terms and caps are per run.
+# Novelty pays once per (stage, room, cell) per run, coefficient / sqrt(N) with N the number of
+# runs (this one included) that first visited the key; counts persist across runs, sessions and
+# resumes in the checkpoint (`cross_run`). stall_restart is paid once on a stall.
+# Reward v12 = reward v11 with a stronger door pull, a cheaper stall restart, a dearer death and
+# a 30 s stall limit that is now part of this contract. Evidence: reward v11 / schema 9 ran
+# 253952 steps (1180 episodes): exit from the start room rose to 88.6%, but 64% of the episodes
+# still stalled (72.5% in the last 50k), rooms per episode stayed about 2.0 and floor 2 was never
+# reached. Of 755 stalls, 30% were in a clear dead-end special room in room 2 (it needs a
+# backtrack), 25% in a cleared room next to an open unexplored door and 24% in the start room.
+# About 56% of all steps were the idle tail of a stall (40 s limit). The door potential pulled
+# only about 0.9 per walk. A stall cost -5 restart -7.0 stagnation floor = -12.3, while a death
+# cost -10 plus hits, so at one half heart left a death (-10.5) was cheaper than a stall.
+# Changes against v11 (everything else is unchanged):
+#   door_shaping.coefficient 2.0 -> 4.0 (still potential-based; max |Phi| = 4 * 6 = 24),
+#   outcome.death -10 -> -11, outcome.stall_restart -5 -> -4,
+#   stagnation.per_second -0.25 -> -0.39 (grace_seconds 12 unchanged),
+#   new section `stall.seconds: 30`, the stall watchdog limit. It sets the stagnation floor and
+#   the meaning of the stall-clock observation, so the training config must use the same value.
+# Balance: a full stall costs -4 + 0.39 * (30 - 12) = -4 - 7.02 = -11.02 (plus time). A death
+# costs -11 plus 0.5 per half heart lost: -11.5 at one half heart left, -14 from full health (6
+# half hearts lost, hits included). A death therefore never pays better than a full stall.
+# door_shaping is still the only potential-based term (Ng et al. 1999): Phi(s) = -coefficient *
+# cost(s). The cost counts the rooms the agent still has to cross to reach an unvisited room or
+# the boss room through the doors it has seen on this floor (at most max_hops), plus an in-room
+# share: the distance to the door divided by the room diagonal in a clear room without enemies,
+# else blocked_cost (0). A step pays gamma * Phi(s') - Phi(s) (gamma from the training config)
+# and a terminal step, a stall included, ends in Phi = 0. It does not change the optimal policy.
+# Archived: archive/configs/reward-v4.yaml ... reward-v8.yaml; v9 to v11 stay in configs/.
+reward_version: 12
+status: pure_v4
+outcome:
+  enemy_hp_fraction_total: 5.0
+  room_clear_first: 10.0
+  boss_room_clear_first: 20.0
+  room_first_visit: 5.0
+  floor_first_entered: 30.0
+  player_damage_half_heart: -0.5
+  death: -11.0
+  stall_restart: -4.0
+  time_second: -0.005
+pickups:
+  coin: 0.3
+  bomb: 0.5
+  key: 0.5
+  consumable_run_cap: 10.0
+  collectible_new: 5.0
+  heal_half_heart: 0.5
+novelty:
+  coefficient: 0.1
+  cell_size: 40
+  cross_run: true
+stagnation:
+  per_second: -0.39
+  grace_seconds: 12
+door_shaping:
+  coefficient: 4.0
+  max_hops: 5
+  blocked_cost: 0.0
+stall:
+  seconds: 30

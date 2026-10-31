@@ -90,7 +90,7 @@ creation and never on resume; learning may move it anywhere). Commands are bound
 session, epoch, room visit and frame; stale or replayed commands are refused and
 input is released on expiry, disconnect, fault and stop.
 
-## Reward v11 (`configs/reward-v11.yaml`; v9 and v10 stay in `configs/`)
+## Reward v12 (`configs/reward-v12.yaml`; v9 to v11 stay in `configs/`)
 
 | Term | Value | Rule |
 | --- | --- | --- |
@@ -100,15 +100,15 @@ input is released on expiry, disconnect, fault and stop.
 | First room visit | 5.0 | per (stage, room) per run; start room free |
 | First floor entry | 30.0 | per stage per run; start floor free |
 | Health lost | -0.5 per half-heart | |
-| Death | -10.0 | terminal |
-| Stall restart | -5.0 | once, on the final step of an episode truncated by the stall watchdog; never with death |
+| Death | -11.0 | terminal (v11: -10.0) |
+| Stall restart | -4.0 | once, on the final step of an episode truncated by the stall watchdog; never with death |
 | Time | -0.005 per second | active time only |
 | Coin / bomb / key | 0.3 / 0.5 / 0.5 | only above the run's peak count; shared cap 10.0 per run |
 | New collectible | 5.0 | per item ID per run (reward v3 paid 1.0) |
 | Healing | 0.5 per half-heart | only up to health lost earlier in the run |
-| Stagnation | -0.25 per second | stall watchdog idle seconds past a 12 s grace, charged in the step that adds them; none after progress resets the clock, for a dead player or without a watchdog (at most -7.0 per episode with the 40 s limit) |
+| Stagnation | -0.39 per second | stall watchdog idle seconds past a 12 s grace, charged in the step that adds them; none after progress resets the clock, for a dead player or without a watchdog (at most -7.02 per episode with the 30 s limit of `stall.seconds`) |
 | Novelty | 0.1 | first visit only, per (stage, room, 40-unit cell) per run (about 9 for a full 1x1 room); v11: 0.1 / sqrt(N), N = runs that first visited the key |
-| Door shaping | coefficient 2.0 | potential-based, see below; ledger column `door_shaping` |
+| Door shaping | coefficient 4.0 | potential-based, see below; ledger column `door_shaping` |
 
 There is no reward for using items; item value and synergies must show up through
 combat and progress. Ledger columns are logged separately.
@@ -146,6 +146,16 @@ observation). Evidence from v10: 111 of 191 stalls (58%) never left the start ro
 -9.0 (1 room, n=111), +4.5 (2 rooms, n=153), +19.3 (3 rooms, n=25). Hyperparameters:
 n_epochs 10, batch_size 128, target_kl 0.03 (about 5x more gradient steps per sample).
 
+Reward v12 (openspec change `door-pull-and-short-stall-reward-v12`) equals v11 except door
+shaping coefficient 4.0 (was 2.0; max |Phi| = 24), death -11 (was -10), stall restart -4 (was -5),
+stagnation -0.39 per second (was -0.25, grace 12 s) and a new required section `stall: {seconds:
+30}`, the stall watchdog limit, which is now part of the reward contract (the training config's
+`watchdog.stall_seconds` must equal it). After 254k steps under v11 (1180 episodes) exit from the
+start room was 88.6% but 64% of the episodes still stalled, floor 2 was never reached, and 56% of
+all steps were the idle tail of a stall. Balance: a full stall costs -4 - 0.39 * 18 = -11.02, a
+death -11.5 with one half heart of hits and -14 from full health, so a death never pays better
+than a stall (under v11 a death at one half heart, -10.5, was cheaper than a stall, -12.3).
+
 Door shaping (the one term that is not an outcome, approved explicitly) follows Ng et al. 1999.
 In reward v9: Phi(s) = -coefficient * d / D, with d the distance from the player to the nearest open door
 whose room behind it has not been visited this run (oracle doors, reward label only) and D the
@@ -167,8 +177,8 @@ was replaced and its lineage `pure-v1` retired; its config is in `archive/config
 
 ## Lineages
 
-`pure-v4` restarts with reward v11 and observation schema 9 (OpenSpec changes
-`item-identity-observation-v9`, `door-entry-fix-reward-v11`, `graph-door-reward-v10`, `dense-exploration-reward-v9` and `rich-room-observation-v8`); the reward v10 run (61k steps) is kept as `runs/pure-v4-reward-v10`, the reward v8 run as
+`pure-v4` restarts with reward v12, observation schema 9 and a 30 s stall limit (OpenSpec changes
+`door-pull-and-short-stall-reward-v12`, `item-identity-observation-v9`, `door-entry-fix-reward-v11`, `graph-door-reward-v10`, `dense-exploration-reward-v9` and `rich-room-observation-v8`); the reward v11 schema 9 run (254k steps) is kept as `runs/pure-v4-reward-v11-schema9`, the reward v10 run (61k steps) as `runs/pure-v4-reward-v10`, the reward v8 run as
 `runs/pure-v4-reward-v8`, the reward v9 schema 7 run as `runs/pure-v4-reward-v9-schema7` and the
 reward v9 schema 8 run as `runs/pure-v4-reward-v9-schema8`. Their
 checkpoints are refused (different contract hash).

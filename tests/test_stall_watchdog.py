@@ -228,7 +228,9 @@ class FakeClient:
 
 
 def stalled_env(client, clock, **options):
-    return make_live_env(client, stall_seconds=90, clock=clock, max_faults=1, **options)
+    return make_live_env(
+        client, reward_version=11, stall_seconds=90, clock=clock, max_faults=1, **options
+    )
 
 
 def play(env, steps):

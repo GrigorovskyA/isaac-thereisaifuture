@@ -34,7 +34,7 @@ if TYPE_CHECKING:
     from .update_pause import UpdatePause
 
 DEFAULT_CONFIG = Path("configs/training-v1.yaml")  # offline and synthetic runs
-PURE_REWARD_VERSION = 11  # the contract must name the reward version this code pays
+PURE_REWARD_VERSION = 12  # the contract must name the reward version this code pays
 PURE_CONFIG = Path(__file__).resolve().parents[2] / "configs" / "training-pure-v4.yaml"
 TEMPLATE_STATUS = "template_not_executable_yet"
 StopReason = Literal["completed", "wall_time", "disk_limit", "timesteps"]
@@ -213,6 +213,14 @@ def load_training_config(path: Path = DEFAULT_CONFIG) -> tuple[AnyTrainingConfig
                 raise TrainingConfigError("Contract schema versions do not match this code")
             if contract.reward_version != PURE_REWARD_VERSION:
                 raise TrainingConfigError("Contract reward version does not match this code")
+            # Imported here: rewards imports env, which would make a cycle at module load.
+            from .rewards import DEFAULT_CONFIG_V12, RewardV4Coefficients
+
+            limit = RewardV4Coefficients.load(DEFAULT_CONFIG_V12).stall_seconds
+            if limit is not None and pure.watchdog.stall_seconds != limit:
+                raise TrainingConfigError(
+                    f"watchdog.stall_seconds must equal the reward stall limit {limit:g}"
+                )
             if pure.hyperparameters.batch_size > pure.hyperparameters.n_steps:
                 raise TrainingConfigError("batch_size must not exceed n_steps")
             return pure, config_hash(raw["contract"])

@@ -28,6 +28,11 @@ The initial18-minute passive check passed encountered item/count/statistics case
 active/tagged/Blind coverage remains unverified. Offline Check1543 including Lua/no
 skips, strict OpenSpec28/28. Native tasks remain open. The November1 deadline was
 not reached; monitoring is finished and further training needs a human decision.
+Sessions now start a New Run when the fresh log verifies that file2 has no game, as after the
+death 3 s before the session 2 lease end (openspec change `session-start-new-run-fallback`).
+Reward v12 (door pull 4, 30 s stall limit in the contract, observation schema 9) is prepared;
+v11 is to be kept as `runs/pure-v4-reward-v11-schema9`. No new training or initialization is
+authorized here.
 
 ## Forever mode
 
@@ -167,7 +172,9 @@ intervals about В±3 wide on `damage_1k`; use two sessions per policy for accep
 
 ## Guards kept
 
-Steam launch and guarded file-2 Continue, loopback-only bridge, frozen source/
+Steam launch and guarded file-2 Continue (or a New Run when the fresh log verifies that file2
+has no game, e.g. after a death at the lease end; `menu_entry_resolved` in menu.jsonl),
+loopback-only bridge, frozen source/
 config/mod hashes per session, input release on stop and fault, closing only the
 owned game, and removing only the exact owned approval.
 

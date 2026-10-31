@@ -7,7 +7,7 @@ Windows. Goal: Dead God through gameplay on save file 2.
 Codex develops software; Python/RecurrentPPO learns to play.
 Direction since 2026-10-22: pure self-learning (`docs/UPDATE_DECISION.md`). One
 `pure-v1` RecurrentPPO lineage learns from raw facts and outcome rewards only, plus one
-potential-based door term (v9; v10-v11: rooms to cross). No scripted setup, advice features or technique
+potential-based door term (v9; v10-v12: rooms to cross). No scripted setup, advice features or technique
 rewards. `archive/` is history only.
 Project artifacts must be English; conversation may follow the user.
 Preserve `isaac-threrisaifuture` and package `isaac_threrisaifuture`.

@@ -883,14 +883,14 @@ def make_live_env(
     oracle_sink: Callable[[OracleEvent], None] | None = None,
     run_deadline: float | None = None,
     stop_file: Path | None = None,
-    reward_version: int = 11,
+    reward_version: int = 12,
     gamma: float | None = None,
     stall_seconds: float | None = None,
     clock: Callable[[], float] = time.monotonic,
     max_consecutive_faults: int | None = None,
     novelty_counts: NoveltyCounts | None = None,
 ) -> FaultTolerantEnv:
-    """Live env; the pure profile pays reward v9, v10 or v11 (v1 stays for old comparisons).
+    """Live env; the pure profile pays reward v9 to v12 (v1 stays for old comparisons).
 
     `gamma` is the training discount that door shaping needs (reward v9); without it door shaping
     is off, which suits attach-only runs that learn nothing. Training and the frozen pure
@@ -898,33 +898,49 @@ def make_live_env(
     With `stall_seconds`, a stall truncates the episode with reason `stall` and sends
     one restart command. Leave it unset for attach-only runs such as evaluation.
     `novelty_counts` is the reward v11 cross-run table: training shares it with the checkpoints,
-    evaluation passes a frozen one, and without it v11 counts only in memory.
+    evaluation passes a frozen one, and without it v11 and v12 count only in memory.
+    Reward v12 carries the stall limit (`stall.seconds`): a different `stall_seconds` raises
+    ValueError, and without one the ledger uses the contract's limit.
     """
     from .env import IsaacCombatEnv, RewardAccountant
     from .rewards import (
         DEFAULT_CONFIG_V9,
         DEFAULT_CONFIG_V10,
         DEFAULT_CONFIG_V11,
+        DEFAULT_CONFIG_V12,
         CombatCoefficients,
         RewardLedger,
         RewardLedgerV4,
         RewardV4Coefficients,
     )
 
-    if reward_version not in (1, 9, 10, 11):
-        raise ValueError(f"Unsupported reward version {reward_version}; use 1, 9, 10 or 11")
-    configs = {9: DEFAULT_CONFIG_V9, 10: DEFAULT_CONFIG_V10, 11: DEFAULT_CONFIG_V11}
+    if reward_version not in (1, 9, 10, 11, 12):
+        raise ValueError(f"Unsupported reward version {reward_version}; use 1, 9, 10, 11 or 12")
+    configs = {
+        9: DEFAULT_CONFIG_V9,
+        10: DEFAULT_CONFIG_V10,
+        11: DEFAULT_CONFIG_V11,
+        12: DEFAULT_CONFIG_V12,
+    }
     coefficients = RewardV4Coefficients.load(configs.get(reward_version, DEFAULT_CONFIG_V9))
+    contract_stall = coefficients.stall_seconds
+    if contract_stall is not None:
+        if stall_seconds is not None and stall_seconds != contract_stall:
+            raise ValueError("The stall limit must match the reward contract")
     if gamma is None:
         coefficients = replace(coefficients, door_shaping_coefficient=0.0)
     accountant: RewardAccountant = (
         RewardLedgerV4(
             coefficients,
-            stall_seconds=DEFAULT_STALL_SECONDS if stall_seconds is None else stall_seconds,
+            stall_seconds=(
+                (contract_stall or DEFAULT_STALL_SECONDS)
+                if stall_seconds is None
+                else stall_seconds
+            ),
             gamma=gamma,
             novelty_counts=novelty_counts,
         )
-        if reward_version in (9, 10, 11)
+        if reward_version in (9, 10, 11, 12)
         else RewardLedger(CombatCoefficients.load())
     )
 

@@ -106,7 +106,7 @@ def test_pure_v4_config_pins_the_new_contract_and_refuses_older_lineages(tmp_pat
     assert SHIPPED_PURE_CONFIG.name == "training-pure-v4.yaml" and config.status == "pure_v4"
     contract = config.contract
     assert contract.observation_schema_version == OBSERVATION_SCHEMA_VERSION == 9
-    assert contract.reward_version == 11 and contract.action_repeat_game_updates == 6
+    assert contract.reward_version == 12 and contract.action_repeat_game_updates == 6
     assert contract.use_head_initial_none_probability == 0.85
     assert config.retention.keep_every == 100
     for name in ("training-pure-v1.yaml", "training-pure-v2.yaml", "training-pure-v3.yaml"):
@@ -117,6 +117,7 @@ def test_pure_v4_config_pins_the_new_contract_and_refuses_older_lineages(tmp_pat
             load_training_config(old)
         assert config_hash(yaml.safe_load(old.read_text("utf-8"))["contract"]) != digest
     stale_contracts = (
+        {"reward_version": 11},
         {"reward_version": 10},
         {"reward_version": 9},
         {"reward_version": 8},
@@ -609,14 +610,14 @@ def test_live_train_wires_watchdog_fault_cap_and_metrics(tmp_path, monkeypatch):
     monkeypatch.setattr(live, "make_live_env", fake_env)
     config = write_config(
         tmp_path / "pure.yaml",
-        watchdog={"stall_seconds": 45.0},
+        watchdog={"stall_seconds": 30.0},
         budget={"max_consecutive_faults": 4},
     )
     options = live.LiveRunOptions(
         mode="train", out_dir=tmp_path / "out", steps=64, minutes=5, config_path=config
     )
     live._train_run(None, options, lambda *_: None, lambda _: None)  # type: ignore[arg-type]
-    assert seen["stall_seconds"] == 45.0 and seen["max_consecutive_faults"] == 4
+    assert seen["stall_seconds"] == 30.0 and seen["max_consecutive_faults"] == 4
     assert seen["max_faults"] > 1000  # no total budget in the pure profile
     assert seen["action_repeat"] == 6  # taken from the contract
     rows = list(csv.DictReader((tmp_path / "out/metrics/episodes.csv").open(encoding="utf-8")))
