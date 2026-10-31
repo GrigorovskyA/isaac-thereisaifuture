@@ -55,10 +55,18 @@ no game/worker/finite owner/launcher/listener9528/deployed authorization remains
 stop.forever retained; all77v11archive hashes matched. No retry/extension.
 [Final report](../reports/2026-10-31-reward-v12-schema9-training.md).
 Native tasks remain open; further training needs a human decision.
-Next (offline only): `full-batch-structured-learner`, contract `ee4f6599...ac703`; rename
-`runs\pure-v4` to `runs\pure-v4-reward-v12-schema9`, then `--initialize`.
 [Launch receipt](../reports/2026-10-31-reward-v12-schema9-launch.md),
 [finite plan](../reports/2026-10-31-reward-v12-schema9-native-plan.md).
+
+
+Full-batch structured learner launched once October31 at18:48:31UTC /19:48CET,
+source2b475b9,contractee4f65999d3a8cf0c85dabd5d887e360fd0823a164814bd20753d6dca91ac703.
+Check1583/Lua/no skips,Smoke passed,strict31/31;v12archive52files hashes unchanged.
+Lua unchanged,dashboardclosed,Continue verified;native20minute audit pending19:08:31UTC.
+Stop firstsaved>=150k or November1 18:48:31UTC,whicheverfirst;no retries/extensions.
+Reports75k/150k compare3+roomshare/roomsper episode/post75kgrowth withv11 andv12.
+[Launch receipt](../reports/2026-10-31-full-batch-structured-launch.md),
+[finite plan](../reports/2026-10-31-full-batch-structured-native-plan.md).
 
 
 ## Forever mode

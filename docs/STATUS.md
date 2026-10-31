@@ -8,10 +8,15 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 - Pure self-learning since 2026-10-22 ([decision](UPDATE_DECISION.md)). RecurrentPPO
   learns from raw facts and outcome rewards, plus one potential-based door term since
   reward v9: no scripted setup, advice features or technique rewards. Archive content is history, not runtime authority.
-- Next lineage prepared offline, not launched: `full-batch-structured-learner` (reward v12,
+- `full-batch-structured-learner` launched once October31 at18:48:31UTC /19:48CET (reward v12,
   schema 9 unchanged; batch 1024, continuous-only observation normalization, structured
   features), contract `ee4f65999d3a8cf0c85dabd5d887e360fd0823a164814bd20753d6dca91ac703`.
-  Keep `runs/pure-v4` as `runs/pure-v4-reward-v12-schema9`, then `--initialize`. Native tasks open.
+  Source2b475b9;Check1583/Lua/no skips,Smoke passed,strict31/31. All52v12archive
+  hashes identical before/after move; Lua unchanged,no deployment;dashboard closed.
+  Initial Continue verified,training/faultnull. Audit20min due19:08:31UTC /20:08CET.
+  Stop firstsaved>=150k or November1 18:48:31UTC /19:48CET,whicheverfirst.
+  Reports75k/150k:3+roomshare(goal>=25%),rooms/episode,growthafter75k vs bothbaselines.
+  [Launch/limits](../reports/2026-10-31-full-batch-structured-launch.md). Native tasks open.
 - Reward v12/schema9 stopped by the human October31 at17:22:56UTC /18:22:56CET.
   One authorized fresh initialization October31
   06:31:15UTC /07:31CET, source4c58937 (menu fix5627159), contract
