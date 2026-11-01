@@ -8,14 +8,18 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 - Pure self-learning since 2026-10-22 ([decision](UPDATE_DECISION.md)). RecurrentPPO
   learns from raw facts and outcome rewards, plus one potential-based door term since
   reward v9: no scripted setup, advice features or technique rewards. Archive content is history, not runtime authority.
-- GPU/auxiliary pure-v4 training active as of November 1 04:31 CET, source `077508f`,
+- GPU/auxiliary pure-v4 training stopped by user November 1 at 09:10 CET; source `077508f`,
   contract `0399c37db311f00df37cea79a66385ff6cd7150dfcfa0c9e3e46415f577da79a`.
   First saved >=75k was `0399c37d-s1-t75776`; 75k comparison: 3+ rooms 27/497 =
   5.4%, rooms/episode 1.656, stalls 75.3%, kills/1k 4.964. Checkpoint rotated;
   newer t82944 files matched manifest. One recovered episode-109 message timeout
-  remains in status. [75k report](../reports/2026-11-01-gpu-auxiliary-75k.md),
+  remains in the first session result. [75k report](../reports/2026-11-01-gpu-auxiliary-75k.md),
   [20-minute audit](../reports/2026-10-31-gpu-auxiliary-20-minute-audit.md).
-  Training continues; 150k and post-75k growth remain pending.
+  Final checkpoint `0399c37d-s1-t141312`; all four artifact hashes matched manifest.
+  Session 2 ended user_cancelled, learner exit 0, fault null, cleanup errors empty;
+  session 1 retained an earlier recovered message timeout. Game, worker, supervisor
+  and listener absent; stop.forever present. Automatic monitoring is paused. The 150k
+  milestone was not reached; no 150k or post-75k comparison is claimed.
 - Full-batch structured learner stopped by the human October31 at20:15:18UTC /21:15CET.
   Final `ee4f6599-s1-t22528`:22528/150000savedsteps,127episodes/22535observedsteps/22trainrows.
   Source2b475b9,contractee4f65999d3a8cf0c85dabd5d887e360fd0823a164814bd20753d6dca91ac703.
