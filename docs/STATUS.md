@@ -5,9 +5,15 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Direction
 
-- E3B lineage prepared (user decision 2026-11-01): `intrinsic: e3b_count_v1` on top of the GPU auxiliary
-  contract, hash `db85924fdb4f26190d287bf67336aabaa77aca941602016fcebfc5054a64cf21`; keep `runs/pure-v4` as
-  `runs/pure-v4-gpu-auxiliary` (final `0399c37d-s1-t141312`), then `--initialize`. Native tasks open.
+- E3B pure-v4 training active as of November 1 21:56 CET, source `dc21b2e`,
+  contract `db85924fdb4f26190d287bf67336aabaa77aca941602016fcebfc5054a64cf21`.
+  First checkpoints >=75k/150k were t75776/t150528; milestone bytes later rotated.
+  At 150k observed-step bounds, 3+ rooms 75/980 = 7.7%, rooms/episode 1.829,
+  stalls 69.6%, kills/1k 7.027. First E3B session recorded a checkpoint-file
+  read fault and user cancellation; later sessions resumed and training continued.
+  Latest t157696 five artifacts matched manifest at review. See [75k](../reports/2026-11-01-e3b-75k.md),
+  [150k](../reports/2026-11-01-e3b-150k.md), [20-minute audit](../reports/2026-11-01-e3b-20-minute-audit.md).
+  Native gameplay acceptance remains open; training continues.
 - Pure self-learning since 2026-10-22 ([decision](UPDATE_DECISION.md)). RecurrentPPO
   learns from raw facts and outcome rewards, plus one potential-based door term since
   reward v9: no scripted setup, advice features or technique rewards. Archive content is history, not runtime authority.
