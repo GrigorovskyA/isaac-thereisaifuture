@@ -321,11 +321,13 @@ def test_train_csv_gains_the_auxiliary_columns(tmp_path):
 def test_the_contract_binds_the_auxiliary_losses_and_refuses_older_checkpoints(tmp_path):
     config, digest = load_training_config(PURE_CONFIG)
     assert config.contract.auxiliary == "spr_reward_done_v1" and config.device == "cuda"
-    assert digest == AUXILIARY_HASH and digest != ROLLOUT_ADVANTAGE_HASH
+    without_e3b = {name: value for name, value in RAW["contract"].items() if name != "intrinsic"}
+    assert config_hash(without_e3b) == AUXILIARY_HASH  # the auxiliary lineage before E3B
+    assert digest not in (AUXILIARY_HASH, ROLLOUT_ADVANTAGE_HASH)
     hyper = config.hyperparameters
     assert (hyper.aux_coef, hyper.aux_steps, hyper.aux_batch) == (1.0, 64, 256)
     assert (hyper.replay_rollouts, hyper.target_ema, hyper.batch_size) == (8, 0.99, 256)
-    older = {name: value for name, value in RAW["contract"].items() if name != "auxiliary"}
+    older = {name: value for name, value in without_e3b.items() if name != "auxiliary"}
     assert config_hash(older) == ROLLOUT_ADVANTAGE_HASH  # absent means `none`, hash kept
     with pytest.raises(TrainingConfigError):
         load_training_config(write_config(tmp_path / "x.yaml", contract={"auxiliary": "spr"}))

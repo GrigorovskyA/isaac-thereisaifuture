@@ -94,6 +94,14 @@
 # runs after the PPO epochs while the game is paused; the replay starts empty after each resume.
 # The rollout-advantage contract (5eb6f93a...) never trained natively; its checkpoints would be
 # refused (new contract hash).
+# E3B x count intrinsic bonus (openspec change e3b-count-intrinsic) restarts the lineage with
+# everything above unchanged. After 141k steps the GPU auxiliary run (kept as
+# runs/pure-v4-gpu-auxiliary) fought better (1.57 kills, 0.25 clears per episode at 125-140k, against
+# 1.06-1.43 and 0.13-0.19 for reward v11/v12) but still plateaued at about 2 rooms per episode with
+# 13% of the episodes reaching 3+ rooms: the learner fixes helped, exploration beyond room 2 did
+# not. `intrinsic: e3b_count_v1` pays an episodic elliptical bonus over a 128-d inverse-dynamics
+# embedding (stall clock and visited-cell grid excluded) times the cross-run count factor, as its
+# own ledger column `col_e3b`; evaluation never pays it. The 0399c37d... checkpoints are refused.
 # Only `contract` binds the lineage; `hyperparameters` may be tuned between sessions
 # and are recorded per checkpoint.
 config_version: 2
@@ -117,8 +125,8 @@ contract:
   # Prioritized Level Replay over run seeds (openspec change prioritized-level-replay) is off:
   # `level_replay` is absent, which means `none` and keeps this hash. `plr_v1` is a new lineage,
   # needs the redeployed observer mod and disables achievements in replayed (seeded) runs.
-  # The E3B x count intrinsic bonus (openspec change e3b-count-intrinsic) is off: `intrinsic` is
-  # absent, which means `none` and keeps this hash. `e3b_count_v1` is a new lineage.
+  # E3B x cross-run count intrinsic bonus (openspec change e3b-count-intrinsic), column col_e3b.
+  intrinsic: e3b_count_v1
   action_repeat_game_updates: 6
   observation_schema_version: 9
   action_schema_version: 2

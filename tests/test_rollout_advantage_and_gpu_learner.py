@@ -198,6 +198,7 @@ def test_the_contract_binds_the_device_and_the_advantage_normalization(tmp_path)
     assert digest != FULL_BATCH_STRUCTURED_HASH
     old = {**RAW["contract"], "device": "cpu"}
     del old["advantage_normalization"], old["auxiliary"]  # auxiliary came after this change
+    old.pop("intrinsic", None)  # and E3B after that
     assert config_hash(old) == FULL_BATCH_STRUCTURED_HASH  # the earlier lineage, refused now
     assert load_training_config(write(tmp_path / "cpu.yaml", device="cpu"))[1] != digest
     for change in (

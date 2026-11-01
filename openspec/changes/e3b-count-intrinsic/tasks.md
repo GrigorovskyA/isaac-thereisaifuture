@@ -23,7 +23,7 @@
   measured on the Mac CPU.
 - [ ] 2.2 Windows: `scripts/Check.ps1` and `scripts/Smoke-RL.ps1` with the CUDA torch; time one E3B
   phase on the RTX 4070.
-- [ ] 2.3 Plan and launch an `e3b_count_v1` lineage (new contract hash, `--initialize`); in the
+- [ ] 2.3 (shipped config switched to `e3b_count_v1` on 2026-11-01, contract `db85924f...`) Plan and launch an `e3b_count_v1` lineage (new contract hash, `--initialize`); in the
   first hour check `e3b_seconds`, `e3b_idm_loss`, `e3b_bonus_mean` and `col_e3b` against
   `col_room_visit`.
 - [ ] 2.4 Compare it with the `none` lineage at equal steps in frozen evaluation (rooms per

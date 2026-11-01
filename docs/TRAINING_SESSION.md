@@ -71,6 +71,8 @@ All52v12archive hashes unchanged. One-hourtask2.2complete,150k/gameplaytasksopen
 [Final report](../reports/2026-10-31-full-batch-structured-training.md).
 [Launch receipt](../reports/2026-10-31-full-batch-structured-launch.md),
 [finite plan](../reports/2026-10-31-full-batch-structured-native-plan.md).
+E3B lineage (2026-11-01): contract `db85924f...` adds `intrinsic: e3b_count_v1` (column `col_e3b`,
+state `e3b.pt`); the GPU auxiliary run is kept as `runs\pure-v4-gpu-auxiliary`, then `--initialize`.
 Next lineage (not launched): `rollout-advantage-and-gpu-learner`, contract `5eb6f93af48955b55130c410fff59d109bea133d81688a023bbd6c59687c4f14`,
 needs the CUDA torch wheel first (`docs/SETUP_REPORT.md`), then `runs\pure-v4` -> `runs\pure-v4-full-batch-structured` and `--initialize`.
 It now includes `auxiliary-self-prediction` (`auxiliary: spr_reward_done_v1`), contract `0399c37db311f00df37cea79a66385ff6cd7150dfcfa0c9e3e46415f577da79a`; the replay starts empty after each resume.

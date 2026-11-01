@@ -33,11 +33,12 @@ lineage `pure-v4`, `docs/UPDATE_DECISION.md`):
   the reward v9 schema 8 run as `runs/pure-v4-reward-v9-schema8` and the reward v10 run as
   `runs/pure-v4-reward-v10` and the reward v11 schema 9 run as `runs/pure-v4-reward-v11-schema9`
   and the reward v12 schema 9 run as `runs/pure-v4-reward-v12-schema9` and the full-batch
-  structured run as `runs/pure-v4-full-batch-structured`; `pure-v4` restarts with reward v12,
-  observation schema 9, continuous-only observation normalization, structured features,
-  rollout-level advantage normalization with batch 256, the learner on the GPU
-  (`device: cuda`) and auxiliary self-prediction (`auxiliary: spr_reward_done_v1`)
-  (`--initialize`).
+  structured run as `runs/pure-v4-full-batch-structured` and the GPU auxiliary run as
+  `runs/pure-v4-gpu-auxiliary`; `pure-v4` restarts with reward v12, observation schema 9,
+  continuous-only observation normalization, structured features, rollout-level advantage
+  normalization with batch 256, the learner on the GPU (`device: cuda`), auxiliary
+  self-prediction (`auxiliary: spr_reward_done_v1`) and the E3B x count intrinsic bonus
+  (`intrinsic: e3b_count_v1`) (`--initialize`).
 - New Run after death and after a stall-watchdog restart is authorized without a
   count limit (approval `max_restarts` 0). Restart pacing still applies.
 - Level replay (contract `level_replay: plr_v1`, off by default; openspec change

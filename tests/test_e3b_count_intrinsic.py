@@ -56,7 +56,8 @@ from isaac_threrisaifuture.training import (
 )
 from isaac_threrisaifuture.training_metrics import E3B, TRAIN_FIELDS
 
-SHIPPED_HASH = "0399c37db311f00df37cea79a66385ff6cd7150dfcfa0c9e3e46415f577da79a"
+SHIPPED_HASH = "db85924fdb4f26190d287bf67336aabaa77aca941602016fcebfc5054a64cf21"
+WITHOUT_E3B_HASH = "0399c37db311f00df37cea79a66385ff6cd7150dfcfa0c9e3e46415f577da79a"
 V12 = RewardV4Coefficients.load(DEFAULT_CONFIG_V12)
 GAMMA = 0.998
 NVEC = list(ACTION_NVEC)
@@ -439,12 +440,12 @@ def test_the_bonus_needs_the_saved_counts_and_a_novelty_ledger(tmp_path):
         run(path, tmp_path / "c", 32, novelty_counts=NoveltyCounts(), env_factory=counted_env)
 
 
-def test_intrinsic_none_keeps_the_shipped_contract_hash_and_manifests(tmp_path):
+def test_intrinsic_none_keeps_the_earlier_contract_hash_and_manifests(tmp_path):
     config, digest = load_training_config(PURE_CONFIG)
-    assert digest == SHIPPED_HASH and config.contract.intrinsic == "none"
-    assert "intrinsic" not in RAW["contract"]
-    assert contract_hash({**RAW["contract"], "intrinsic": "none"}) == SHIPPED_HASH
-    assert contract_hash({**RAW["contract"], **ON}) != SHIPPED_HASH
+    assert digest == SHIPPED_HASH and config.contract.intrinsic == "e3b_count_v1"
+    without = {name: value for name, value in RAW["contract"].items() if name != "intrinsic"}
+    assert contract_hash(without) == WITHOUT_E3B_HASH  # the auxiliary lineage, refused now
+    assert contract_hash({**without, "intrinsic": "none"}) == WITHOUT_E3B_HASH
     explicit = write_config(tmp_path / "none.yaml", contract={"intrinsic": "none"})
     implicit = write_config(tmp_path / "absent.yaml")
     assert load_training_config(explicit)[1] == load_training_config(implicit)[1]
