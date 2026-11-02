@@ -61,6 +61,8 @@ class StallWatchdog:
 
     Paused or unavailable snapshots never add time, and neither does the gap that
     follows them. After `stall_seconds` it fires once; `reset()` re-arms it.
+    With `calm_seconds` (reward v13) the limit is that shorter one while the last active
+    snapshot showed a calm room (clear, no enemies).
     """
 
     def __init__(
@@ -69,10 +71,14 @@ class StallWatchdog:
         *,
         clock: Callable[[], float] = time.monotonic,
         max_gap: float = MAX_GAP_SECONDS,
+        calm_seconds: float | None = None,
     ) -> None:
         if stall_seconds <= 0 or max_gap <= 0:
             raise ValueError("Stall limit and gap cap must be positive")
+        if calm_seconds is not None and not 0 < calm_seconds <= stall_seconds:
+            raise ValueError("The calm stall limit must be positive and at most the stall limit")
         self.stall_seconds = stall_seconds
+        self.calm_seconds = calm_seconds
         self.max_gap = max_gap
         self._clock = clock
         self.reset()
@@ -82,6 +88,13 @@ class StallWatchdog:
         return self._idle
 
     @property
+    def limit(self) -> float:
+        """The limit that applies now: the calm one in a calm room, else `stall_seconds`."""
+        if self._calm and self.calm_seconds is not None:
+            return self.calm_seconds
+        return self.stall_seconds
+
+    @property
     def fired(self) -> bool:
         return self._fired
 
@@ -89,20 +102,22 @@ class StallWatchdog:
         """Start a fresh window, for example on a new game epoch."""
         self._idle = 0.0
         self._fired = False
+        self._calm = False
         self._last: float | None = None  # clock of the previous active snapshot
 
-    def observe(self, *, active: bool, progress: bool = False) -> bool:
-        """Feed one snapshot; True exactly once, when the stall limit is reached."""
+    def observe(self, *, active: bool, progress: bool = False, calm: bool = False) -> bool:
+        """Feed one snapshot; True exactly once, when the current limit is reached."""
         now = self._clock()
         last, self._last = self._last, (now if active else None)
         if not active:
             return False
+        self._calm = calm
         if progress:
             self._idle = 0.0
             return False
         if last is not None:
             self._idle += min(max(0.0, now - last), self.max_gap)
-        if self._idle >= self.stall_seconds and not self._fired:
+        if self._idle >= self.limit and not self._fired:
             self._fired = True
             return True
         return False

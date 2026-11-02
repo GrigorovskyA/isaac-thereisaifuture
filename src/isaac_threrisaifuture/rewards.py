@@ -1,4 +1,4 @@
-"""Event-driven reward ledgers: combat reward-v1 and outcome-only reward-v4 to v12.
+"""Event-driven reward ledgers: combat reward-v1 and outcome-only reward-v4 to v13.
 
 Coefficients are hypotheses, not tuned values.
 """
@@ -135,19 +135,23 @@ DEFAULT_CONFIG_V9 = Path(__file__).resolve().parents[2] / "configs" / "reward-v9
 DEFAULT_CONFIG_V10 = Path(__file__).resolve().parents[2] / "configs" / "reward-v10.yaml"
 DEFAULT_CONFIG_V11 = Path(__file__).resolve().parents[2] / "configs" / "reward-v11.yaml"
 DEFAULT_CONFIG_V12 = Path(__file__).resolve().parents[2] / "configs" / "reward-v12.yaml"
+DEFAULT_CONFIG_V13 = Path(__file__).resolve().parents[2] / "configs" / "reward-v13.yaml"
 # The same ledger pays v4-v12: v5 changed stall_restart, v6 adds kill credit in the deriver, v7
 # adds the stagnation cost, v8 shortens the stall limit it is sized for, v9 adds the boss clear
 # bonus and potential-based door shaping, v10 makes that potential graph-aware (`max_hops`) and
 # v11 adds `blocked_cost`; v12 raises the door pull, rebalances stall and death and puts the stall
-# limit (`stall.seconds`) into the contract.
-# Only v7-v12 have a `stagnation` section and only v9-v12 have `door_shaping` and
+# limit (`stall.seconds`) into the contract; v13 adds the shorter limit of a calm room
+# (`stall.calm_seconds`), which also sizes the stagnation floor, and a shorter grace period.
+# Only v7-v13 have a `stagnation` section and only v9-v13 have `door_shaping` and
 # `outcome.boss_room_clear_first`; the archived v4-v8 configs stay loadable.
-REWARD_V4_VERSIONS = (4, 5, 6, 7, 8, 9, 10, 11, 12)
-STAGNATION_VERSIONS = (7, 8, 9, 10, 11, 12)
-DOOR_SHAPING_VERSIONS = (9, 10, 11, 12)
-GRAPH_SHAPING_VERSIONS = (10, 11, 12)
-CROSS_RUN_NOVELTY_VERSIONS = (11, 12)  # novelty pays coefficient / sqrt(runs the cell was new in)
-STALL_LIMIT_VERSIONS = (12,)  # the stall limit is part of the reward contract
+REWARD_V4_VERSIONS = (4, 5, 6, 7, 8, 9, 10, 11, 12, 13)
+STAGNATION_VERSIONS = (7, 8, 9, 10, 11, 12, 13)
+DOOR_SHAPING_VERSIONS = (9, 10, 11, 12, 13)
+GRAPH_SHAPING_VERSIONS = (10, 11, 12, 13)
+# Novelty pays coefficient / sqrt(runs the cell was new in).
+CROSS_RUN_NOVELTY_VERSIONS = (11, 12, 13)
+STALL_LIMIT_VERSIONS = (12, 13)  # the stall limit is part of the reward contract
+CALM_STALL_VERSIONS = (13,)  # a calm room (clear, no enemies) has its own, shorter limit
 REWARD_V4_COLUMNS = (
     "enemy_damage",
     "room_clear",
@@ -223,6 +227,8 @@ class RewardV4Coefficients:
     novelty_cross_run: bool = False
     # v12: the stall watchdog limit the stagnation floor is sized for; None for v4-v11.
     stall_seconds: float | None = None
+    # v13: the stall limit in a calm room (clear, no enemies); it sizes the stagnation floor.
+    stall_calm_seconds: float | None = None
 
     def __post_init__(self) -> None:
         if self.door_shaping_max_hops < 0:
@@ -237,6 +243,12 @@ class RewardV4Coefficients:
             raise ValueError("The door shaping coefficient and boss clear bonus must be >= 0")
         if self.stall_seconds is not None and self.stall_seconds <= self.stagnation_grace_seconds:
             raise ValueError("The stall limit must exceed the stagnation grace period")
+        if self.stall_calm_seconds is not None and not (
+            self.stagnation_grace_seconds
+            < self.stall_calm_seconds
+            <= (self.stall_seconds or self.stall_calm_seconds)
+        ):
+            raise ValueError("The calm stall limit must exceed the grace period, up to the limit")
 
     @classmethod
     def load(cls, path: Path = DEFAULT_CONFIG_V9) -> Self:
@@ -250,11 +262,11 @@ class RewardV4Coefficients:
             top.add("door_shaping")  # v9 to v12
             sections["outcome"] = (*sections["outcome"], _BOSS_KEY)
         if version in STALL_LIMIT_VERSIONS:
-            top.add("stall")  # required for v12, forbidden before
+            top.add("stall")  # required for v12-v13, forbidden before
         if not isinstance(raw, dict) or set(raw) != top or version not in REWARD_V4_VERSIONS:
-            raise ValueError(f"Reward v4-v12 configuration must define exactly {sorted(top)}")
+            raise ValueError(f"Reward v4-v13 configuration must define exactly {sorted(top)}")
         values: dict[str, Any] = {}
-        if version in CROSS_RUN_NOVELTY_VERSIONS:  # required for v11-v12, forbidden before
+        if version in CROSS_RUN_NOVELTY_VERSIONS:  # required for v11-v13, forbidden before
             novelty = raw["novelty"]
             if not isinstance(novelty, dict) or not isinstance(novelty.get("cross_run"), bool):
                 raise ValueError("novelty.cross_run must be a boolean")
@@ -282,12 +294,20 @@ class RewardV4Coefficients:
                 values[f"stagnation_{key}"] = float(value)
         if "stall" in raw:
             section = raw["stall"]
-            if not isinstance(section, dict) or set(section) != {"seconds"}:
-                raise ValueError("The stall section must define exactly ('seconds',)")
-            seconds = section["seconds"]
-            if isinstance(seconds, bool) or not isinstance(seconds, (int, float)) or seconds <= 0:
-                raise ValueError("stall.seconds must be a number > 0")
-            values["stall_seconds"] = float(seconds)
+            keys = ("seconds", "calm_seconds") if version in CALM_STALL_VERSIONS else ("seconds",)
+            if not isinstance(section, dict) or set(section) != set(keys):
+                raise ValueError(f"The stall section must define exactly {keys}")
+            for key in keys:
+                seconds = section[key]
+                if (
+                    isinstance(seconds, bool)
+                    or not isinstance(seconds, (int, float))
+                    or seconds <= 0
+                ):
+                    raise ValueError(f"stall.{key} must be a number > 0")
+                values["stall_seconds" if key == "seconds" else "stall_calm_seconds"] = float(
+                    seconds
+                )
         if "door_shaping" in raw:
             section = raw["door_shaping"]
             keys = _DOOR_SHAPING_KEYS
@@ -569,10 +589,14 @@ class RewardLedgerV4:
             self.novelty_counts = NoveltyCounts()  # in memory only: nothing saves it
         if self.stall_seconds <= 0:
             raise ValueError("The stall limit must be positive")
-        if c.stagnation_per_second != 0.0 and c.stagnation_grace_seconds >= self.stall_seconds:
+        if c.stagnation_per_second != 0.0 and c.stagnation_grace_seconds >= self._floor_seconds():
             raise ValueError("The stagnation grace period must be shorter than the stall limit")
         if c.door_shaping_coefficient != 0.0 and (self.gamma is None or not 0 < self.gamma <= 1):
             raise ValueError("Door shaping needs the training discount gamma in (0, 1]")
+
+    def _floor_seconds(self) -> float:
+        """Limit the stagnation floor is sized for: the calm one (v13), else the stall limit."""
+        return self.coefficients.stall_calm_seconds or self.stall_seconds
 
     def stagnation(self, before: float, after: float) -> float:
         """Cost of the idle seconds a step added past the grace period.
@@ -587,7 +611,7 @@ class RewardLedgerV4:
         cost = c.stagnation_per_second * max(0.0, added)
         # One run-wide allowance: clock resets never replenish it, and the last
         # snapshot may overshoot the watchdog limit by part of a step.
-        floor = c.stagnation_per_second * max(0.0, self.stall_seconds - grace)
+        floor = c.stagnation_per_second * max(0.0, self._floor_seconds() - grace)
         cost = max(cost, min(0.0, floor - self._stagnation_paid))
         self._stagnation_paid += cost
         return cost

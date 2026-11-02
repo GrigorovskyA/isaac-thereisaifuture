@@ -467,8 +467,7 @@ class NativeRuntime:
             )
 
     def size(self) -> int:
-        roots = {self.plan.output.resolve(), self.plan.run_root.resolve()}
-        return sum(p.stat().st_size for r in roots for p in r.rglob("*") if p.is_file())
+        return _tree_bytes(*{self.plan.output.resolve(), self.plan.run_root.resolve()})
 
     def stop_worker(self) -> None:
         if self.process is None:
@@ -745,8 +744,16 @@ class ForeverOptions:
         return self.output / "stop.forever"
 
 
+def _file_bytes(path: Path) -> int:
+    # Checkpoint retention can delete a file between the directory walk and the stat call.
+    try:
+        return path.stat().st_size if path.is_file() else 0
+    except FileNotFoundError:
+        return 0
+
+
 def _tree_bytes(*roots: Path) -> int:
-    return sum(p.stat().st_size for r in roots if r.exists() for p in r.rglob("*") if p.is_file())
+    return sum(_file_bytes(p) for r in roots if r.exists() for p in r.rglob("*"))
 
 
 def _prune_session_logs(output: Path, keep: int) -> None:

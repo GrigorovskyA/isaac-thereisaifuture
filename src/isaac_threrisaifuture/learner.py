@@ -17,6 +17,10 @@ advantage| of the rollout's steps, before any normalization, scores the seeds of
 With contract `intrinsic: e3b_count_v1` the E3B embedding and inverse-dynamics head of `e3b.py`
 pay the env's intrinsic bonus during the rollout and train on the replay (the auxiliary one when
 there is one, else their own) after the PPO epochs and the auxiliary phase.
+`use_entropy_scale` scales the entropy bonus of the last action head (the use head: none, bomb,
+active item, pill/card) against the move and shoot heads; 1 is the upstream bonus. The use head
+gets almost no advantage signal, so the full bonus walks it to uniform (the E3B lineage went from
+85% `none` to about 35% and pressed the active item about 45 times per episode).
 Saved models do not record the class: training
 and resume build it from the contract, and frozen evaluation may load the same file with plain
 RecurrentPPO (inference is unchanged). The auxiliary state is not in the model file; checkpoints
@@ -56,6 +60,13 @@ ROLLOUT: AdvantageNormalization = "rollout"  # contract value `advantage_normali
 ADVANTAGE_EPSILON = 1e-8  # as upstream
 
 
+def weighted_entropy(distribution: Any, use_entropy_scale: float) -> torch.Tensor:
+    """Per-step entropy of a MultiDiscrete policy; the last head is scaled by the factor."""
+    heads: list[torch.Tensor] = [head.entropy() for head in distribution.distribution]
+    scaled: torch.Tensor = torch.stack(heads[:-1], dim=1).sum(dim=1) + use_entropy_scale * heads[-1]
+    return scaled
+
+
 def normalize_rollout_advantages(buffer: RecurrentRolloutBuffer) -> None:
     """Centre and scale the advantages over every step of a filled rollout buffer, in place.
 
@@ -91,8 +102,11 @@ class PureRecurrentPPO(RecurrentPPO):
         e3b_idm_steps: int = 64,
         e3b_idm_batch: int = 256,
         e3b_idm_lr: float = 0.0003,
+        use_entropy_scale: float = 1.0,
         **kwargs: Any,
     ) -> None:
+        if use_entropy_scale < 0:
+            raise ValueError("use_entropy_scale must be >= 0")
         if advantage_normalization != ROLLOUT:
             raise ValueError(f"Unsupported advantage normalization {advantage_normalization!r}")
         if auxiliary not in AUXILIARIES:
@@ -115,6 +129,7 @@ class PureRecurrentPPO(RecurrentPPO):
         self.e3b_idm_steps = e3b_idm_steps
         self.e3b_idm_batch = e3b_idm_batch
         self.e3b_idm_lr = e3b_idm_lr
+        self.use_entropy_scale = use_entropy_scale
         self.auxiliary_learner: AuxiliaryLearner | None = None
         self.e3b_learner: E3BLearner | None = None
         self._recorder: RolloutRecorder | None = None
@@ -126,6 +141,43 @@ class PureRecurrentPPO(RecurrentPPO):
         kwargs["normalize_advantage"] = False
         super().__init__(*args, **kwargs)
         self.advantage_normalization = advantage_normalization
+
+    def _evaluate_actions(
+        self, obs: Any, actions: torch.Tensor, lstm_states: Any, episode_starts: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Upstream `evaluate_actions`, with the use head's entropy scaled by `use_entropy_scale`.
+
+        At scale 1 it is the policy's own method. Otherwise it repeats that method's forward pass
+        (sb3-contrib 2.9 `RecurrentActorCriticPolicy.evaluate_actions`) to keep the distribution.
+        """
+        policy: Any = self.policy
+        if self.use_entropy_scale == 1.0:
+            upstream: tuple[torch.Tensor, torch.Tensor, torch.Tensor] = policy.evaluate_actions(
+                obs, actions, lstm_states, episode_starts
+            )
+            return upstream
+        features = policy.extract_features(obs)
+        if policy.share_features_extractor:
+            pi_features = vf_features = features
+        else:
+            pi_features, vf_features = features
+        latent_pi, _ = policy._process_sequence(
+            pi_features, lstm_states.pi, episode_starts, policy.lstm_actor
+        )
+        if policy.lstm_critic is not None:
+            latent_vf, _ = policy._process_sequence(
+                vf_features, lstm_states.vf, episode_starts, policy.lstm_critic
+            )
+        elif policy.shared_lstm:
+            latent_vf = latent_pi.detach()
+        else:
+            latent_vf = policy.critic(vf_features)
+        latent_pi = policy.mlp_extractor.forward_actor(latent_pi)
+        latent_vf = policy.mlp_extractor.forward_critic(latent_vf)
+        distribution = policy._get_action_dist_from_latent(latent_pi)
+        log_prob = distribution.log_prob(actions)
+        values = policy.value_net(latent_vf)
+        return values, log_prob, weighted_entropy(distribution, self.use_entropy_scale)
 
     def _setup_model(self) -> None:
         super()._setup_model()
@@ -245,7 +297,7 @@ class PureRecurrentPPO(RecurrentPPO):
                 if isinstance(self.action_space, spaces.Discrete):
                     actions = rollout_data.actions.long().flatten()
                 mask = rollout_data.mask > 1e-8  # padded steps of short sequences are False
-                values, log_prob, entropy = self.policy.evaluate_actions(  # type: ignore[call-arg]
+                values, log_prob, entropy = self._evaluate_actions(
                     rollout_data.observations,
                     actions,
                     rollout_data.lstm_states,

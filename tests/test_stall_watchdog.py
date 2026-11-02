@@ -185,8 +185,11 @@ class FakeClient:
     connected = True
     failure = None
 
-    def __init__(self, clock, *, per_take=2.0, enemies=None, timeout_after=None, rooms=None):
+    def __init__(
+        self, clock, *, per_take=2.0, enemies=None, timeout_after=None, rooms=None, clear=False
+    ):
         self.clock, self.per_take = clock, per_take
+        self.clear = clear
         self.rooms = rooms
         self.frame = 1
         self.enemies = enemies or (lambda frame: [(1, 10.0)])
@@ -196,7 +199,7 @@ class FakeClient:
         self.peer_closed = 0
 
     def _snapshot(self):
-        snap = live(self.frame, enemies=self.enemies(self.frame))
+        snap = live(self.frame, enemies=self.enemies(self.frame), clear=self.clear)
         if self.rooms is None:
             return snap
         oracle = snap.oracle.model_copy(update={"room_index": self.rooms(self.frame)})
@@ -324,3 +327,65 @@ def test_request_restart_waits_out_old_epoch_snapshots():
     # The old connection still serves the old epoch's snapshots until the game exits.
     with pytest.raises(BridgeTimeout):
         backend.start_episode(LIVE_SCENARIO, None)
+
+
+# --- reward v13: the calm room limit ---------------------------------------------------
+
+
+def test_the_calm_limit_applies_only_while_the_last_snapshot_was_calm():
+    clock = Clock()
+    dog = StallWatchdog(30.0, clock=clock, calm_seconds=15.0)
+    assert dog.limit == 30.0  # nothing seen yet
+    dog.observe(active=True, calm=False)
+    for _ in range(7):  # 14 s with enemies in the room
+        clock.now += 2
+        assert not dog.observe(active=True, calm=False)
+    assert dog.limit == 30.0 and dog.idle_seconds == pytest.approx(14.0)
+    clock.now += 2
+    assert dog.observe(active=True, calm=True)  # 16 s idle, now calm: over the 15 s limit
+    assert dog.limit == 15.0 and dog.fired
+
+
+def test_without_a_calm_limit_a_calm_room_keeps_the_full_limit():
+    clock = Clock()
+    dog = StallWatchdog(30.0, clock=clock)
+    dog.observe(active=True, calm=True)
+    for _ in range(14):
+        clock.now += 2
+        assert not dog.observe(active=True, calm=True)
+    assert dog.limit == 30.0
+    clock.now += 2
+    assert dog.observe(active=True, calm=True)
+
+
+@pytest.mark.parametrize("calm", [0.0, -1.0, 31.0])
+def test_invalid_calm_limits_are_refused(calm):
+    with pytest.raises(ValueError, match="calm"):
+        StallWatchdog(30.0, calm_seconds=calm)
+
+
+def calm_stalled_env(client, clock):
+    return make_live_env(client, reward_version=13, stall_seconds=30, clock=clock, max_faults=1)
+
+
+def test_reward_v13_stalls_a_calm_room_after_fifteen_seconds():
+    clock = Clock()
+    client = FakeClient(clock, enemies=lambda frame: [], clear=True)
+    env = calm_stalled_env(client, clock)
+    env.reset()
+    info = play(env, 200)
+    assert info is not None and info["truncation_reason"] == "stall"
+    assert client.sent.count("restart") == 1
+    # 15 active seconds at 2 s per snapshot and 3 snapshots per step.
+    assert 2 <= client.sent.count("action") <= 4
+    assert env.env.controller.backend.stall_fraction == 1.0
+
+
+def test_reward_v13_keeps_thirty_seconds_while_an_enemy_is_alive():
+    clock = Clock()
+    client = FakeClient(clock)  # one enemy at full health, never damaged
+    env = calm_stalled_env(client, clock)
+    env.reset()
+    info = play(env, 200)
+    assert info is not None and info["truncation_reason"] == "stall"
+    assert 4 <= client.sent.count("action") <= 6

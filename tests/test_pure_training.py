@@ -111,7 +111,7 @@ def test_pure_v4_config_pins_the_new_contract_and_refuses_older_lineages(tmp_pat
     assert SHIPPED_PURE_CONFIG.name == "training-pure-v4.yaml" and config.status == "pure_v4"
     contract = config.contract
     assert contract.observation_schema_version == OBSERVATION_SCHEMA_VERSION == 9
-    assert contract.reward_version == 12 and contract.action_repeat_game_updates == 6
+    assert contract.reward_version == 13 and contract.action_repeat_game_updates == 6
     assert contract.use_head_initial_none_probability == 0.85
     assert config.retention.keep_every == 100
     for name in ("training-pure-v1.yaml", "training-pure-v2.yaml", "training-pure-v3.yaml"):
@@ -122,6 +122,7 @@ def test_pure_v4_config_pins_the_new_contract_and_refuses_older_lineages(tmp_pat
             load_training_config(old)
         assert config_hash(yaml.safe_load(old.read_text("utf-8"))["contract"]) != digest
     stale_contracts = (
+        {"reward_version": 12},
         {"reward_version": 11},
         {"reward_version": 10},
         {"reward_version": 9},

@@ -102,6 +102,16 @@
 # not. `intrinsic: e3b_count_v1` pays an episodic elliptical bonus over a 128-d inverse-dynamics
 # embedding (stall clock and visited-cell grid excluded) times the cross-run count factor, as its
 # own ledger column `col_e3b`; evaluation never pays it. The 0399c37d... checkpoints are refused.
+# Reward v13 (openspec change calm-stall-reward-v13) restarts the lineage with everything else
+# unchanged. The E3B run (kept as runs/pure-v4-e3b, stopped at db85924f-s1-t273408) fought best
+# so far (1.3-1.7 kills, 0.2-0.28 clears per episode after 175k) but stayed at about 2.0 rooms
+# per episode from 150k on, with 10-21% of the episodes reaching 3+ rooms. In its last 900
+# episodes 63% ended on a stall and 89% of those stalls were in a calm room (41% a one-door dead
+# end next to the start room), about 51% of all steps were idle stall tails, and the policy stayed
+# near random: entropy 4.0 of at most 4.6 nats (87%), rising from 82%. Reward v13 ends a calm
+# room after 15 s idle (30 s with enemies) and starts the stagnation cost after 3 s. The use head
+# drifted from 85% `none` to about 35% (33-55 active item presses and 0.42 own bomb hits per
+# episode); `use_entropy_scale` 0.2 now gives it a fifth of the entropy bonus.
 # Only `contract` binds the lineage; `hyperparameters` may be tuned between sessions
 # and are recorded per checkpoint.
 config_version: 2
@@ -130,7 +140,7 @@ contract:
   action_repeat_game_updates: 6
   observation_schema_version: 9
   action_schema_version: 2
-  reward_version: 12
+  reward_version: 13
   # Initial P(no use press) of the use head, set at fresh model creation only.
   use_head_initial_none_probability: 0.85
 hyperparameters:
@@ -146,6 +156,10 @@ hyperparameters:
   # and did not help: stalls went 60% -> 70% and kills per 1000 steps 6.7 -> 5.4. Before that
   # 0.01 was too high for the fresh use head, which drifted from its prior toward uniform.
   ent_coef: 0.005
+  # Share of ent_coef for the use head (none, bomb, active, pill/card); move and shoot keep the full
+  # bonus. 0.2 (1.0 before, that is upstream): the use head gets almost no advantage signal, so the
+  # full bonus walked it from 85% `none` to about 35%. Not hashed.
+  use_entropy_scale: 0.2
   # 1024 (was 512): fewer updates, about one per 4 minutes of play. n_epochs 10 (4 earlier): only
   # ~62 updates in a 64k-step run left the policy near random (approx_kl ~0.006, clip_fraction
   # ~0.04). batch_size 256 (1024 in the full-batch run, 128 before): with the advantages

@@ -831,3 +831,19 @@ def test_cli_evaluate_refusals(cli, tmp_path):
         run, code = cli(*extra, **kwargs)
         assert code == 2, extra
         run.assert_not_called()
+
+
+def test_disk_size_ignores_files_deleted_during_the_walk(tmp_path, monkeypatch):
+    # Checkpoint retention removes old checkpoints while the supervisor samples disk use.
+    (tmp_path / "kept.bin").write_bytes(b"x" * 7)
+    gone = tmp_path / "gone.bin"
+    gone.write_bytes(b"y" * 5)
+    real_rglob = type(tmp_path).rglob
+
+    def rglob_then_delete(self, pattern):
+        found = list(real_rglob(self, pattern))
+        gone.unlink()
+        return iter(found)
+
+    monkeypatch.setattr(type(tmp_path), "rglob", rglob_then_delete)
+    assert runner._tree_bytes(tmp_path) == 7

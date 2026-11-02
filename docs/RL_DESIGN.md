@@ -156,6 +156,18 @@ all steps were the idle tail of a stall. Balance: a full stall costs -4 - 0.39 *
 death -11.5 with one half heart of hits and -14 from full health, so a death never pays better
 than a stall (under v11 a death at one half heart, -10.5, was cheaper than a stall, -12.3).
 
+Reward v13 (openspec change `calm-stall-reward-v13`, `configs/reward-v13.yaml`) equals v12 except
+a new key `stall.calm_seconds: 15`, the watchdog limit while the room is calm (oracle `room_clear`,
+no enemy), and stagnation grace 3 s (was 12). A room with enemies keeps 30 s. The run-wide
+stagnation floor is sized for the calm limit, so any stall costs -4 - 0.39 * 12 = -8.68 and a death
+(-11.5 to -14) still never pays better. The stall-clock observation is idle time over the current
+limit. Evidence from the E3B lineage (273k steps): 63% of the episodes stalled, 89% of the stalls
+were in a calm room (41% a one-door dead end) and about 51% of all steps were idle stall tails.
+The same change adds the learner hyperparameter `use_entropy_scale` (0.2): the use head gets a
+fifth of `ent_coef`, because it had walked from 85% `none` to about 35% (33-55 active item
+presses and 0.42 own bomb hits per episode) while the per-step entropy stayed at 87% of the
+maximum.
+
 Full-batch structured learner (openspec change `full-batch-structured-learner`; reward v12 and
 observation schema 9 unchanged). Rewards v9-v12 all plateaued at about 2 rooms per episode
 (7-12% of the episodes reached 3+ rooms) although the returns ranked rooms correctly (1 room

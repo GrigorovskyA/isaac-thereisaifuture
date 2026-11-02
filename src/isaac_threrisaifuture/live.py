@@ -679,7 +679,7 @@ class LiveBackend:
         """Idle time of the stall watchdog as a fraction of its limit; 0 without one."""
         if self.watchdog is None:
             return 0.0
-        return min(max(self.watchdog.idle_seconds / self.watchdog.stall_seconds, 0.0), 1.0)
+        return min(max(self.watchdog.idle_seconds / self.watchdog.limit, 0.0), 1.0)
 
     def oracle_enemy_count(self) -> int | None:
         """Oracle enemies of the last snapshot, overflow included (metrics only)."""
@@ -786,7 +786,14 @@ class LiveBackend:
             return
         stage = snap.entity_frame.room.stage if snap.entity_frame is not None else 0
         progress = self.progress.novel(events, stage=stage)
-        if self.watchdog.observe(active=_playable(snap), progress=progress):
+        # Calm room (reward v13 calm limit): cleared, with no live enemy left.
+        calm = (
+            snap.oracle is not None
+            and snap.oracle.room_clear
+            and not snap.oracle.enemies
+            and snap.oracle.enemy_overflow == 0
+        )
+        if self.watchdog.observe(active=_playable(snap), progress=progress, calm=calm):
             self._stall_fired = True
 
     def _result(self, events: list[OracleEvent]) -> StepResult:
@@ -922,7 +929,7 @@ def make_live_env(
     oracle_sink: Callable[[OracleEvent], None] | None = None,
     run_deadline: float | None = None,
     stop_file: Path | None = None,
-    reward_version: int = 12,
+    reward_version: int = 13,
     gamma: float | None = None,
     stall_seconds: float | None = None,
     clock: Callable[[], float] = time.monotonic,
@@ -930,7 +937,7 @@ def make_live_env(
     novelty_counts: NoveltyCounts | None = None,
     level_replay: SeedBank | None = None,
 ) -> FaultTolerantEnv:
-    """Live env; the pure profile pays reward v9 to v12 (v1 stays for old comparisons).
+    """Live env; the pure profile pays reward v9 to v13 (v1 stays for old comparisons).
 
     `gamma` is the training discount that door shaping needs (reward v9); without it door shaping
     is off, which suits attach-only runs that learn nothing. Training and the frozen pure
@@ -940,7 +947,8 @@ def make_live_env(
     `novelty_counts` is the reward v11 cross-run table: training shares it with the checkpoints,
     evaluation passes a frozen one, and without it v11 and v12 count only in memory.
     Reward v12 carries the stall limit (`stall.seconds`): a different `stall_seconds` raises
-    ValueError, and without one the ledger uses the contract's limit.
+    ValueError, and without one the ledger uses the contract's limit. Reward v13 adds the calm
+    room limit (`stall.calm_seconds`), which the watchdog then applies in a calm room.
     `level_replay` (training with contract `plr_v1` only) plans the seed of each New Run and needs
     a client that negotiates `seeded_restart_v1`; evaluation never passes it.
     """
@@ -950,19 +958,21 @@ def make_live_env(
         DEFAULT_CONFIG_V10,
         DEFAULT_CONFIG_V11,
         DEFAULT_CONFIG_V12,
+        DEFAULT_CONFIG_V13,
         CombatCoefficients,
         RewardLedger,
         RewardLedgerV4,
         RewardV4Coefficients,
     )
 
-    if reward_version not in (1, 9, 10, 11, 12):
-        raise ValueError(f"Unsupported reward version {reward_version}; use 1, 9, 10, 11 or 12")
+    if reward_version not in (1, 9, 10, 11, 12, 13):
+        raise ValueError(f"Unsupported reward version {reward_version}; use 1 or 9 to 13")
     configs = {
         9: DEFAULT_CONFIG_V9,
         10: DEFAULT_CONFIG_V10,
         11: DEFAULT_CONFIG_V11,
         12: DEFAULT_CONFIG_V12,
+        13: DEFAULT_CONFIG_V13,
     }
     coefficients = RewardV4Coefficients.load(configs.get(reward_version, DEFAULT_CONFIG_V9))
     contract_stall = coefficients.stall_seconds
@@ -982,7 +992,7 @@ def make_live_env(
             gamma=gamma,
             novelty_counts=novelty_counts,
         )
-        if reward_version in (9, 10, 11, 12)
+        if reward_version in (9, 10, 11, 12, 13)
         else RewardLedger(CombatCoefficients.load())
     )
 
@@ -992,7 +1002,9 @@ def make_live_env(
         client, run_deadline=run_deadline, stop_file=stop_file, level_replay=level_replay
     )
     if stall_seconds is not None:
-        backend.watchdog = StallWatchdog(stall_seconds, clock=clock)
+        backend.watchdog = StallWatchdog(
+            stall_seconds, clock=clock, calm_seconds=coefficients.stall_calm_seconds
+        )
     env = IsaacCombatEnv(
         backend,
         [LIVE_SCENARIO],

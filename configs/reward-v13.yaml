@@ -1,0 +1,60 @@
+# Outcome-only reward for the pure profile (openspec change calm-stall-reward-v13).
+# Terms describe what happened, never how to play. "First" terms and caps are per run.
+# Novelty pays once per (stage, room, cell) per run, coefficient / sqrt(N) with N the number of
+# runs (this one included) that first visited the key; counts persist across runs, sessions and
+# resumes in the checkpoint (`cross_run`). stall_restart is paid once on a stall.
+# Reward v13 = reward v12 with a 15 s stall limit in a calm room (clear, no enemies) and a 3 s
+# stagnation grace period. Evidence: the E3B lineage (reward v12) ran 273408 steps (1877
+# episodes): rooms per episode stayed about 2.0 from 150k on. In the last 900 episodes 63% ended
+# on a stall, 89% of the stalls were in a calm room (41% a one-door dead end next to the start
+# room, 20% the start room itself) and about 51% of all steps were the idle tail of a stall.
+# A room with enemies keeps the 30 s limit, so a fight is never cut shorter than in v12.
+# Changes against v12 (everything else is unchanged):
+#   new key `stall.calm_seconds: 15`, the watchdog limit while the room is calm; it also sizes
+#   the run-wide stagnation floor and the stall-clock observation (idle / current limit),
+#   stagnation.grace_seconds 12 -> 3 (per_second -0.39 unchanged).
+# Balance: a full stall costs -4 + 0.39 * (15 - 3) = -4 - 4.68 = -8.68 (plus time) in any room,
+# because the floor is one run-wide allowance sized for the calm limit. A death costs -11 plus
+# 0.5 per half heart lost (-11.5 to -14), so a death never pays better than a stall. A calm stall
+# now comes in 15 s instead of 30 s, so standing still costs about 0.58 per second instead of
+# 0.37 per second of the v12 stall.
+# door_shaping is still the only potential-based term (Ng et al. 1999): Phi(s) = -coefficient *
+# cost(s). The cost counts the rooms the agent still has to cross to reach an unvisited room or
+# the boss room through the doors it has seen on this floor (at most max_hops), plus an in-room
+# share: the distance to the door divided by the room diagonal in a clear room without enemies,
+# else blocked_cost (0). A step pays gamma * Phi(s') - Phi(s) (gamma from the training config)
+# and a terminal step, a stall included, ends in Phi = 0. It does not change the optimal policy.
+# Archived: archive/configs/reward-v4.yaml ... reward-v8.yaml; v9 to v12 stay in configs/.
+reward_version: 13
+status: pure_v4
+outcome:
+  enemy_hp_fraction_total: 5.0
+  room_clear_first: 10.0
+  boss_room_clear_first: 20.0
+  room_first_visit: 5.0
+  floor_first_entered: 30.0
+  player_damage_half_heart: -0.5
+  death: -11.0
+  stall_restart: -4.0
+  time_second: -0.005
+pickups:
+  coin: 0.3
+  bomb: 0.5
+  key: 0.5
+  consumable_run_cap: 10.0
+  collectible_new: 5.0
+  heal_half_heart: 0.5
+novelty:
+  coefficient: 0.1
+  cell_size: 40
+  cross_run: true
+stagnation:
+  per_second: -0.39
+  grace_seconds: 3
+door_shaping:
+  coefficient: 4.0
+  max_hops: 5
+  blocked_cost: 0.0
+stall:
+  seconds: 30
+  calm_seconds: 15

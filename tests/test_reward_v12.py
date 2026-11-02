@@ -126,8 +126,6 @@ def test_make_live_env_rejects_a_stall_limit_that_differs_from_the_contract():
     for seconds in (40, 90, 29.5):
         with pytest.raises(ValueError, match="must match the reward contract"):
             make_live_env(object(), reward_version=12, stall_seconds=seconds)  # type: ignore[arg-type]
-    with pytest.raises(ValueError, match="Unsupported"):
-        make_live_env(object(), reward_version=13)  # type: ignore[arg-type]
 
 
 def test_the_training_config_must_use_the_reward_stall_limit(tmp_path):

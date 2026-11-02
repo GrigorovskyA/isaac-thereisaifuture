@@ -56,7 +56,9 @@ from isaac_threrisaifuture.training import (
 )
 from isaac_threrisaifuture.training_metrics import E3B, TRAIN_FIELDS
 
-SHIPPED_HASH = "db85924fdb4f26190d287bf67336aabaa77aca941602016fcebfc5054a64cf21"
+SHIPPED_HASH = "54be12af1dcec7f0ade2dc109cbcb2f90b71d6e58cb7d51d17b3b704fa4859cc"
+# The E3B lineage with reward v12 (runs/pure-v4-e3b).
+E3B_HASH = "db85924fdb4f26190d287bf67336aabaa77aca941602016fcebfc5054a64cf21"
 WITHOUT_E3B_HASH = "0399c37db311f00df37cea79a66385ff6cd7150dfcfa0c9e3e46415f577da79a"
 V12 = RewardV4Coefficients.load(DEFAULT_CONFIG_V12)
 GAMMA = 0.998
@@ -443,7 +445,9 @@ def test_the_bonus_needs_the_saved_counts_and_a_novelty_ledger(tmp_path):
 def test_intrinsic_none_keeps_the_earlier_contract_hash_and_manifests(tmp_path):
     config, digest = load_training_config(PURE_CONFIG)
     assert digest == SHIPPED_HASH and config.contract.intrinsic == "e3b_count_v1"
-    without = {name: value for name, value in RAW["contract"].items() if name != "intrinsic"}
+    v12 = {**RAW["contract"], "reward_version": 12}
+    assert contract_hash(v12) == E3B_HASH  # the E3B lineage before reward v13, refused now
+    without = {name: value for name, value in v12.items() if name != "intrinsic"}
     assert contract_hash(without) == WITHOUT_E3B_HASH  # the auxiliary lineage, refused now
     assert contract_hash({**without, "intrinsic": "none"}) == WITHOUT_E3B_HASH
     explicit = write_config(tmp_path / "none.yaml", contract={"intrinsic": "none"})

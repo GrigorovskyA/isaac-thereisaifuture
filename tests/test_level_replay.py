@@ -41,7 +41,7 @@ from isaac_threrisaifuture.training import (
     load_training_config,
 )
 
-NEXT_LINEAGE_HASH = "db85924fdb4f26190d287bf67336aabaa77aca941602016fcebfc5054a64cf21"
+NEXT_LINEAGE_HASH = "54be12af1dcec7f0ade2dc109cbcb2f90b71d6e58cb7d51d17b3b704fa4859cc"
 SEEDS = ["AAAA BBBB", "CCCC DDDD", "EEEE FFFF", "GGGG HHHH", "JJJJ KKKK", "LLLL MMMM"]
 TOY = Scenario("toy", "validation", 1, 90, enemy_count=2, enemy_hp=7.0)
 

@@ -71,6 +71,8 @@ All52v12archive hashes unchanged. One-hourtask2.2complete,150k/gameplaytasksopen
 [Final report](../reports/2026-10-31-full-batch-structured-training.md).
 [Launch receipt](../reports/2026-10-31-full-batch-structured-launch.md),
 [finite plan](../reports/2026-10-31-full-batch-structured-native-plan.md).
+Reward v13 lineage (2026-11-02): contract `54be12af...` (openspec change `calm-stall-reward-v13`):
+15 s stall limit in a calm room, 30 s with enemies, `use_entropy_scale: 0.2`; the E3B run is kept as `runs\pure-v4-e3b`, then `--initialize`.
 E3B lineage (2026-11-01): contract `db85924f...` adds `intrinsic: e3b_count_v1` (column `col_e3b`,
 state `e3b.pt`); the GPU auxiliary run is kept as `runs\pure-v4-gpu-auxiliary`, then `--initialize`.
 Next lineage (not launched): `rollout-advantage-and-gpu-learner`, contract `5eb6f93af48955b55130c410fff59d109bea133d81688a023bbd6c59687c4f14`,

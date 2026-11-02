@@ -36,7 +36,7 @@ if TYPE_CHECKING:
     from .update_pause import UpdatePause
 
 DEFAULT_CONFIG = Path("configs/training-v1.yaml")  # offline and synthetic runs
-PURE_REWARD_VERSION = 12  # the contract must name the reward version this code pays
+PURE_REWARD_VERSION = 13  # the contract must name the reward version this code pays
 PURE_CONFIG = Path(__file__).resolve().parents[2] / "configs" / "training-pure-v4.yaml"
 TEMPLATE_STATUS = "template_not_executable_yet"
 StopReason = Literal["completed", "wall_time", "disk_limit", "timesteps"]
@@ -159,6 +159,8 @@ class Hyperparameters(BaseModel):
     e3b_idm_steps: Annotated[int, Field(ge=0)] = 64
     e3b_idm_batch: Annotated[int, Field(gt=0)] = 256
     e3b_idm_lr: Annotated[float, Field(gt=0)] = 0.0003
+    # Pure learner only: entropy bonus of the use head relative to the move and shoot heads.
+    use_entropy_scale: Annotated[float, Field(ge=0)] = 1.0
 
 
 # Only the pure learner takes these; version 1 configs never pass them to SB3.
@@ -170,6 +172,8 @@ LEVEL_REPLAY_HYPERPARAMETERS = (
     "plr_staleness",
     "plr_bank_size",
 )
+# Only the pure learner takes these, always recorded with its checkpoints.
+ENTROPY_HYPERPARAMETERS = ("use_entropy_scale",)
 # The pure learner takes these; recorded per checkpoint only with `intrinsic: e3b_count_v1`.
 E3B_HYPERPARAMETERS = (
     "e3b_beta",
@@ -278,9 +282,9 @@ def load_training_config(path: Path = DEFAULT_CONFIG) -> tuple[AnyTrainingConfig
             if contract.reward_version != PURE_REWARD_VERSION:
                 raise TrainingConfigError("Contract reward version does not match this code")
             # Imported here: rewards imports env, which would make a cycle at module load.
-            from .rewards import DEFAULT_CONFIG_V12, RewardV4Coefficients
+            from .rewards import DEFAULT_CONFIG_V13, RewardV4Coefficients
 
-            limit = RewardV4Coefficients.load(DEFAULT_CONFIG_V12).stall_seconds
+            limit = RewardV4Coefficients.load(DEFAULT_CONFIG_V13).stall_seconds
             if limit is not None and pure.watchdog.stall_seconds != limit:
                 raise TrainingConfigError(
                     f"watchdog.stall_seconds must equal the reward stall limit {limit:g}"
@@ -360,7 +364,12 @@ def _hyperparameters(config: AnyTrainingConfig) -> dict[str, Any]:
             for name in E3B_HYPERPARAMETERS:
                 del values[name]
         return values
-    skipped = (*AUXILIARY_HYPERPARAMETERS, *LEVEL_REPLAY_HYPERPARAMETERS, *E3B_HYPERPARAMETERS)
+    skipped = (
+        *AUXILIARY_HYPERPARAMETERS,
+        *LEVEL_REPLAY_HYPERPARAMETERS,
+        *E3B_HYPERPARAMETERS,
+        *ENTROPY_HYPERPARAMETERS,
+    )
     names = [name for name in Hyperparameters.model_fields if name not in skipped]
     return {name: getattr(config, name, None) for name in names}
 

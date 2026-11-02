@@ -5,6 +5,11 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Direction
 
+- Reward v13 lineage prepared (2026-11-02, openspec change `calm-stall-reward-v13`): a calm room
+  (clear, no enemies) stalls after 15 s instead of 30 s, stagnation grace 3 s, and the use head gets
+  a fifth of the entropy bonus (`use_entropy_scale: 0.2`). Contract
+  `54be12af1dcec7f0ade2dc109cbcb2f90b71d6e58cb7d51d17b3b704fa4859cc`; keep `runs/pure-v4` as
+  `runs/pure-v4-e3b` (final `db85924f-s1-t273408`), then `--initialize`. Native tasks open.
 - E3B pure-v4 training stopped by the user November 2 at 07:55 CET; source `dc21b2e`,
   contract `db85924fdb4f26190d287bf67336aabaa77aca941602016fcebfc5054a64cf21`.
   Final checkpoint `db85924f-s1-t273408`; model, normalizer, novelty counts,
