@@ -41,7 +41,8 @@ from isaac_threrisaifuture.training import (
     load_training_config,
 )
 
-NEXT_LINEAGE_HASH = "54be12af1dcec7f0ade2dc109cbcb2f90b71d6e58cb7d51d17b3b704fa4859cc"
+# The behaviour-cloning lineage (pretraining demo_bc_v1).
+NEXT_LINEAGE_HASH = "c8a7486b9806f2cd76e3aab5324163659dfb4b3ae41a619ed61a362be8936121"
 SEEDS = ["AAAA BBBB", "CCCC DDDD", "EEEE FFFF", "GGGG HHHH", "JJJJ KKKK", "LLLL MMMM"]
 TOY = Scenario("toy", "validation", 1, 90, enemy_count=2, enemy_hp=7.0)
 

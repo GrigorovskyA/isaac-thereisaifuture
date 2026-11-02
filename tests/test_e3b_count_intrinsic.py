@@ -56,7 +56,10 @@ from isaac_threrisaifuture.training import (
 )
 from isaac_threrisaifuture.training_metrics import E3B, TRAIN_FIELDS
 
-SHIPPED_HASH = "54be12af1dcec7f0ade2dc109cbcb2f90b71d6e58cb7d51d17b3b704fa4859cc"
+# The behaviour-cloning lineage (pretraining demo_bc_v1).
+SHIPPED_HASH = "c8a7486b9806f2cd76e3aab5324163659dfb4b3ae41a619ed61a362be8936121"
+# The reward v13 lineage before behaviour cloning.
+V13_HASH = "54be12af1dcec7f0ade2dc109cbcb2f90b71d6e58cb7d51d17b3b704fa4859cc"
 # The E3B lineage with reward v12 (runs/pure-v4-e3b).
 E3B_HASH = "db85924fdb4f26190d287bf67336aabaa77aca941602016fcebfc5054a64cf21"
 WITHOUT_E3B_HASH = "0399c37db311f00df37cea79a66385ff6cd7150dfcfa0c9e3e46415f577da79a"
@@ -445,7 +448,9 @@ def test_the_bonus_needs_the_saved_counts_and_a_novelty_ledger(tmp_path):
 def test_intrinsic_none_keeps_the_earlier_contract_hash_and_manifests(tmp_path):
     config, digest = load_training_config(PURE_CONFIG)
     assert digest == SHIPPED_HASH and config.contract.intrinsic == "e3b_count_v1"
-    v12 = {**RAW["contract"], "reward_version": 12}
+    v13 = {name: value for name, value in RAW["contract"].items() if name != "pretraining"}
+    assert contract_hash(v13) == V13_HASH  # the reward v13 lineage before behaviour cloning
+    v12 = {**v13, "reward_version": 12}
     assert contract_hash(v12) == E3B_HASH  # the E3B lineage before reward v13, refused now
     without = {name: value for name, value in v12.items() if name != "intrinsic"}
     assert contract_hash(without) == WITHOUT_E3B_HASH  # the auxiliary lineage, refused now

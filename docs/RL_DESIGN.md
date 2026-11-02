@@ -174,6 +174,19 @@ unweighted E3B entropy or 4.6 nats, and a smaller value does not establish that 
 or shooting became less random. For 75k and 150k comparisons, report the `move_*`,
 `shoot_*` and `use_none` action shares at the same step bounds.
 
+Demo pretraining (openspec change `demo-pretraining-v1`, contract `pretraining: demo_bc_v1`).
+Learning from a random policy took the E3B lineage 273k steps to reach about 2 rooms per episode,
+so a new lineage starts from human play. `Record-Demo.cmd` stores raw snapshots with the human's
+per-update input masks (`demo_record_v1`) in `runs/demos`; `demo_dataset.py` re-derives the
+observations exactly as the live env would (stall clock replayed from receipt times, visited cells
+at decision points) and labels each 6-update step with the most held move and shoot direction
+(a diagonal becomes its faster axis) and a triggered use press. A fresh lineage fits the
+normalizer on the demos and trains the actor on the demo NLL (64-step windows, holdout of 10% of
+the sequences, best holdout weights kept, early stop), writes `pretraining.json` and a step-0
+checkpoint. During RL, 32 BC steps after each update at `bc_coef` x the learning rate, decaying
+to 0 at 1M steps, keep the cloned behaviour while the critic learns; `demo_approx_kl` shows its
+pull. Recordings stay valid across encoder and reward changes because they are raw.
+
 Full-batch structured learner (openspec change `full-batch-structured-learner`; reward v12 and
 observation schema 9 unchanged). Rewards v9-v12 all plateaued at about 2 rooms per episode
 (7-12% of the episodes reached 3+ rooms) although the returns ranked rooms correctly (1 room

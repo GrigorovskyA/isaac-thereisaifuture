@@ -56,6 +56,9 @@ def write_config(path: Path, **changes: dict[str, Any]) -> Path:
     # The shipped E3B bonus needs live cross-run counts that the synthetic env does not keep; its
     # own tests (test_e3b_count_intrinsic.py) turn it on explicitly.
     raw["contract"].pop("intrinsic", None)
+    # The shipped behaviour cloning needs human recordings; test_demo_learning.py turns it on.
+    raw["contract"].pop("pretraining", None)
+    raw.pop("demo", None)
     # A short auxiliary phase keeps the shipped `auxiliary` contract exercised but cheap.
     raw["hyperparameters"].update(n_steps=32, batch_size=32, n_epochs=1, aux_steps=2, aux_batch=16)
     for section, values in changes.items():

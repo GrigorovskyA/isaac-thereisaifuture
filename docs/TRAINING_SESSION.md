@@ -1,6 +1,8 @@
 # Training sessions (pure profile)
 
 `python -m isaac_threrisaifuture.session_runner` supervises native Windows training.
+Demo pretraining lineage (contract `c8a7486b...`): record with `Record-Demo.cmd` while training is
+stopped ([guide](DEMO_RECORDING.md)), then `Train-Start.cmd --initialize` pretrains first.
 The pre-refactor finite-session guide is in `archive/docs/TRAINING_SESSION.pre-pure.md`.
 
 Reward v10 was stopped by the human October 30 at 13:26:04 CET, final

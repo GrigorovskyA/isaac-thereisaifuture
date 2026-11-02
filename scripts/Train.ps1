@@ -1,7 +1,8 @@
 # Start, stop or inspect pure-profile training (runs\pure-v4) without typing the game paths.
 # Called by Train-Start.cmd, Train-Stop.cmd and Train-Status.cmd in the project root.
+# Record-Demo.cmd calls -Action Record: it only checks that training is stopped.
 param(
-    [Parameter(Mandatory = $true)][ValidateSet('Start', 'Stop', 'Status')][string]$Action,
+    [Parameter(Mandatory = $true)][ValidateSet('Start', 'Stop', 'Status', 'Record')][string]$Action,
     [switch]$Initialize,
     [int]$WaitMinutes = 15
 )
@@ -78,6 +79,15 @@ switch ($Action) {
         Write-Host 'Stop it with Train-Stop.cmd (or Ctrl+C in this window).'
         & $python @arguments
         exit $LASTEXITCODE
+    }
+
+    'Record' {
+        # The demo recorder listens on the training port, so training must be stopped.
+        if ((Get-Trainers).Count -gt 0) {
+            Write-Host 'Training is running and holds the observer port; stop it first with Train-Stop.cmd.'
+            exit 1
+        }
+        if (-not (Test-Path $python)) { Write-Host "Missing: $python"; exit 2 }
     }
 
     'Stop' {

@@ -9,7 +9,7 @@ from types import TracebackType
 from typing import Self, get_args
 
 from .entities import EntitySnapshot, NativeOracleKind
-from .live_wire import LiveSnapshot
+from .live_wire import DEMO_RECORD_CAPABILITY, DemoSnapshot, LiveSnapshot
 from .observation import (
     CAPABILITIES,
     MAX_MESSAGE_BYTES,
@@ -58,8 +58,22 @@ class ObserverConfig:
     native_oracle_kinds: tuple[NativeOracleKind, ...] | None = None
     # Level replay only (contract `level_replay: plr_v1`); needs the live loop.
     seeded_restart: bool = False
+    # Read-only demo recording: live-loop snapshots with the human's input; entity mode only.
+    demo_record: bool = False
 
     def __post_init__(self) -> None:
+        if type(self.demo_record) is not bool:
+            raise ValueError("Demo recording opt-in must be boolean")
+        if self.demo_record and (
+            not self.entity_observations
+            or self.safe_actions
+            or self.restart_after_death
+            or self.native_episode_steps
+            or self.live_loop
+            or self.seeded_restart
+            or self.native_oracle_kinds is not None
+        ):
+            raise ValueError("Demo recording requires entity observations and no other opt-in")
         if type(self.live_loop) is not bool:
             raise ValueError("Live loop opt-in must be boolean")
         if type(self.seeded_restart) is not bool:
@@ -217,6 +231,8 @@ class ObservationClient:
                 required.extend(LIVE_LOOP_CAPABILITIES)
             if self.config.seeded_restart:
                 required.append(SEEDED_RESTART_CAPABILITY)
+            if self.config.demo_record:
+                required.append(DEMO_RECORD_CAPABILITY)
             hello = Hello(session_id=self._session, required_capabilities=required)
             deadline = time.monotonic() + self.config.handshake_timeout
             self._peer.settimeout(self.config.handshake_timeout)
@@ -239,8 +255,10 @@ class ObservationClient:
             raise BridgeError("No negotiated peer")
         try:
             raw = self._read_line(time.monotonic() + self.config.message_timeout)
-            if self.config.live_loop:
-                snap: Snapshot = decode(raw, LiveSnapshot)
+            if self.config.demo_record:
+                snap: Snapshot = decode(raw, DemoSnapshot)
+            elif self.config.live_loop:
+                snap = decode(raw, LiveSnapshot)
             elif self.config.entity_observations or self.config.native_episode_steps:
                 snap = decode(raw, EntitySnapshot)
             else:

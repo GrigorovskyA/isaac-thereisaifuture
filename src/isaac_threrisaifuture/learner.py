@@ -17,6 +17,10 @@ advantage| of the rollout's steps, before any normalization, scores the seeds of
 With contract `intrinsic: e3b_count_v1` the E3B embedding and inverse-dynamics head of `e3b.py`
 pay the env's intrinsic bonus during the rollout and train on the replay (the auxiliary one when
 there is one, else their own) after the PPO epochs and the auxiliary phase.
+With contract `pretraining: demo_bc_v1` training sets `demo_learner` (never saved), and a last
+phase runs behaviour cloning on the human demos (`demo_learning.py`) as a regulariser whose step
+size decays to 0 over the RL timesteps; its loss, weight and caused KL are logged as
+`train/demo_*`.
 `use_entropy_scale` scales the entropy bonus of the last action head (the use head: none, bomb,
 active item, pill/card) against the move and shoot heads; 1 is the upstream bonus. The use head
 gets almost no advantage signal, so the full bonus walks it to uniform (the E3B lineage went from
@@ -51,6 +55,7 @@ from .auxiliary import (
     Replay,
     RolloutRecorder,
 )
+from .demo_learning import DemoLearner
 from .e3b import E3B_COUNT, INTRINSICS, E3BLearner, Intrinsic
 from .e3b import NONE as NO_INTRINSIC
 from .level_replay import SeedBank
@@ -82,7 +87,8 @@ def normalize_rollout_advantages(buffer: RecurrentRolloutBuffer) -> None:
 class PureRecurrentPPO(RecurrentPPO):
     """RecurrentPPO with rollout-level advantages, an epoch-mean KL stop, optional auxiliary
     self-prediction losses (`auxiliary`, with the `aux_*`, `replay_rollouts` and `target_ema`
-    hyperparameters) and an optional E3B intrinsic bonus (`intrinsic`, with the `e3b_*` ones)."""
+    hyperparameters), an optional E3B intrinsic bonus (`intrinsic`, with the `e3b_*` ones) and an
+    optional decaying behaviour-cloning regulariser on human demos (`demo_learner`)."""
 
     def __init__(
         self,
@@ -137,6 +143,8 @@ class PureRecurrentPPO(RecurrentPPO):
         # of each step of the rollout being collected.
         self.level_replay: SeedBank | None = None
         self._step_runs: list[int | None] = []
+        # Behaviour cloning on human demos, set by training (never saved in the model file).
+        self.demo_learner: DemoLearner | None = None
         # Upstream's per-minibatch normalization stays off; `train` normalizes per rollout.
         kwargs["normalize_advantage"] = False
         super().__init__(*args, **kwargs)
@@ -226,6 +234,7 @@ class PureRecurrentPPO(RecurrentPPO):
             "_recorder",
             "level_replay",
             "_step_runs",
+            "demo_learner",
         ]
 
     def _normalizer(self) -> VecNormalize:
@@ -272,7 +281,8 @@ class PureRecurrentPPO(RecurrentPPO):
 
     def train(self) -> None:
         """Update the policy from the rollout buffer (upstream loop, two changes marked), then run
-        the auxiliary phase and the E3B inverse-dynamics phase when the contract has them."""
+        the auxiliary phase, the E3B inverse-dynamics phase and the demo phase when the contract
+        has them."""
         buffer = self.rollout_buffer
         assert isinstance(buffer, RecurrentRolloutBuffer)
         self.policy.set_training_mode(True)
@@ -354,6 +364,8 @@ class PureRecurrentPPO(RecurrentPPO):
             self._auxiliary_phase(buffer)
         if self.e3b_learner is not None:
             self._e3b_phase()
+        if self.demo_learner is not None:
+            self._demo_phase(buffer)
 
         explained_var = explained_variance(buffer.values.flatten(), buffer.returns.flatten())
         self.logger.record("train/entropy_loss", np.mean(entropy_losses))
@@ -433,6 +445,33 @@ class PureRecurrentPPO(RecurrentPPO):
             )
             self.logger.record("train/e3b_idm_loss", loss)
         self.logger.record("train/e3b_seconds", time.perf_counter() - started)
+
+    def _demo_phase(self, buffer: RecurrentRolloutBuffer) -> None:
+        """Behaviour cloning on the demos while its weight is positive; log loss, weight and KL.
+
+        The step size is the weight (`coef_at`, decaying to 0) times the current PPO learning
+        rate, as for `aux_coef`. The KL is that of the policy before and after the phase on the
+        current rollout's actions. At weight 0 the phase is skipped and nothing is logged.
+        """
+        learner = self.demo_learner
+        assert learner is not None
+        coef = learner.coef_at(self.num_timesteps)
+        if coef <= 0 or learner.bc_steps <= 0:
+            return
+        started = time.perf_counter()
+        before = self._rollout_log_probs(buffer)
+        loss = learner.regularize(
+            self,
+            steps=learner.bc_steps,
+            learning_rate=coef * float(self.policy.optimizer.param_groups[0]["lr"]),
+            max_grad_norm=self.max_grad_norm,
+        )
+        log_ratio = (self._rollout_log_probs(buffer) - before).double()
+        kl = float(torch.mean((torch.exp(log_ratio) - 1) - log_ratio).cpu())
+        self.logger.record("train/demo_bc_loss", loss)
+        self.logger.record("train/demo_bc_coef", coef)
+        self.logger.record("train/demo_approx_kl", kl)
+        self.logger.record("train/demo_seconds", time.perf_counter() - started)
 
     @torch.no_grad()
     def _rollout_log_probs(self, buffer: RecurrentRolloutBuffer) -> torch.Tensor:

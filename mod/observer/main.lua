@@ -31,6 +31,17 @@ local actions = {
 }
 -- Live loop: entity observation, actions and restarts in one approved session.
 local live = { on = false }
+-- Demo recording (read-only demo_record_v1, entity mode only): live-loop snapshots with the oracle
+-- block plus the human's input. One mask per game update, oldest first, at most 16 per snapshot.
+local demo = { on = false, masks = {}, dropped = 0 }
+local DEMO_MASK_CAP = 16
+-- Mask bits in the order of live_wire.py HUMAN_INPUT_BITS: held buttons, then triggered uses.
+local DEMO_HELD = { "LEFT", "RIGHT", "UP", "DOWN", "SHOOTLEFT", "SHOOTRIGHT", "SHOOTUP",
+    "SHOOTDOWN", "BOMB", "ITEM", "PILLCARD" }
+local DEMO_TRIGGERED = { "BOMB", "ITEM", "PILLCARD" }
+local function reset_demo_input()
+    demo.masks, demo.dropped = {}, 0
+end
 -- Level replay (opt-in seeded_restart_v1, live loop only): the run's start seed in the oracle
 -- block and an optional validated seed on restarts. `next` arms the seed of the next death
 -- restart for one game epoch; `run` caches the start seed string per epoch.
@@ -257,7 +268,8 @@ close = function(reason)
     restart.requested, restart.armed, restart.pending = false, false, nil
     if state.tcp then pcall(function() state.tcp:close() end) end
     state.tcp, state.session = nil, nil
-    entities.requested, live.on = false, false
+    entities.requested, live.on, demo.on = false, false, false
+    reset_demo_input()
     seeded.on, seeded.next = false, nil
     state.phase, state.rx, state.tx, state.offset = "closed", "", "", 1
     state.next_retry = Isaac.GetTime() + Config.retry_ms
@@ -293,6 +305,7 @@ local function hello(raw, now)
     local advertised = {}
     for _, name in ipairs(capabilities) do advertised[#advertised + 1] = name end
     if entity_capable() then advertised[#advertised + 1] = "entity_observation_v1" end
+    advertised[#advertised + 1] = "demo_record_v1"
     if action_authorized() then
         advertised[#advertised + 1] = "safe_actions_v1"
         if training_mode() and entity_capable() then
@@ -314,6 +327,16 @@ local function hello(raw, now)
         .. '"session_id":"' .. request.session_id .. '","required_capabilities":['
         .. table.concat(names, ",") .. ']}'
     if raw:gsub("%s+", "") ~= canonical then error("Noncanonical hello") end
+    if seen.demo_record_v1 then
+        -- Read-only: entity observations only, never actions, restarts or native episodes.
+        for name in pairs(seen) do
+            if name:match("^oracle_") then error("Demo recording is read-only") end
+        end
+        if not seen.entity_observation_v1 or seen.safe_actions_v1 or seen.death_restart_v1
+            or seen.live_loop_v1 or seen.entity_action_v1 or seen.seeded_restart_v1 then
+            error("Demo recording requires exactly the read-only entity mode")
+        end
+    end
     if seen.seeded_restart_v1 and not seen.live_loop_v1 then
         error("Seeded restarts require the live loop")
     end
@@ -332,6 +355,8 @@ local function hello(raw, now)
         end
     end
     live.on = seen.live_loop_v1 == true
+    demo.on = seen.demo_record_v1 == true
+    reset_demo_input()
     seeded.on, seeded.next = seen.seeded_restart_v1 == true, nil
     entities.requested = seen.entity_observation_v1 == true
     actions.requested = seen.safe_actions_v1 == true
@@ -811,9 +836,9 @@ local function capture_entities(room, player, data)
                     kind == "enemy" and entity or nil)
             end
         end
-        -- Live-loop reward labels only; leaves through the separate oracle block.
+        -- Live-loop and demo reward labels only; leaves through the separate oracle block.
         -- Invisible (e.g. burrowed) enemies stay listed so hiding is not a kill.
-        if live.on and entity:Exists() and not entity:IsDead()
+        if (live.on or demo.on) and entity:Exists() and not entity:IsDead()
             and entity.Type ~= EntityType.ENTITY_FIREPLACE and entity:IsActiveEnemy(false) then
             local max_hp, hp = entity.MaxHitPoints, entity.HitPoints
             if type(max_hp) == "number" and type(hp) == "number" and max_hp > 0
@@ -865,7 +890,7 @@ local function capture_entities(room, player, data)
         for i=1,math.min(#group,entity_caps[kind]) do result[#result+1] = group[i] end
     end
     local oracle = nil
-    if live.on then
+    if live.on or demo.on then
         oracle = { room_clear = room:IsClear() == true, player_dead = player:IsDead() == true,
             enemies = #oracle_enemies > 0 and oracle_enemies or json.EMPTY_ARRAY,
             enemy_overflow = oracle_overflow,
@@ -943,7 +968,13 @@ local function snapshot(now)
         player = data and data.player or json.null,
     }
     if entities.requested then message.entity_frame = data and data.entity_frame or json.null end
-    if live.on then message.oracle = data and data.oracle or json.null end
+    if live.on or demo.on then message.oracle = data and data.oracle or json.null end
+    if demo.on then
+        message.human_input = {
+            masks = #demo.masks > 0 and demo.masks or json.EMPTY_ARRAY, dropped = demo.dropped,
+        }
+        reset_demo_input()
+    end
     queue(message, now)
 end
 
@@ -1116,7 +1147,8 @@ local function pump()
     end
     if err and err ~= "timeout" then close("Peer disconnected"); return end
     if state.phase == "streaming" and #state.tx == 0
-        and now - state.last_sample >= (live.on and Config.live_sample_ms or Config.sample_ms) then
+        and now - state.last_sample
+            >= ((live.on or demo.on) and Config.live_sample_ms or Config.sample_ms) then
         state.last_sample = now
         snapshot(now)
     end
@@ -1226,11 +1258,34 @@ mod:AddCallback(ModCallbacks.MC_POST_RENDER, function()
     if not ok then close("Observer capability/protocol fault: " .. tostring(err)) end
     perf_done("render", started)
 end)
+-- Demo recording: one input mask of player 0 per game update, the oldest dropped beyond the cap.
+-- Only reads input; the mod's own input hook passes real input through while no action is held.
+local function record_input()
+    if not demo.on or not state.active then return end
+    local player = Isaac.GetPlayer(0)
+    if not player then return end
+    local controller, mask, weight = player.ControllerIndex, 0, 1
+    local function bit(read, name)
+        local button = ButtonAction["ACTION_" .. name]
+        assert(type(button) == "number", "Unknown button action")
+        if read(button, controller) == true then mask = mask + weight end
+        weight = weight * 2
+    end
+    for _, name in ipairs(DEMO_HELD) do bit(Input.IsActionPressed, name) end
+    for _, name in ipairs(DEMO_TRIGGERED) do bit(Input.IsActionTriggered, name) end
+    demo.masks[#demo.masks + 1] = mask
+    if #demo.masks > DEMO_MASK_CAP then
+        table.remove(demo.masks, 1)
+        demo.dropped = math.min(demo.dropped + 1, 9007199254740991)
+    end
+end
 mod:AddCallback(ModCallbacks.MC_POST_UPDATE, function()
     local started = Isaac.GetTime()
     state.updates = state.updates + 1
     local ok, err = pcall(action_guard, Isaac.GetTime())
     if not ok then close("Action guard fault: " .. tostring(err)) end
+    local recorded, fault = pcall(record_input)
+    if not recorded then close("Demo input fault: " .. tostring(fault)) end
     perf_done("update", started)
 end)
 mod:AddCallback(ModCallbacks.MC_POST_GAME_STARTED, function(_, continued)
@@ -1242,6 +1297,7 @@ mod:AddCallback(ModCallbacks.MC_POST_GAME_STARTED, function(_, continued)
     state.active, state.epoch, state.visit = true, state.epoch + 1, 0
     restart.pending = nil
     seeded.next, seeded.run = nil, nil
+    reset_demo_input()
     local awaiting = restart.awaiting
     if awaiting then
         restart.awaiting = nil

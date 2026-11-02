@@ -19,7 +19,8 @@ from isaac_threrisaifuture.episodes import Scenario, StepResult
 from isaac_threrisaifuture.sim import SyntheticRoomBackend
 
 TOY = Scenario("toy", "train", 1, 900, enemy_count=1, enemy_hp=7.0)
-CONTRACT_HASH = "54be12af1dcec7f0ade2dc109cbcb2f90b71d6e58cb7d51d17b3b704fa4859cc"
+# The behaviour-cloning lineage (pretraining demo_bc_v1).
+CONTRACT_HASH = "c8a7486b9806f2cd76e3aab5324163659dfb4b3ae41a619ed61a362be8936121"
 
 
 def npc(entity_id, x, y, kind, variant, *, flying=False, invulnerable=False, boss=False):

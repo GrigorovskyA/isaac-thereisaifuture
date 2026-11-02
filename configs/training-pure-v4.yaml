@@ -112,7 +112,12 @@
 # room after 15 s idle (30 s with enemies) and starts the stagnation cost after 3 s. The use head
 # drifted from 85% `none` to about 35% (33-55 active item presses and 0.42 own bomb hits per
 # episode); `use_entropy_scale` 0.2 now gives it a fifth of the entropy bonus.
-# Only `contract` binds the lineage; `hyperparameters` may be tuned between sessions
+# Learning from human demos starts a new lineage with everything above unchanged
+# (`pretraining: demo_bc_v1`). Learning from scratch is very slow, so the fresh model is first
+# behaviour-cloned on the human recordings in runs/demos (section `demo`), and RL then keeps a BC
+# regulariser on the same demos whose weight decays to 0, so PPO does not wash the demo skill out
+# before the critic catches up. The reward v13 contract (54be12af...) is not resumed.
+# Only `contract` binds the lineage; `hyperparameters` and `demo` may be tuned between sessions
 # and are recorded per checkpoint.
 config_version: 2
 status: pure_v4
@@ -137,6 +142,9 @@ contract:
   # needs the redeployed observer mod and disables achievements in replayed (seeded) runs.
   # E3B x cross-run count intrinsic bonus (openspec change e3b-count-intrinsic), column col_e3b.
   intrinsic: e3b_count_v1
+  # Behaviour cloning from the human demos of section `demo` before RL, then a decaying BC
+  # regulariser during RL (demo_learning.py). Absent or `none` keeps the earlier hashes.
+  pretraining: demo_bc_v1
   action_repeat_game_updates: 6
   observation_schema_version: 9
   action_schema_version: 2
@@ -218,3 +226,23 @@ retention:
   keep_every: 100
 watchdog:
   stall_seconds: 30
+demo:
+  # Human recordings (files or directories of *.jsonl.gz), relative to the project root. Their
+  # sha256 go to pretraining.json of the run.
+  recordings: [runs/demos]
+  # BC windows of 64 decisions (BPTT length), 16 windows per minibatch, 10% of the sequences held
+  # out to measure the imitation.
+  seq_len: 64
+  batch_sequences: 16
+  holdout_fraction: 0.1
+  # Fresh lineage only: 20000 Adam steps at 3e-4 after the normalizer is fitted to the demos; a
+  # checkpoint at timestep 0 is published right after, so a crash does not redo it.
+  pretrain_steps: 20000
+  pretrain_learning_rate: 0.0003
+  # RL phase after each update: 32 BC steps at bc_coef x learning_rate, bc_coef falling linearly
+  # to 0 at 1M timesteps. demo_approx_kl in the logs shows how far the phase moved the policy.
+  bc_coef: 1.0
+  bc_steps: 32
+  bc_decay_timesteps: 1000000
+  # Refuse to pretrain on fewer usable demo steps (at the agent's decision rate).
+  min_steps: 20000

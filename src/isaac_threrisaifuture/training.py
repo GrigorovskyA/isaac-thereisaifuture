@@ -5,6 +5,7 @@ Scenarios and the environment factory are parameters; nothing here knows the gam
 """
 
 import argparse
+import hashlib
 import json
 import math
 import time
@@ -113,6 +114,10 @@ class PureContract(BaseModel):
     # Episodic E3B bonus times the cross-run count novelty (e3b.py). `none`, absent or explicit,
     # is left out of the hash, so the earlier contracts keep their hashes.
     intrinsic: Literal["none", "e3b_count_v1"] = "none"
+    # Behaviour cloning from human demos before RL, then a decaying BC regulariser during RL
+    # (demo_learning.py, config section `demo`). `none`, absent or explicit, is left out of the
+    # hash, so the earlier contracts keep their hashes.
+    pretraining: Literal["none", "demo_bc_v1"] = "none"
     action_repeat_game_updates: Annotated[int, Field(gt=0)]
     observation_schema_version: int
     action_schema_version: int
@@ -172,6 +177,8 @@ LEVEL_REPLAY_HYPERPARAMETERS = (
     "plr_staleness",
     "plr_bank_size",
 )
+# Recorded per checkpoint under this key with `pretraining: demo_bc_v1`; never passed to SB3.
+DEMO_HYPERPARAMETERS = "demo"
 # Only the pure learner takes these, always recorded with its checkpoints.
 ENTROPY_HYPERPARAMETERS = ("use_entropy_scale",)
 # The pure learner takes these; recorded per checkpoint only with `intrinsic: e3b_count_v1`.
@@ -216,6 +223,31 @@ class WatchdogConfig(BaseModel):
     stall_seconds: Annotated[float, Field(gt=0)]
 
 
+class DemoConfig(BaseModel):
+    """Human demos of contract `pretraining: demo_bc_v1`; not hashed, recorded per checkpoint."""
+
+    model_config = ConfigDict(strict=True, frozen=True, extra="forbid")
+
+    # Demo recordings (files or directories), relative to the working directory (project root).
+    recordings: Annotated[list[str], Field(min_length=1)]
+    seq_len: Annotated[int, Field(gt=0)] = 64  # BPTT window of one demo chunk
+    batch_sequences: Annotated[int, Field(gt=0)] = 16  # windows per BC minibatch
+    holdout_fraction: Annotated[float, Field(ge=0, lt=1)] = 0.1  # whole sequences held out
+    pretrain_steps: Annotated[int, Field(ge=0)] = 20000  # BC Adam steps of a fresh lineage
+    pretrain_learning_rate: Annotated[float, Field(gt=0)] = 0.0003
+    # Holdout check every pretrain_eval_every steps; the best weights are kept, and pretraining
+    # stops after pretrain_patience checks without a better holdout NLL (0 = never early).
+    pretrain_eval_every: Annotated[int, Field(gt=0)] = 250
+    pretrain_patience: Annotated[int, Field(ge=0)] = 6
+    # RL phase: bc_steps BC steps per update at bc_coef x the PPO learning rate, the coefficient
+    # falling linearly to 0 at bc_decay_timesteps.
+    bc_coef: Annotated[float, Field(ge=0)] = 1.0
+    bc_steps: Annotated[int, Field(ge=0)] = 32
+    bc_decay_timesteps: Annotated[int, Field(ge=0)] = 1_000_000
+    # A fresh lineage refuses to pretrain on fewer demo steps than this.
+    min_steps: Annotated[int, Field(ge=0)] = 20000
+
+
 class PureTrainingConfig(BaseModel):
     """Config version 2: one continuous lineage; only `contract` is hashed."""
 
@@ -229,6 +261,7 @@ class PureTrainingConfig(BaseModel):
     retention: RetentionConfig
     watchdog: WatchdogConfig
     live: LiveConfig = LiveConfig(pause_during_updates=False)
+    demo: DemoConfig | None = None  # required with contract `pretraining: demo_bc_v1` only
 
     @property
     def seed(self) -> int:
@@ -291,6 +324,10 @@ def load_training_config(path: Path = DEFAULT_CONFIG) -> tuple[AnyTrainingConfig
                 )
             if pure.hyperparameters.batch_size > pure.hyperparameters.n_steps:
                 raise TrainingConfigError("batch_size must not exceed n_steps")
+            if (contract.pretraining == "demo_bc_v1") != (pure.demo is not None):
+                raise TrainingConfigError(
+                    "A demo section is required with pretraining demo_bc_v1 and only then"
+                )
             return pure, contract_hash(raw["contract"])
         config = TrainingConfig.model_validate(raw)
     except (OSError, yaml.YAMLError, ValidationError) as error:
@@ -303,10 +340,10 @@ def load_training_config(path: Path = DEFAULT_CONFIG) -> tuple[AnyTrainingConfig
 
 
 def contract_hash(contract: dict[str, Any]) -> str:
-    """Lineage hash of a contract section; `level_replay: none` and `intrinsic: none` are left
-    out (absent = none)."""
+    """Lineage hash of a contract section; `level_replay`, `intrinsic` and `pretraining` set to
+    `none` are left out (absent = none)."""
     hashed = dict(contract)
-    for name in ("level_replay", "intrinsic"):
+    for name in ("level_replay", "intrinsic", "pretraining"):
         if hashed.get(name) == "none":
             del hashed[name]
     return config_hash(hashed)
@@ -354,9 +391,11 @@ def apply_use_head_prior(model: Any, none_probability: float) -> None:
 
 def _hyperparameters(config: AnyTrainingConfig) -> dict[str, Any]:
     """Hyperparameters recorded per checkpoint; the PLR ones only under `plr_v1`, the E3B ones
-    only under `e3b_count_v1`."""
+    only under `e3b_count_v1`, the demo section (key `demo`) only under `demo_bc_v1`."""
     if isinstance(config, PureTrainingConfig):
         values = config.hyperparameters.model_dump()
+        if config.demo is not None:
+            values[DEMO_HYPERPARAMETERS] = config.demo.model_dump()
         if config.contract.level_replay == "none":
             for name in LEVEL_REPLAY_HYPERPARAMETERS:
                 del values[name]
@@ -501,6 +540,10 @@ def train(
     With contract `intrinsic: e3b_count_v1` the env (an `IsaacCombatEnv` whose ledger fills
     `novelty_counts`) gets the learner's E3B bonus; its state is saved per checkpoint and restored
     on resume (missing state is an error). Frozen evaluation never builds or pays it.
+    With contract `pretraining: demo_bc_v1` the demos of the `demo` section are loaded before any
+    environment exists (too few steps for a fresh lineage is an error). A fresh lineage fits the
+    normalizer to them, is behaviour-cloned, writes `pretraining.json` and publishes a checkpoint
+    at timestep 0; a resumed one only gets the decaying BC regulariser (none once it is 0).
     """
     pure = isinstance(config, PureTrainingConfig)
     hyper = _hyperparameters(config)
@@ -511,7 +554,8 @@ def train(
     if e3b and novelty_counts is None:
         raise TrainingConfigError("The E3B bonus needs the cross-run novelty counts")
     # What SB3 builds the model from; the seed bank alone reads the PLR hyperparameters.
-    learner_hyper = {k: v for k, v in hyper.items() if k not in LEVEL_REPLAY_HYPERPARAMETERS}
+    skipped = (*LEVEL_REPLAY_HYPERPARAMETERS, DEMO_HYPERPARAMETERS)
+    learner_hyper = {k: v for k, v in hyper.items() if k not in skipped}
     if config.status == TEMPLATE_STATUS and not allow_template:
         raise TrainingConfigError("Configuration is a template; refusing to run without opt-in")
     checkpoints = out_dir / "checkpoints"
@@ -534,6 +578,8 @@ def train(
         else None
     )
     device = require_device(config.device)
+    demo_learner = _demo_learner(config, seed, parent.timesteps if parent else None, on_progress)
+    pretrained = False
     import torch
     from stable_baselines3.common.monitor import Monitor
     from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
@@ -621,7 +667,12 @@ def train(
             )
             if isinstance(config, PureTrainingConfig):
                 apply_use_head_prior(model, config.use_head_initial_none_probability)
+                if demo_learner is not None:
+                    _pretrain(model, venv, demo_learner, config, out_dir, on_progress)
+                    pretrained = True
 
+        if demo_learner is not None:
+            model.demo_learner = demo_learner  # BC regulariser, never saved in the model
         if level_replay is not None:
             model.level_replay = level_replay  # scored from each rollout, never saved in the model
         if e3b:
@@ -650,7 +701,37 @@ def train(
     done = parent.timesteps if parent else 0
     parent_id = parent.checkpoint_id if parent else None
     reason: StopReason = "completed"
+
+    def publish(timesteps: int, parent_checkpoint_id: str | None) -> str:
+        rng = capture_rng_state()
+        rng["torch"] = torch.get_rng_state().tolist()
+        if on_progress is not None:
+            on_progress("checkpointing", {"timesteps": timesteps})
+        manifest = save_checkpoint(
+            checkpoints,
+            model=model,
+            vec_normalize=venv,
+            algorithm=config.algorithm,
+            cfg_hash=cfg_hash,
+            seed=seed,
+            timesteps=timesteps,
+            parent_checkpoint_id=parent_checkpoint_id,
+            rng_state=rng,
+            reward_contract=reward_contract,
+            hyperparameters=hyper,
+            retention=retention,
+            novelty_counts=novelty_counts,
+            auxiliary=getattr(model, "auxiliary_learner", None),
+            level_replay=level_replay,
+            e3b=getattr(model, "e3b_learner", None),
+        )
+        if on_progress is not None:
+            on_progress("checkpoint_completed", {"id": manifest.checkpoint_id, "steps": timesteps})
+        return manifest.checkpoint_id
+
     try:
+        if pretrained:  # a crash in the first rollout must not redo the pretraining
+            parent_id = publish(done, parent_id)
         while done < target:
             if time.monotonic() >= deadline:
                 reason = "wall_time"
@@ -664,31 +745,7 @@ def train(
                 callback=callbacks or None,
             )
             done = int(model.num_timesteps)
-            rng = capture_rng_state()
-            rng["torch"] = torch.get_rng_state().tolist()
-            if on_progress is not None:
-                on_progress("checkpointing", {"timesteps": done})
-            manifest = save_checkpoint(
-                checkpoints,
-                model=model,
-                vec_normalize=venv,
-                algorithm=config.algorithm,
-                cfg_hash=cfg_hash,
-                seed=seed,
-                timesteps=done,
-                parent_checkpoint_id=parent_id,
-                rng_state=rng,
-                reward_contract=reward_contract,
-                hyperparameters=hyper,
-                retention=retention,
-                novelty_counts=novelty_counts,
-                auxiliary=getattr(model, "auxiliary_learner", None),
-                level_replay=level_replay,
-                e3b=getattr(model, "e3b_learner", None),
-            )
-            parent_id = manifest.checkpoint_id
-            if on_progress is not None:
-                on_progress("checkpoint_completed", {"id": parent_id, "steps": done})
+            parent_id = publish(done, parent_id)
     finally:
         if pause_callback is not None:
             pause_callback.release()  # never leave the game paused behind a failed update
@@ -696,6 +753,104 @@ def train(
             metrics_callback.flush()  # the last row waited for that resume
         venv.close()
     return TrainingResult(seed, reason, done, parent_id, time.monotonic() - started)
+
+
+def _demo_learner(
+    config: AnyTrainingConfig,
+    seed: int,
+    parent_timesteps: int | None,
+    on_progress: Callable[[str, Any], None] | None,
+) -> Any:
+    """Load the demos of a `demo_bc_v1` lineage into a DemoLearner; None for other contracts.
+
+    A fresh lineage (no parent) refuses fewer than `min_steps` demo steps. A resumed one whose
+    regulariser has already decayed to 0 needs no demos and gets None.
+    """
+    if not isinstance(config, PureTrainingConfig) or config.contract.pretraining != "demo_bc_v1":
+        return None
+    demo = config.demo
+    assert demo is not None
+    from . import demo_dataset
+    from .demo_learning import DemoLearner, linear_coef
+
+    if parent_timesteps is not None:
+        if linear_coef(demo.bc_coef, demo.bc_decay_timesteps, parent_timesteps) <= 0:
+            return None
+    paths = [Path(path) for path in demo.recordings]
+    missing = [path.as_posix() for path in paths if not path.exists()]
+    if missing:
+        raise TrainingConfigError(f"Demo recordings not found: {missing} (from {Path.cwd()})")
+    stall_seconds, calm_seconds = demo_dataset.watchdog_limits(config.contract.reward_version)
+    sequences = demo_dataset.load_demos(
+        paths,
+        repeat=config.contract.action_repeat_game_updates,
+        stall_seconds=stall_seconds,
+        calm_seconds=calm_seconds,
+    )
+    steps = sum(len(sequence.actions) for sequence in sequences)
+    if not sequences or (parent_timesteps is None and steps < demo.min_steps):
+        raise TrainingConfigError(
+            f"Demo recordings {demo.recordings} hold {steps} usable steps in {len(sequences)} "
+            f"sequences; pretraining needs at least demo.min_steps = {demo.min_steps}"
+        )
+    if on_progress is not None:
+        on_progress("demos", demo_dataset.describe(sequences))
+    return DemoLearner(
+        sequences,
+        seq_len=demo.seq_len,
+        batch_sequences=demo.batch_sequences,
+        holdout_fraction=demo.holdout_fraction,
+        seed=seed,
+        bc_coef=demo.bc_coef,
+        bc_steps=demo.bc_steps,
+        bc_decay_timesteps=demo.bc_decay_timesteps,
+    )
+
+
+def _recording_hashes(recordings: Sequence[str]) -> list[dict[str, str]]:
+    """sha256 of every recording file the demos were loaded from, in load order."""
+    from .demo_dataset import recordings as recording_files
+
+    rows: list[dict[str, str]] = []
+    for path in recording_files([Path(recording) for recording in recordings]):
+        digest = hashlib.sha256()
+        with path.open("rb") as stream:
+            for block in iter(lambda: stream.read(1 << 20), b""):
+                digest.update(block)
+        rows.append({"path": path.as_posix(), "sha256": digest.hexdigest()})
+    return rows
+
+
+def _pretrain(
+    model: Any,
+    venv: Any,
+    learner: Any,
+    config: PureTrainingConfig,
+    out_dir: Path,
+    on_progress: Callable[[str, Any], None] | None,
+) -> None:
+    """Fit the normalizer to the demos, behaviour-clone the fresh model, write pretraining.json."""
+    demo = config.demo
+    assert demo is not None
+    learner.fit_normalizer(venv)
+    summary = learner.pretrain(
+        model,
+        steps=demo.pretrain_steps,
+        learning_rate=demo.pretrain_learning_rate,
+        max_grad_norm=model.max_grad_norm,
+        log_every=demo.pretrain_eval_every,
+        patience=demo.pretrain_patience,
+        log=(lambda row: on_progress("pretraining", row)) if on_progress is not None else None,
+    )
+    if on_progress is not None:
+        on_progress("pretraining_completed", summary)
+    record = {
+        "summary": summary,
+        "recordings": _recording_hashes(demo.recordings),
+        "demo": demo.model_dump(),
+    }
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "pretraining.json").write_text(json.dumps(record, indent=2), "utf-8")
 
 
 def _restore_auxiliary(

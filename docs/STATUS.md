@@ -5,6 +5,14 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Direction
 
+- Demo pretraining lineage prepared (2026-11-02, openspec change `demo-pretraining-v1`): the
+  human records games with `Record-Demo.cmd` (observer capability `demo_record_v1`, files in
+  `runs/demos`, guide [DEMO_RECORDING](DEMO_RECORDING.md)); a fresh lineage behaviour-clones them
+  (contract `pretraining: demo_bc_v1`, early stop on the holdout, `pretraining.json`, checkpoint
+  at step 0), then RL runs with a BC regulariser decaying to 0 at 1M steps. Contract
+  `c8a7486b9806f2cd76e3aab5324163659dfb4b3ae41a619ed61a362be8936121`; training refuses fewer
+  than 20000 demo steps. Next: redeploy the mod, record 2-5 h, keep `runs/pure-v4` as
+  `runs/pure-v4-reward-v13`, `--initialize`. Native tasks open.
 - Reward v13 training stopped by the user November 2 at 14:46 CET; source `3b75a3c`,
   contract `54be12af1dcec7f0ade2dc109cbcb2f90b71d6e58cb7d51d17b3b704fa4859cc`.
   Final checkpoint `54be12af-s1-t80896`; model, normalizer, novelty counts, auxiliary

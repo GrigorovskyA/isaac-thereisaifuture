@@ -90,3 +90,45 @@ class LiveCommandAck(WireModel):
     frame_id: Counter
     kind: CommandKind
     status: Literal["accepted", "rejected"]
+
+
+# Capability `demo_record_v1`: read-only snapshots with the oracle block and the human's input.
+DEMO_RECORD_CAPABILITY = "demo_record_v1"
+# Bits of one human input mask, one mask per game update: the buttons held on that update, then the
+# use buttons triggered (newly pressed) on it.
+HUMAN_INPUT_BITS = (
+    "move_left",
+    "move_right",
+    "move_up",
+    "move_down",
+    "shoot_left",
+    "shoot_right",
+    "shoot_up",
+    "shoot_down",
+    "bomb",
+    "active",
+    "pillcard",
+    "bomb_triggered",
+    "active_triggered",
+    "pillcard_triggered",
+)
+MAX_HUMAN_INPUT_MASKS = 16
+HumanInputMask = Annotated[int, Field(ge=0, lt=1 << len(HUMAN_INPUT_BITS))]
+
+
+class HumanInput(WireModel):
+    """Input of player 0 per game update since the previous snapshot, oldest first.
+
+    The last mask belongs to the snapshot's frame. Updates beyond `MAX_HUMAN_INPUT_MASKS` are
+    counted in `dropped`, oldest first. Masks are only collected while a run is active.
+    """
+
+    masks: Annotated[list[HumanInputMask], Field(max_length=MAX_HUMAN_INPUT_MASKS)]
+    dropped: Counter
+
+
+class DemoSnapshot(LiveSnapshot):
+    """Snapshot of a demo recording: a live snapshot plus the human's input. Labels only: the
+    input never reaches the encoder, the policy or the normalizer."""
+
+    human_input: HumanInput
