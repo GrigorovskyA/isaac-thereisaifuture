@@ -7,11 +7,11 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 - Demo pretraining lineage prepared: contract
   `c8a7486b9806f2cd76e3aab5324163659dfb4b3ae41a619ed61a362be8936121`, source
-  `92d378d`. The user played the first recording smoke; 1566/20000 steps across
-  two sessions, 321.733 active seconds (~4.87 steps/s), move and shoot labels in
-  all directions, no dropped input masks. [Smoke report](../reports/2026-11-02-demo-recording-smoke.md).
-  Bomb labels need a controlled check: five observed held-bit starts but only two
-  triggered masks; game placements and input semantics are not yet established.
+  `92d378d`. Two user approaches total 3046/20000 steps across four recorded
+  sessions, 625.167 active seconds (~4.87 steps/s). Second approach: user reported
+  three bombs, matching three recorded labels; one message timeout caused a reconnect.
+  Earlier approach had five observed held-bit starts but two triggered masks; input
+  semantics and any disconnected-interval loss remain uncertain. [Smoke report](../reports/2026-11-02-demo-recording-smoke.md).
   More recordings are needed before preserving reward v13 and `--initialize`;
   native BC/gameplay tasks remain open. [Recording guide](DEMO_RECORDING.md).
 - Reward v13 training stopped by the user November 2 at 14:46 CET; source `3b75a3c`,
