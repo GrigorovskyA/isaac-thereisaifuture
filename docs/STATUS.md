@@ -1,19 +1,20 @@
 # Project status
 
-Updated 2026-11-01 (Europe/Amsterdam). Current state only; dated evidence is history.
+Updated 2026-11-02 (Europe/Amsterdam). Current state only; dated evidence is history.
 The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Direction
 
-- E3B pure-v4 training active as of November 1 21:56 CET, source `dc21b2e`,
+- E3B pure-v4 training stopped by the user November 2 at 07:55 CET; source `dc21b2e`,
   contract `db85924fdb4f26190d287bf67336aabaa77aca941602016fcebfc5054a64cf21`.
-  First checkpoints >=75k/150k were t75776/t150528; milestone bytes later rotated.
-  At 150k observed-step bounds, 3+ rooms 75/980 = 7.7%, rooms/episode 1.829,
-  stalls 69.6%, kills/1k 7.027. First E3B session recorded a checkpoint-file
-  read fault and user cancellation; later sessions resumed and training continued.
-  Latest t157696 five artifacts matched manifest at review. See [75k](../reports/2026-11-01-e3b-75k.md),
-  [150k](../reports/2026-11-01-e3b-150k.md), [20-minute audit](../reports/2026-11-01-e3b-20-minute-audit.md).
-  Native gameplay acceptance remains open; training continues.
+  Final checkpoint `db85924f-s1-t273408`; model, normalizer, novelty counts,
+  auxiliary and E3B state hashes matched manifest. Final session user_cancelled,
+  learner exit 0, fault null, cleanup errors empty, status writes skipped 0; game,
+  worker, supervisor and listener absent, stop.forever present. Hourly monitoring
+  was deleted before the stop. First E3B session had a checkpoint-file read fault;
+  later sessions resumed. See [75k](../reports/2026-11-01-e3b-75k.md),
+  [150k](../reports/2026-11-01-e3b-150k.md), [audit](../reports/2026-11-01-e3b-20-minute-audit.md).
+  Native gameplay acceptance remains open; no automatic continuation is authorized.
 - Pure self-learning since 2026-10-22 ([decision](UPDATE_DECISION.md)). RecurrentPPO
   learns from raw facts and outcome rewards, plus one potential-based door term since
   reward v9: no scripted setup, advice features or technique rewards. Archive content is history, not runtime authority.
