@@ -20,4 +20,6 @@
 - [x] 2.1 Offline gate and strict OpenSpec validation; `scripts/smoke_rl.py`.
 - [ ] 2.2 Windows `scripts/Check.ps1`; rename `runs\pure-v4` to `runs\pure-v4-e3b`; native
   session with `Train-Start.cmd --initialize`; 20-minute audit.
-- [ ] 2.3 Native 75k and 150k reports against the E3B lineage at equal steps.
+- [ ] 2.3 Native 75k and 150k reports against the E3B lineage at equal steps, including
+  `move_*`, `shoot_*` and `use_none` distributions. Do not use the weighted v13
+  `entropy_loss` as a share of 4.6 nats or compare it with unweighted E3B entropy.

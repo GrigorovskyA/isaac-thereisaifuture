@@ -168,6 +168,12 @@ fifth of `ent_coef`, because it had walked from 85% `none` to about 35% (33-55 a
 presses and 0.42 own bomb hits per episode) while the per-step entropy stayed at 87% of the
 maximum.
 
+Reward v13 `train.csv` records `entropy_loss` from the weighted objective
+`H_move + H_shoot + 0.2 * H_use`. Its magnitude is not directly comparable with the
+unweighted E3B entropy or 4.6 nats, and a smaller value does not establish that movement
+or shooting became less random. For 75k and 150k comparisons, report the `move_*`,
+`shoot_*` and `use_none` action shares at the same step bounds.
+
 Full-batch structured learner (openspec change `full-batch-structured-learner`; reward v12 and
 observation schema 9 unchanged). Rewards v9-v12 all plateaued at about 2 rooms per episode
 (7-12% of the episodes reached 3+ rooms) although the returns ranked rooms correctly (1 room

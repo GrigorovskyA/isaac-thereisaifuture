@@ -51,7 +51,9 @@ take it because the policy commits to little at all, and half of its experience 
 - Offline gate (`scripts/check.sh` / `Check.ps1`) and strict OpenSpec validation pass.
 - Native run against the E3B lineage at equal steps (75k and 150k), from `episodes.csv` and
   `train.csv`: 3+ room share at least 25% from 100k on, rooms per episode above 2.2, stall share
-  below 55%, per-step entropy falling below 80% of the maximum, use `none` share above 60%.
+  below 55%, and use `none` share above 60%. Report the `move_*` and `shoot_*` action
+  distributions and `use_none` at the same bounds. Do not compare v13 `entropy_loss` against
+  4.6 nats or the E3B lineage's unweighted entropy: v13 weights the use head by 0.2.
 
 ## Impact
 
