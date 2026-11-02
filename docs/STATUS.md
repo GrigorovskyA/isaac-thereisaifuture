@@ -10,7 +10,8 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
   `92d378d`. The user played the first recording smoke; 1566/20000 steps across
   two sessions, 321.733 active seconds (~4.87 steps/s), move and shoot labels in
   all directions, no dropped input masks. [Smoke report](../reports/2026-11-02-demo-recording-smoke.md).
-  Exact correspondence of use labels to physical presses is not independently verified.
+  Bomb labels need a controlled check: five observed held-bit starts but only two
+  triggered masks; game placements and input semantics are not yet established.
   More recordings are needed before preserving reward v13 and `--initialize`;
   native BC/gameplay tasks remain open. [Recording guide](DEMO_RECORDING.md).
 - Reward v13 training stopped by the user November 2 at 14:46 CET; source `3b75a3c`,

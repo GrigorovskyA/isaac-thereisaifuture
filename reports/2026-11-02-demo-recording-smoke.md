@@ -13,3 +13,7 @@
 The recordings contain 3,335 and 3,367 snapshots, respectively, with 3,157 and 3,083 active snapshots and 4,822 and 4,831 input updates. No claim is made that the use labels match every physical press without an independent record of what the user pressed. Two mod sessions were recorded; the reason for the session boundary was not independently established.
 
 Current dataset: 1,566 / 20,000 decision steps; 18,434 remain. Further human-play sessions are required before the requested new-lineage initialization. This smoke does not validate behaviour cloning quality or gameplay improvement. Raw recordings stay under `runs/demos` and are not committed.
+
+## Follow-up: bomb press discrepancy
+
+The user recalled using more bombs than the two dataset labels. Readback of the two raw streams found five observed starts of the bomb-held bit (with a previous frame present), but only two bomb-triggered masks, which yielded the two dataset bomb labels. The other three held starts had no trigger in the following five recorded updates. The active-mask overflow counter was zero. A held input start does not independently prove that the game successfully placed a bomb; game trigger semantics, availability/cooldowns, polling and action-window behavior remain unverified. Treat bomb-label completeness as a blocker to claiming the recording is fully qualified; conduct a controlled count of deliberate presses and actual placements before relying on bomb labels. Existing recordings remain intact.
