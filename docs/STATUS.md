@@ -5,15 +5,16 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Direction
 
-- Demo pretraining lineage prepared: contract
-  `c8a7486b9806f2cd76e3aab5324163659dfb4b3ae41a619ed61a362be8936121`, source
-  `92d378d`. Two user approaches total 3046/20000 steps across four recorded
-  sessions, 625.167 active seconds (~4.87 steps/s). Second approach: user reported
-  three bombs, matching three recorded labels; one message timeout caused a reconnect.
-  Earlier approach had five observed held-bit starts but two triggered masks; input
-  semantics and any disconnected-interval loss remain uncertain. [Smoke report](../reports/2026-11-02-demo-recording-smoke.md).
-  More recordings are needed before preserving reward v13 and `--initialize`;
-  native BC/gameplay tasks remain open. [Recording guide](DEMO_RECORDING.md).
+- Demo-pretrained pure-v4 training active November 2 from 19:16 CET, source code
+  `92d378d`, contract `c8a7486b9806f2cd76e3aab5324163659dfb4b3ae41a619ed61a362be8936121`.
+  20,099 demo steps; pretraining selected step 750. Holdout move accuracy 50.4%
+  versus majority 26.3%, shoot 78.2% versus 44.5%, use 99.51% equal to baseline;
+  only two held-out sequences. At 20 minutes after step-0 checkpoint, 44 completed
+  episodes averaged 1.659 rooms; t4096 files matched manifest. First four auxiliary
+  KL values 0.308, 0.138, 0.121, 0.106 warrant attention; no tuning was applied.
+  [Pretraining and audit](../reports/2026-11-02-demo-pretraining-20-minute-audit.md),
+  [recording smoke](../reports/2026-11-02-demo-recording-smoke.md). Native gameplay
+  improvement remains unproven; the run continues.
 - Reward v13 training stopped by the user November 2 at 14:46 CET; source `3b75a3c`,
   contract `54be12af1dcec7f0ade2dc109cbcb2f90b71d6e58cb7d51d17b3b704fa4859cc`.
   Final checkpoint `54be12af-s1-t80896`; model, normalizer, novelty counts, auxiliary
