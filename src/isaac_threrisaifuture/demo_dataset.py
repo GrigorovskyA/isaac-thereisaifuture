@@ -18,13 +18,14 @@ import zlib
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
 
-from .demo_recorder import read_recording
+from .demo_recorder import IDLE_LIMIT_SECONDS, read_recording
 from .encoding import OBSERVATION_SIZE, VisitedCells, encode
 from .entities import OBSERVATION_SCHEMA_VERSION, OracleEvent
 from .episodes import DIRECTIONS, USES
@@ -33,7 +34,7 @@ from .live_wire import HUMAN_INPUT_BITS, DemoSnapshot
 from .stall_watchdog import DEFAULT_STALL_SECONDS, RunProgress, StallWatchdog
 
 # Bump when a labeling or replay rule changes: it invalidates every cache.
-LABELER_VERSION = 1
+LABELER_VERSION = 4
 MIN_STEPS = 8
 GAME_UPDATES_PER_SECOND = 30
 RECORDING_GLOB = "*.jsonl.gz"
@@ -154,6 +155,7 @@ class _Decision:
     frame_id: int
     observation: NDArray[np.float16]
     velocity: tuple[float, float]
+    segment_end: int | None = None
 
 
 @dataclass
@@ -168,6 +170,7 @@ class _Run:
     decisions: list[_Decision] = field(default_factory=list)
     masks: dict[int, int] = field(default_factory=dict)
     last_frame: int = 0
+    segment_start: int = 0
 
 
 class _Replay:
@@ -195,6 +198,8 @@ class _Replay:
         self.run: _Run | None = None
         self.finished: set[tuple[str, int]] = set()  # runs that ended in a death
         self.sequences: list[DemoSequence] = []
+        self.resume_room = False
+        self.resume_preserve_target = False
 
     def feed(self, t: float, snap: DemoSnapshot) -> None:
         self.clock.now = t
@@ -213,9 +218,16 @@ class _Replay:
             self._watch(run, snap, ())
             return
         assert snap.frame_id is not None and run.current.frame_id is not None
-        if snap.frame_id <= run.current.frame_id:
+        if snap.frame_id <= run.current.frame_id and not self.resume_room:
             return
-        events = self.deriver.update(snap)
+        if self.resume_room:
+            events = self.deriver.begin(snap)
+            self.resume_room = False
+            if not self.resume_preserve_target:
+                run.target = snap.frame_id
+            self.resume_preserve_target = False
+        else:
+            events = self.deriver.update(snap)
         run.current = snap
         self._watch(run, snap, events)
         if snap.oracle is not None and snap.oracle.player_dead:
@@ -232,11 +244,16 @@ class _Replay:
         pending: list[tuple[_Decision, tuple[int, int, int]]] = []
         for decision in run.decisions:
             window = [
-                run.masks.get(frame) if frame <= run.last_frame else None
+                run.masks.get(frame)
+                if frame <= run.last_frame
+                and (decision.segment_end is None or frame <= decision.segment_end)
+                else None
                 for frame in range(decision.frame_id + 1, decision.frame_id + self.repeat + 1)
             ]
             label = label_window(window, decision.velocity)
             if label is None:
+                if decision.segment_end is not None:
+                    continue  # no evidence for the old file's unfinished boundary window
                 self._flush(run, pending)
                 pending = []
             else:
@@ -343,6 +360,176 @@ def replay_recording(
     )
     for t, snap in records:
         replay.feed(t, snap)
+    replay.close()
+    return replay.sequences
+
+
+@dataclass(frozen=True)
+class _Boundary:
+    created: datetime | None
+    first_receipt: float | None
+    first: tuple[float, DemoSnapshot] | None
+    last: tuple[float, DemoSnapshot] | None
+    last_active: tuple[float, DemoSnapshot] | None
+
+
+def _boundary(path: Path) -> _Boundary:
+    """Read the identity and time evidence at a recording boundary."""
+    manifest, records = read_recording(path)
+    try:
+        created = (
+            datetime.fromisoformat(manifest["created_at"]) if manifest.get("created_at") else None
+        )
+    except (TypeError, ValueError):
+        created = None
+    first = last = last_active = None
+    first_receipt = None
+    for t, snap in records:
+        if first_receipt is None:
+            first_receipt = t
+        if snap.oracle is not None and snap.frame_id is not None:
+            if first is None:
+                first = (t, snap)
+            last = (t, snap)
+            if snap.status == "active":
+                last_active = (t, snap)
+    return _Boundary(created, first_receipt, first, last, last_active)
+
+
+def _continues(previous: _Boundary, current: _Boundary) -> bool:
+    earlier, later = previous.last, current.first
+    if earlier is None or later is None or previous.last_active is None:
+        return False
+    t1, a = earlier
+    t2, b = later
+    assert a.oracle is not None and b.oracle is not None
+    active = previous.last_active[1]
+    if active.oracle is None or active.oracle.player_dead:
+        return False
+    if a.entity_frame is None or b.entity_frame is None or a.player is None or b.player is None:
+        return False
+    room_a, room_b = a.entity_frame.room, b.entity_frame.room
+    gap_seconds = t2 - t1
+    if not 0 <= gap_seconds <= IDLE_LIMIT_SECONDS:
+        if previous.created is None or current.created is None or previous.first_receipt is None:
+            return False
+        try:
+            gap_seconds = (current.created - previous.created).total_seconds() - (
+                t1 - previous.first_receipt
+            )
+        except TypeError:
+            return False
+    if (
+        a.frame_id is None
+        or b.frame_id is None
+        or b.frame_id < 300
+        or not 0 <= gap_seconds <= IDLE_LIMIT_SECONDS
+        or not a.frame_id - 900 <= b.frame_id <= a.frame_id + 30 * gap_seconds + 300
+        or (room_a.stage, room_a.stage_type, a.player.character_type)
+        != (room_b.stage, room_b.stage_type, b.player.character_type)
+        or (
+            a.oracle.run_seed is not None
+            and b.oracle.run_seed is not None
+            and a.oracle.run_seed != b.oracle.run_seed
+        )
+    ):
+        return False
+    return True
+
+
+def _groups(paths: Sequence[Path]) -> list[list[Path]]:
+    groups: list[list[Path]] = []
+    previous = None
+    entries = [(path, _boundary(path)) for path in paths]
+    entries.sort(
+        key=lambda entry: (
+            entry[1].created.timestamp() if entry[1].created else float("inf"),
+            str(entry[0]),
+        )
+    )
+    for path, boundary in entries:
+        if groups and previous is not None and _continues(previous, boundary):
+            groups[-1].append(path)
+        else:
+            groups.append([path])
+        previous = boundary
+    return groups
+
+
+def replay_recordings(
+    paths: Sequence[Path],
+    *,
+    repeat: int,
+    stall_seconds: float,
+    calm_seconds: float | None,
+    min_steps: int = MIN_STEPS,
+) -> list[DemoSequence]:
+    """Replay a verified continuation group without resetting its run state."""
+    replay = _Replay(
+        paths[0].name,
+        repeat=repeat,
+        stall_seconds=stall_seconds,
+        calm_seconds=calm_seconds,
+        min_steps=min_steps,
+    )
+    canonical_session: str | None = None
+    epoch_offset = 0
+    frame_offset = 0
+    previous_end: tuple[float, int] | None = None
+    for file_index, path in enumerate(paths):
+        _, records = read_recording(path)
+        boundary_pending = file_index > 0
+        shift_pending = file_index > 0
+        epoch_pending = file_index > 0
+        file_end: tuple[float, int] | None = None
+        for t, snap in records:
+            if snap.frame_id is not None and snap.oracle is not None:
+                file_end = (t, snap.frame_id)
+                if boundary_pending and replay.run is not None:
+                    run = replay.run
+                    contiguous = (
+                        previous_end is not None
+                        and 0 <= t - previous_end[0] <= 1.0
+                        and 0 <= snap.frame_id - previous_end[1] <= repeat
+                    )
+                    if not contiguous:
+                        for decision in run.decisions[run.segment_start :]:
+                            if decision.frame_id + repeat > run.last_frame:
+                                decision.segment_end = run.last_frame
+                    run.segment_start = len(run.decisions)
+                    run.watchdog.reset()
+                    replay.resume_room = True
+                    replay.resume_preserve_target = contiguous
+                    boundary_pending = False
+            if canonical_session is None:
+                canonical_session = snap.session_id
+            if epoch_pending:
+                if replay.run is not None:
+                    epoch_offset = replay.run.key[1] - snap.game_epoch
+                epoch_pending = False
+            if shift_pending and snap.frame_id is not None:
+                if replay.run is not None and snap.frame_id + frame_offset < replay.run.last_frame:
+                    frame_offset = replay.run.last_frame + 1 - snap.frame_id
+                shift_pending = False
+            frame = snap.entity_frame
+            if frame is not None:
+                frame = frame.model_copy(
+                    update={
+                        "session_id": canonical_session,
+                        "game_epoch": frame.game_epoch + epoch_offset,
+                        "frame_id": frame.frame_id + frame_offset,
+                    }
+                )
+            snap = snap.model_copy(
+                update={
+                    "session_id": canonical_session,
+                    "game_epoch": snap.game_epoch + epoch_offset,
+                    "entity_frame": frame,
+                    "frame_id": None if snap.frame_id is None else snap.frame_id + frame_offset,
+                }
+            )
+            replay.feed(t, snap)
+        previous_end = file_end
     replay.close()
     return replay.sequences
 
@@ -459,15 +646,27 @@ def load_demos(
         repeat=repeat, stall_seconds=stall_seconds, calm_seconds=calm_seconds, min_steps=min_steps
     )
     sequences: list[DemoSequence] = []
-    for path in recordings(paths):
+    for group in _groups(recordings(paths)):
+        path = group[0]
         target = cache_path(path, **options) if cache else None
+        if target is not None and len(group) > 1:
+            digest = hashlib.sha256()
+            for member in group:
+                with member.open("rb") as stream:
+                    while chunk := stream.read(1 << 20):
+                        digest.update(chunk)
+            target = target.with_name(f"{target.stem}-{digest.hexdigest()[:16]}.npz")
         if target is not None and target.exists():
             try:
                 sequences.extend(_load(target))
                 continue
             except (OSError, ValueError, KeyError, EOFError, zlib.error):
                 pass  # a corrupt or foreign cache is rebuilt
-        found = replay_recording(path, **options)
+        found = (
+            replay_recording(path, **options)
+            if len(group) == 1
+            else replay_recordings(group, **options)
+        )
         if target is not None:
             try:
                 _save(target, found)

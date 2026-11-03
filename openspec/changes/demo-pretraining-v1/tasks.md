@@ -22,3 +22,12 @@
 - [ ] 2.3 2-5 hours of recordings; `--initialize` of the new lineage; pretraining report (holdout
   accuracy per head against the majority class); 20-minute audit; 75k-step comparison with the
   E3B and reward v13 lineages at equal steps.
+
+## 3. Recording gaps and continuation
+
+- [x] 3.1 Preserve the demo peer and buffer across short timeouts; close at a bounded idle limit.
+- [x] 3.2 Record run-seed metadata and stitch continuation groups under the agreed boundary rule;
+  invalidate caches.
+- [x] 3.3 Test silent gaps, split/unsplit fidelity and different run identities and boundaries.
+- [x] 3.4 Pass the Windows quality gate and strict validation; document the native floor-change
+  and two-minute alt-tab recording check, without changing existing recordings.

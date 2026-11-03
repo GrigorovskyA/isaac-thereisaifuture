@@ -1,5 +1,6 @@
 """Demo recordings to BC sequences: labels, decision points, cache, and live-env fidelity."""
 
+import copy
 import gzip
 import json
 from pathlib import Path
@@ -7,6 +8,7 @@ from typing import Any
 
 import numpy as np
 import pytest
+from demo_boundary_fixtures import BOUNDARIES
 from demo_fixtures import BIT, SESSION, demo_raw, parse, write_recording
 
 from isaac_threrisaifuture import demo_dataset
@@ -215,6 +217,162 @@ def long_stream() -> Stream:
     for index in range(30):
         stream.add(frames=3, x=120.0 + 10 * index)
     return stream
+
+
+def _seeded_records():
+    stream = Stream(frame=350)
+    for index in range(30):
+        stream.add(
+            frames=3,
+            x=120.0 + 10 * index,
+            room_index=84 if index < 15 else 85,
+            visit=1 if index < 15 else 2,
+        )
+    records = copy.deepcopy(stream.records)
+    for _, raw in records:
+        raw["oracle"]["run_seed"] = "AAAA BBBB"
+    return records
+
+
+def _new_session(records):
+    for _, raw in records:
+        raw["session_id"] = "e" * 32
+        raw["entity_frame"]["session_id"] = "e" * 32
+    return records
+
+
+def test_split_same_run_matches_unsplit_vectors_and_actions(tmp_path):
+    records = _seeded_records()
+    whole = write_recording(tmp_path / "whole.jsonl.gz", records)
+    a = write_recording(tmp_path / "a.jsonl.gz", records[:15])
+    b = write_recording(tmp_path / "b.jsonl.gz", _new_session(copy.deepcopy(records[15:])))
+    expected = load(whole)
+    actual = load_demos(
+        [a, b], repeat=3, stall_seconds=STALL, calm_seconds=CALM, cache=False, min_steps=1
+    )
+    assert len(expected) == len(actual) == 1
+    assert np.array_equal(actual[0].frames, expected[0].frames)
+    assert np.array_equal(actual[0].observations, expected[0].observations)
+    assert np.array_equal(actual[0].actions, expected[0].actions)
+
+
+def test_split_different_seed_stays_separate(tmp_path):
+    records = _seeded_records()
+    later = _new_session(copy.deepcopy(records[15:]))
+    for _, raw in later:
+        raw["oracle"]["run_seed"] = "CCCC DDDD"
+    a = write_recording(tmp_path / "a.jsonl.gz", records[:15])
+    b = write_recording(tmp_path / "b.jsonl.gz", later)
+    actual = load_demos(
+        [a, b], repeat=3, stall_seconds=STALL, calm_seconds=CALM, cache=False, min_steps=1
+    )
+    assert len(actual) == 2
+
+
+def test_missing_seeds_and_reloaded_epoch_allow_small_rewind(tmp_path):
+    records = _seeded_records()
+    earlier = copy.deepcopy(records[:15])
+    later = _new_session(copy.deepcopy(records[15:]))
+    for _, raw in earlier + later:
+        raw["oracle"]["run_seed"] = None
+    for _, raw in later:
+        raw["game_epoch"] = 2
+        raw["entity_frame"]["game_epoch"] = 2
+        raw["frame_id"] -= 12
+        raw["entity_frame"]["frame_id"] -= 12
+    a = write_recording(tmp_path / "a.jsonl.gz", earlier)
+    b = write_recording(tmp_path / "b.jsonl.gz", later)
+    assert demo_dataset._groups([a, b]) == [[a, b]]
+    [sequence] = load_demos(
+        [a, b], repeat=3, stall_seconds=STALL, calm_seconds=CALM, cache=False, min_steps=1
+    )
+    assert len(sequence.actions) > 15
+
+
+@pytest.mark.parametrize("boundary", ["late", "frame_back", "death", "stage", "character"])
+def test_split_unsafe_boundaries_stay_separate(tmp_path, boundary):
+    records = _seeded_records()
+    earlier = copy.deepcopy(records[:15])
+    later = _new_session(copy.deepcopy(records[15:]))
+    if boundary == "late":
+        later = [(t + 1801, raw) for t, raw in later]
+    elif boundary == "frame_back":
+        for _, raw in later:
+            raw["frame_id"] -= 200
+            raw["entity_frame"]["frame_id"] -= 200
+    elif boundary == "stage":
+        for _, raw in later:
+            raw["entity_frame"]["room"]["stage"] = 3
+    elif boundary == "character":
+        for _, raw in later:
+            raw["player"]["character_type"] = 2
+    else:
+        earlier[-1][1]["oracle"]["player_dead"] = True
+    a = write_recording(tmp_path / "a.jsonl.gz", earlier)
+    b = write_recording(tmp_path / "b.jsonl.gz", later)
+    assert demo_dataset._groups([a, b]) == [[a], [b]]
+
+
+def test_group_cache_depends_on_every_recording(tmp_path):
+    records = _seeded_records()
+    a = write_recording(tmp_path / "a.jsonl.gz", records[:15])
+    b = write_recording(tmp_path / "b.jsonl.gz", _new_session(copy.deepcopy(records[15:])))
+    options = dict(repeat=3, stall_seconds=STALL, calm_seconds=CALM, min_steps=1)
+    first = load_demos([a, b], **options)
+    cached = load_demos([a, b], **options)
+    assert np.array_equal(first[0].observations, cached[0].observations)
+    before = set(tmp_path.glob("*.npz"))
+    later = _new_session(copy.deepcopy(records[15:]))
+    later[-2][1]["human_input"]["masks"] = [RIGHT] * 3
+    write_recording(b, later)
+    updated = load_demos([a, b], **options)
+    assert not np.array_equal(first[0].actions, updated[0].actions)
+    assert len(set(tmp_path.glob("*.npz")) - before) == 1
+
+
+def test_legacy_boundary_regression_fixture():
+    def boundary(item):
+        _, first, last, active_dead = item
+
+        def snap(values, dead=False):
+            _, frame_id, stage, stage_type, character, _ = values
+            raw = demo_raw(1, frame_id, dead=dead)
+            raw["entity_frame"]["room"]["stage"] = stage
+            raw["entity_frame"]["room"]["stage_type"] = stage_type
+            raw["player"]["character_type"] = character
+            return parse(raw)
+
+        return demo_dataset._Boundary(
+            None,
+            first[0],
+            (first[0], snap(first)),
+            (last[0], snap(last)),
+            (last[0], snap(last, dead=active_dead)),
+        )
+
+    expected = {
+        "20261102-135928",
+        "20261102-140605",
+        "20261102-140916",
+        "20261102-150907",
+        "20261103-105033",
+        "20261103-110043",
+        "20261103-110054",
+        "20261103-110114",
+        "20261103-111604",
+        "20261103-111740",
+        "20261103-112033",
+        "20261103-112337",
+        "20261103-112440",
+        "20261103-113834",
+    }
+    assert len(BOUNDARIES) == 36
+    actual = {
+        b[0]
+        for a, b in zip(BOUNDARIES, BOUNDARIES[1:], strict=False)
+        if demo_dataset._continues(boundary(a), boundary(b))
+    }
+    assert actual == expected
 
 
 def test_truncated_gzip_tail_is_tolerated(tmp_path):

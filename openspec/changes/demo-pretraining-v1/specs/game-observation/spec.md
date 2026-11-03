@@ -25,3 +25,11 @@ as `dropped`. The policy frame MUST NOT contain the human input.
 - **WHEN** the player holds left and shoot up for two updates and presses the bomb button once
 - **THEN** the next snapshot has two masks with the left and shoot-up bits and one of them has the
   bomb-triggered bit
+
+### Requirement: Demo run identity metadata
+In demo mode the observer SHALL include the current run start seed in the oracle metadata when
+available, or null when unavailable. The seed MUST NOT be encoded as a policy observation.
+
+#### Scenario: Recording seed
+- **WHEN** the game exposes the run start seed during a demo snapshot
+- **THEN** the snapshot carries it in the oracle block for offline continuity checks

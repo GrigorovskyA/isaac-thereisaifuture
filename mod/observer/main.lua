@@ -902,7 +902,7 @@ local function capture_entities(room, player, data)
         if #doors > 0 then oracle.doors = doors end
         for i, id in ipairs(metrics.killed) do oracle.killed[i] = id end
         for _, name in ipairs(HIT_CLASSES) do oracle.player_hits[name] = metrics.hits[name] end
-        if seeded.on then oracle.run_seed = run_seed() or json.null end
+        if seeded.on or demo.on then oracle.run_seed = run_seed() or json.null end
     end
     local map, off_grid = minimap()
     local held, held_overflow, tag_counts = collectible_list(player, data.frame)

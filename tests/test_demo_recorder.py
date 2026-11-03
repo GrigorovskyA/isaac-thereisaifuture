@@ -3,6 +3,7 @@
 import gzip
 import json
 import socket
+import time
 from datetime import UTC, datetime
 
 import pytest
@@ -14,7 +15,7 @@ from isaac_threrisaifuture import demo_recorder
 from isaac_threrisaifuture.demo_recorder import DemoWriter, read_recording, record_session
 from isaac_threrisaifuture.entities import OBSERVATION_SCHEMA_VERSION
 from isaac_threrisaifuture.live_wire import DEMO_RECORD_CAPABILITY, DemoSnapshot
-from isaac_threrisaifuture.observation import HelloAck
+from isaac_threrisaifuture.observation import BridgeTimeout, HelloAck
 from isaac_threrisaifuture.observer_client import ObservationClient, ObserverConfig
 
 pytest_plugins = ["test_observer"]
@@ -142,6 +143,45 @@ def test_session_file_has_manifest_and_round_trips(peers, tmp_path):
         stored = [json.loads(line) for line in stream][1:]
     for (_, snap), line in zip(pairs, stored, strict=True):
         assert DemoSnapshot.model_validate_json(json.dumps(line["snapshot"])) == snap
+
+
+def test_silent_five_second_gap_keeps_one_file_and_partial_buffer(peers, tmp_path):
+    def send(conn, session):
+        second = record(demo_raw(session, 2))
+        conn.sendall(record(demo_ack(session)) + record(demo_raw(session, 1)) + second[:12])
+        time.sleep(5.0)
+        conn.sendall(second[12:] + record(demo_raw(session, 3)))
+
+    logs = []
+    config = ObserverConfig(port=0, entity_observations=True, demo_record=True)
+    with ObservationClient(config) as client:
+        peers(client.address, send)
+        writer = record_session(client, client.accept(), tmp_path, log=logs.append)
+    _, records = read_recording(writer.path)
+    assert [s.sequence for _, s in records] == [1, 2, 3]
+    assert len(list(tmp_path.glob("*.jsonl.gz"))) == 1
+    assert logs.count("waiting (game paused or loading)") == 1
+
+
+def test_idle_limit_closes_peer_after_one_gap_notice(monkeypatch, tmp_path):
+    class SilentClient:
+        closed = False
+
+        def receive(self):
+            raise BridgeTimeout("silent")
+
+        def close_peer(self):
+            self.closed = True
+
+    now = iter([0.0, 0.0, 0.0, 1800.0])
+    # DemoWriter uses the same clock during construction.
+    monkeypatch.setattr(demo_recorder, "IDLE_LIMIT_SECONDS", 1800.0)
+    client = SilentClient()
+    lines = []
+    record_session(client, hello_ack(), tmp_path, log=lines.append, clock=lambda: next(now))
+    assert client.closed
+    assert lines.count("waiting (game paused or loading)") == 1
+    assert "Session ended: idle limit reached" in lines
 
 
 def test_menu_only_session_leaves_no_file(peers, tmp_path):

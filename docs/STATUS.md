@@ -5,13 +5,17 @@ The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Direction
 
+- Demo gap handling and continuation stitching passed offline checks (1,787 tests and
+  37/37 strict specs) and a human recording with a floor transition and two-minute pause.
+  The updated mod is deployed; training remains stopped.
+  [Evidence](../reports/2026-11-03-demo-recorder-gaps.md).
 - Demo-pretrained pure-v4 training stopped by the user November 3 at 11:05 CET;
   source code `92d378d`, contract `c8a7486b9806f2cd76e3aab5324163659dfb4b3ae41a619ed61a362be8936121`.
   Final `c8a7486b-s1-t198656`; model, normalizer, novelty counts, auxiliary and
   E3B hashes matched manifest. Final session learner exit 0, cleanup errors empty,
   status writes skipped 0, but result state fault retains one episode-581 command
   acknowledgement timeout. The first session completed at its wall-time boundary.
-  Game, worker, supervisor and listener absent; stop.forever present.
+  Game, worker, supervisor and training listener were absent at stop; stop.forever present.
   Pretraining selected step 750, holdout move 50.4% vs 26.3% majority and shoot
   78.2% vs 44.5% (two holdout sequences); use matched majority 99.51%.
   [Pretraining and audit](../reports/2026-11-02-demo-pretraining-20-minute-audit.md),

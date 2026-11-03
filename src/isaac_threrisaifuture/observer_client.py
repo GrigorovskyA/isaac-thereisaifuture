@@ -250,7 +250,7 @@ class ObservationClient:
             raise
 
     def receive(self) -> Snapshot:
-        """Read one validated state; failures invalidate this connection."""
+        """Read one validated state; demo-only timeouts preserve the peer and buffer."""
         if self._peer is None or self._session is None:
             raise BridgeError("No negotiated peer")
         try:
@@ -265,6 +265,10 @@ class ObservationClient:
                 snap = decode(raw, Snapshot)
             self._validate_snapshot(snap)
             return snap
+        except BridgeTimeout:
+            if not self.config.demo_record:
+                self.close_peer()
+            raise
         except BaseException:
             self.close_peer()
             raise

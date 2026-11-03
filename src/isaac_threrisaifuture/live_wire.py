@@ -58,8 +58,8 @@ class LiveOracle(WireModel):
     doors: Annotated[list[OracleDoor], Field(max_length=DOOR_SLOTS)]
     # Level grid index of the current room (13x13 grid), -1 when off the grid. Reward label only.
     room_grid: Annotated[int, Field(ge=-1, le=168)]
-    # Start seed of the current run, only with capability `seeded_restart_v1` (null when the game
-    # gives none). Level replay metadata: never an input of the encoder, policy or normalizer.
+    # Start seed, only in seeded restart or demo recording mode (null when unavailable).
+    # Metadata only: never an input of the encoder, policy or normalizer.
     run_seed: RunSeed | None = None
 
     @model_validator(mode="after")

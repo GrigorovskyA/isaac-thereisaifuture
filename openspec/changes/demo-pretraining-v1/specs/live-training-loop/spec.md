@@ -10,11 +10,48 @@ while the training port is in use. A truncated tail SHALL be readable up to the 
 - **WHEN** the game connects in demo mode and the human plays
 - **THEN** a new file holds the manifest and every snapshot with its receipt time
 
+### Requirement: Demo gaps do not end a live peer
+During demo recording a receive timeout SHALL preserve the peer and buffered bytes and retry
+with the same short read deadline. One waiting message SHALL be emitted per silence gap. A
+disconnect, protocol failure or 30-minute idle limit SHALL end the session. Training-mode
+timeout behavior SHALL remain unchanged.
+
+#### Scenario: Temporary loading gap
+- **WHEN** an established demo peer sends no complete snapshot for five seconds and resumes
+- **THEN** the recorder keeps one file and records subsequent snapshots from that peer
+
+### Requirement: Continuation across recordings
+Consecutive recordings ordered by creation time SHALL be treated as one run when the earlier last
+active snapshot is alive, the gap is within the idle limit, the later first frame is at least 300
+and lies between the earlier last frame minus 900 and that frame plus 30 times the gap in seconds
+plus 300, and stage, stage type and character type match.
+
+#### Scenario: A verified reconnect
+- **WHEN** a later recording meets the boundary rule and continues the earlier run
+- **THEN** decision vectors, labels and sequence boundaries match replaying the same unsplit stream
+
+### Requirement: Optional seed agreement
+Both known run seeds MUST match for continuation. Missing seeds do not prevent continuation.
+Kills, epoch and visit IDs MUST NOT be used to reject a boundary.
+
+#### Scenario: Different known seeds
+- **WHEN** both boundary seeds are known and differ
+- **THEN** the dataset keeps the recordings in separate runs
+
+### Requirement: Preserve replay state across continuation
+The replay SHALL preserve run progress, visited cells and the sequence at a stitched boundary,
+resetting the watchdog and room event state. Its cache key SHALL cover all grouped recordings
+and derivation rules.
+
+#### Scenario: Room state across reconnect
+- **WHEN** a verified continuation is replayed
+- **THEN** run and visited-cell history remains available while the room event baseline is reset
+
 ### Requirement: Demo decision points
 `demo_dataset.load_demos` SHALL place a decision at each first playable snapshot at least
 `action_repeat_game_updates` frames after the previous one. A death, a new run or a window with
-more than half of its masks missing SHALL end a sequence. Results SHALL be cached per recording
-and derivation key.
+more than half of its masks missing SHALL end a sequence. Results SHALL be cached per verified
+recording group and derivation key.
 
 #### Scenario: Death
 - **WHEN** the player dies in a recording

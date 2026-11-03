@@ -21,6 +21,17 @@ OpenSpec change: `openspec/changes/demo-pretraining-v1`.
 4. Close the window or press Ctrl+C when done. The file is flushed every second, so a crash loses
    at most the last second.
 
+During a loading screen or an alt-tab pause, a short receive timeout does not end the recording.
+The recorder prints `waiting (game paused or loading)` once for a silent gap, keeps listening in
+short intervals, and closes the session after 30 minutes without a snapshot. A real disconnect
+still creates a new recording when the game reconnects.
+
+New recordings include the run start seed as oracle metadata, not as a policy input. The dataset
+can join adjacent files from the same apparent run using the player's alive state, timing, frame,
+stage, stage type and character; it also checks the seed when both files have one. This allows
+older seedless recordings to be grouped, but cannot prove identity. Cache keys change when the
+replay rules or any grouped recording change; existing raw recordings are never rewritten.
+
 Check what was recorded:
 `.venv\Scripts\python.exe -m isaac_threrisaifuture.demo_dataset runs\demos`
 (steps, minutes of play and the label mix per action head).

@@ -7,6 +7,7 @@ from test_lua_entities import STUBS as ENTITY_STUBS
 from test_lua_entities import fill_worst_case
 from test_lua_live_loop import LIVE_STUBS, build_live, hello, live_snapshots, records
 from test_lua_observer import build_lua, tick
+from test_lua_seeded_restart import SEED_STUBS
 
 from isaac_threrisaifuture.live_wire import (
     DEMO_RECORD_CAPABILITY,
@@ -75,6 +76,15 @@ def demo():
     hello(lua, DEMO)
     assert not lua.globals().CLOSED
     return lua
+
+
+def test_demo_records_seed_as_oracle_metadata():
+    lua = build_demo()
+    lua.execute(SEED_STUBS)
+    hello(lua, DEMO)
+    tick(lua, 20)
+    snap = demo_snapshots(lua)[-1]
+    assert snap.oracle is not None and snap.oracle.run_seed == "AAAA BBBB"
 
 
 def test_demo_record_is_advertised_without_approval_and_negotiated(demo):

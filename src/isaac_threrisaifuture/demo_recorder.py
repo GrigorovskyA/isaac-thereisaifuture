@@ -29,6 +29,7 @@ UPDATES_PER_SECOND = 30
 FLUSH_SECONDS = 1.0
 STATUS_SECONDS = 30.0
 ACCEPT_TIMEOUT = 5.0
+IDLE_LIMIT_SECONDS = 30 * 60.0
 _READ_CHUNK = 1 << 16
 
 
@@ -176,16 +177,30 @@ def record_session(
     log: Callable[[str], None] = print,
     clock: Callable[[], float] = time.monotonic,
 ) -> DemoWriter:
-    """Write snapshots until the session ends (BridgeError) or Ctrl+C; the file is closed.
+    """Write snapshots until disconnect, protocol failure, idle limit, or Ctrl+C.
 
     A file without any active snapshot is removed.
     """
     writer = DemoWriter(out, ack, clock=clock)
     log(f"Recording {writer.path}")
     status_at = clock() + STATUS_SECONDS
+    last_received = clock()
+    waiting = False
     try:
         while True:
-            snapshot = client.receive()
+            try:
+                snapshot = client.receive()
+            except BridgeTimeout:
+                if not waiting:
+                    log("waiting (game paused or loading)")
+                    waiting = True
+                if clock() - last_received >= IDLE_LIMIT_SECONDS:
+                    log("Session ended: idle limit reached")
+                    client.close_peer()
+                    break
+                continue
+            last_received = clock()
+            waiting = False
             assert isinstance(snapshot, DemoSnapshot)
             writer.write(clock(), snapshot)
             if clock() >= status_at:
