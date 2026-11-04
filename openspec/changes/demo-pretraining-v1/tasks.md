@@ -31,3 +31,13 @@
 - [x] 3.3 Test silent gaps, split/unsplit fidelity and different run identities and boundaries.
 - [x] 3.4 Pass the Windows quality gate and strict validation; document the native floor-change
   and two-minute alt-tab recording check, without changing existing recordings.
+
+## 4. Character filter
+
+- [x] 4.1 Record `character_type` per decision point in sequences and caches (labeler version 5).
+- [x] 4.2 `demo.characters` (default: characters that play like Isaac) filters after the cache;
+  a dropped character splits a sequence, a switch between kept ones does not.
+- [x] 4.3 Dataset CLI prints kept steps per character, recorded characters and dropped steps;
+  `--characters` option.
+- [x] 4.4 Tests: per-step characters, split and keep rules, cache round trip, CLI, config default.
+- [ ] 4.5 Windows `scripts/Check.ps1`; the current recordings keep 36154 steps in 19 sequences.

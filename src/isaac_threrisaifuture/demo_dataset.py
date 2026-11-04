@@ -16,7 +16,7 @@ import json
 import os
 import zlib
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -34,10 +34,19 @@ from .live_wire import HUMAN_INPUT_BITS, DemoSnapshot
 from .stall_watchdog import DEFAULT_STALL_SECONDS, RunProgress, StallWatchdog
 
 # Bump when a labeling or replay rule changes: it invalidates every cache.
-LABELER_VERSION = 4
+LABELER_VERSION = 5
 MIN_STEPS = 8
 GAME_UPDATES_PER_SECOND = 30
 RECORDING_GLOB = "*.jsonl.gz"
+# Character of a decision point whose snapshot has no player (never kept by a filter).
+UNKNOWN_CHARACTER = -1
+# Characters (`PlayerType`) whose play transfers to Isaac, the character the agent plays: plain
+# tears and ordinary health. Isaac, Magdalene, Cain, Judas, ???, Eve, Samson, Lazarus, Lazarus
+# risen, Dark Judas, Apollyon, Bethany and Tainted Isaac (21). Left out: Azazel, Eden, The Lost,
+# Lilith, Keeper, The Forgotten and The Soul, Jacob and Esau, and the other tainted characters,
+# whose attacks, health or core mechanic differ. They are kept for a lineage that observes the
+# character.
+DEFAULT_CHARACTERS = (0, 1, 2, 3, 4, 5, 6, 8, 11, 12, 15, 18, 21)
 
 _BIT = {name: 1 << index for index, name in enumerate(HUMAN_INPUT_BITS)}
 # Label order of the move and shoot heads, without "none" (index 0).
@@ -56,7 +65,8 @@ class DemoSequence:
     `observations` are raw encoder vectors (T, OBSERVATION_SIZE) stored as float16; `actions` are
     (T, 3) indices of move, shoot and use in the order of `episodes.DIRECTIONS` and `USES`.
     `seconds` is the game time the sequence covers (its decision frames plus the last action);
-    `frames` holds the game frame of each decision point.
+    `frames` holds the game frame of each decision point and `characters` the player's
+    `character_type` there (`UNKNOWN_CHARACTER` without a player).
     """
 
     observations: NDArray[np.float16]
@@ -64,6 +74,7 @@ class DemoSequence:
     source: str
     seconds: float = 0.0
     frames: NDArray[np.int64] | None = None
+    characters: NDArray[np.int64] | None = None
 
 
 def watchdog_limits(reward_version: int = 13) -> tuple[float, float | None]:
@@ -155,6 +166,7 @@ class _Decision:
     frame_id: int
     observation: NDArray[np.float16]
     velocity: tuple[float, float]
+    character: int = UNKNOWN_CHARACTER
     segment_end: int | None = None
 
 
@@ -272,6 +284,9 @@ class _Replay:
                 source=f"{self.source}:{session[:8]}:{epoch}:{first}",
                 seconds=(last + self.repeat - first) / GAME_UPDATES_PER_SECOND,
                 frames=np.array([decision.frame_id for decision, _ in pending], dtype=np.int64),
+                characters=np.array(
+                    [decision.character for decision, _ in pending], dtype=np.int64
+                ),
             )
         )
 
@@ -326,6 +341,7 @@ class _Replay:
                 frame.frame_id,
                 encoded.vector.astype(np.float16),
                 (0.0, 0.0) if velocity is None else (velocity.x, velocity.y),
+                UNKNOWN_CHARACTER if snap.player is None else snap.player.character_type,
             )
         )
         run.target = frame.frame_id + self.repeat
@@ -569,6 +585,12 @@ def _save(target: Path, sequences: Sequence[DemoSequence]) -> None:
     observations = [s.observations for s in sequences]
     actions = [s.actions for s in sequences]
     frames = [np.array([], np.int64) if s.frames is None else s.frames for s in sequences]
+    characters = [
+        np.full(len(s.actions), UNKNOWN_CHARACTER, np.int64)
+        if s.characters is None
+        else s.characters
+        for s in sequences
+    ]
     temporary = target.with_name(f"{target.name}.{os.getpid()}.tmp.npz")
     np.savez_compressed(
         temporary,
@@ -577,6 +599,7 @@ def _save(target: Path, sequences: Sequence[DemoSequence]) -> None:
         ),
         actions=np.concatenate([np.zeros((0, 3), dtype=np.int64), *actions]),
         frames=np.concatenate([np.zeros(0, dtype=np.int64), *frames]),
+        characters=np.concatenate([np.zeros(0, dtype=np.int64), *characters]),
         lengths=np.array([len(s.actions) for s in sequences], dtype=np.int64),
         seconds=np.array([s.seconds for s in sequences], dtype=np.float64),
         sources=np.array([s.source for s in sequences], dtype=np.str_),
@@ -587,12 +610,14 @@ def _save(target: Path, sequences: Sequence[DemoSequence]) -> None:
 def _load(target: Path) -> list[DemoSequence]:
     with np.load(target, allow_pickle=False) as data:
         observations, actions, frames = data["observations"], data["actions"], data["frames"]
+        characters = data["characters"]
         lengths, seconds, sources = data["lengths"], data["seconds"], data["sources"]
     if (
         observations.dtype != np.float16
         or observations.shape[1:] != (OBSERVATION_SIZE,)
         or actions.shape != (len(observations), 3)
         or frames.shape != (len(observations),)
+        or characters.shape != (len(observations),)
         or int(lengths.sum()) != len(observations)
         or not len(lengths) == len(seconds) == len(sources)
     ):
@@ -601,16 +626,75 @@ def _load(target: Path) -> list[DemoSequence]:
         return []
     bounds = np.cumsum(lengths)[:-1]
     return [
-        DemoSequence(obs, act.astype(np.int64), str(source), float(span), ids.astype(np.int64))
-        for obs, act, source, span, ids in zip(
+        DemoSequence(
+            obs,
+            act.astype(np.int64),
+            str(source),
+            float(span),
+            ids.astype(np.int64),
+            types.astype(np.int64),
+        )
+        for obs, act, source, span, ids, types in zip(
             np.split(observations, bounds),
             np.split(actions, bounds),
             sources,
             seconds,
             np.split(frames, bounds),
+            np.split(characters, bounds),
             strict=True,
         )
     ]
+
+
+# --- character filter -------------------------------------------------------------------
+
+
+def filter_characters(
+    sequences: Sequence[DemoSequence],
+    characters: Collection[int],
+    *,
+    repeat: int,
+    min_steps: int = MIN_STEPS,
+) -> list[DemoSequence]:
+    """Only the decision points of `characters`; a point outside them splits its sequence.
+
+    A switch between two kept characters (Lazarus rising, Judas turning dark) stays in one
+    sequence: it is the same run. Pieces shorter than `min_steps` are dropped. A sequence
+    without per-step characters counts as `UNKNOWN_CHARACTER` and is dropped.
+    """
+    allowed = np.array(sorted(set(characters)), dtype=np.int64)
+    kept: list[DemoSequence] = []
+    for sequence in sequences:
+        types = (
+            np.full(len(sequence.actions), UNKNOWN_CHARACTER, np.int64)
+            if sequence.characters is None
+            else sequence.characters
+        )
+        keep = np.isin(types, allowed)
+        if keep.all():
+            kept.append(sequence)
+            continue
+        edges = np.flatnonzero(np.diff(np.concatenate(([0], keep.astype(np.int8), [0]))))
+        for start, stop in zip(edges[::2], edges[1::2], strict=True):
+            if stop - start < min_steps:
+                continue
+            frames = None if sequence.frames is None else sequence.frames[start:stop]
+            seconds = (
+                sequence.seconds * (stop - start) / len(sequence.actions)
+                if frames is None
+                else (int(frames[-1]) + repeat - int(frames[0])) / GAME_UPDATES_PER_SECOND
+            )
+            kept.append(
+                DemoSequence(
+                    observations=sequence.observations[start:stop],
+                    actions=sequence.actions[start:stop],
+                    source=f"{sequence.source}+{start}",
+                    seconds=seconds,
+                    frames=frames,
+                    characters=types[start:stop],
+                )
+            )
+    return kept
 
 
 # --- public API -------------------------------------------------------------------------
@@ -632,6 +716,7 @@ def load_demos(
     calm_seconds: float | None,
     cache: bool = True,
     min_steps: int = MIN_STEPS,
+    characters: Collection[int] | None = None,
 ) -> list[DemoSequence]:
     """Behaviour-cloning sequences of every recording in `paths`, in file order.
 
@@ -640,7 +725,8 @@ def load_demos(
     unavailable snapshots only feed the watchdog; a death or a new run ends the run. A decision
     whose action window has more than half of its masks missing splits the sequence, and
     sequences shorter than `min_steps` are dropped. With `cache`, results are kept beside each
-    recording (`cache_path`); a missing or corrupt cache is rebuilt.
+    recording (`cache_path`); a missing or corrupt cache is rebuilt. With `characters`, only
+    their decision points are kept (`filter_characters`); the cache holds every character.
     """
     options: dict[str, Any] = dict(
         repeat=repeat, stall_seconds=stall_seconds, calm_seconds=calm_seconds, min_steps=min_steps
@@ -673,6 +759,8 @@ def load_demos(
             except OSError:
                 pass  # a read-only recording folder only costs the next replay
         sequences.extend(found)
+    if characters is not None:
+        return filter_characters(sequences, characters, repeat=repeat, min_steps=min_steps)
     return sequences
 
 
@@ -689,7 +777,19 @@ def describe(sequences: Sequence[DemoSequence]) -> dict[str, Any]:
         "sequences": len(sequences),
         "seconds": round(sum(s.seconds for s in sequences), 3),
         "labels": labels,
+        "characters": _character_steps(sequences),
     }
+
+
+def _character_steps(sequences: Sequence[DemoSequence]) -> dict[str, int]:
+    """Decision steps per `character_type`, as strings for JSON."""
+    counts: Counter[int] = Counter()
+    for sequence in sequences:
+        if sequence.characters is None:
+            counts[UNKNOWN_CHARACTER] += len(sequence.actions)
+        else:
+            counts.update(sequence.characters.tolist())
+    return {str(character): count for character, count in sorted(counts.items())}
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -699,9 +799,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--reward-version", type=int, default=13, help="source of stall limits")
     parser.add_argument("--min-steps", type=int, default=MIN_STEPS)
     parser.add_argument("--no-cache", action="store_true")
+    parser.add_argument(
+        "--characters",
+        default=",".join(map(str, DEFAULT_CHARACTERS)),
+        help="comma-separated character types to keep (default: the training default), or 'all'",
+    )
     args = parser.parse_args(argv)
     stall, calm = watchdog_limits(args.reward_version)
-    sequences = load_demos(
+    every = load_demos(
         args.paths,
         repeat=args.repeat,
         stall_seconds=stall,
@@ -709,7 +814,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         cache=not args.no_cache,
         min_steps=args.min_steps,
     )
-    print(json.dumps(describe(sequences), indent=2))
+    if args.characters == "all":
+        kept = every
+    else:
+        try:
+            wanted = [int(value) for value in args.characters.split(",") if value.strip()]
+        except ValueError:
+            parser.error("--characters takes comma-separated integers or 'all'")
+        kept = filter_characters(every, wanted, repeat=args.repeat, min_steps=args.min_steps)
+    summary = describe(kept)
+    summary["dropped_steps"] = describe(every)["steps"] - summary["steps"]
+    summary["recorded_characters"] = _character_steps(every)
+    print(json.dumps(summary, indent=2))
     return 0
 
 

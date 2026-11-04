@@ -8,6 +8,16 @@ capture or screen coordinates. The user authorized local menu-only keyboard inpu
 gameplay state and actions use the Lua/API bridge. A script launcher is distinct from a
 development-session runner and does not require an orchestrator.
 
+## Gameplay milestones (user, 2026-11-03)
+
+The target is every floor and every character, not only Mom on floor 6. Planned order, each
+step gated on the previous one: Isaac clears floors 1-2 reliably; Isaac reaches and beats Mom;
+Isaac reaches the later floors and alternate paths (Womb, Cathedral and Sheol, Chest and Dark
+Room, Blue Womb, Void, Mausoleum to Home); then other characters, which needs the character in
+the observation, character choice in the menu and per-character demos (a new lineage). Demo
+recordings of every character are kept for that step; until then `demo.characters` uses only
+characters that play like Isaac.
+
 ## Present increment
 
 Start-IsaacAgent.cmd now attempts bounded local file2/Continue entry without

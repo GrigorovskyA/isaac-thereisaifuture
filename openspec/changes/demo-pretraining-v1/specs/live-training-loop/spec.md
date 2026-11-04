@@ -85,6 +85,21 @@ demos, train the policy on the NLL of the demo actions for `pretrain_steps`, wri
 - **WHEN** `--initialize` starts a `demo_bc_v1` lineage with enough recordings
 - **THEN** the first checkpoint is the pretrained policy at step 0 and RL resumes from it
 
+### Requirement: Demo character filter
+The demo dataset SHALL record the player's `character_type` at every decision point, and training
+SHALL use only the decision points whose character is listed in `demo.characters` (default:
+characters that play like Isaac). A decision point of another character, or without a player,
+SHALL split its sequence; a switch between two listed characters SHALL NOT. The filter SHALL run
+after the cache, so the cache holds every character and the list is not part of its key.
+
+#### Scenario: Mixed characters
+- **WHEN** a recorded run switches from Isaac to a character outside the list and back
+- **THEN** the Isaac stretches become separate sequences and the other steps are not used
+
+#### Scenario: Same run, two listed characters
+- **WHEN** Lazarus (8) dies and rises as Lazarus risen (11)
+- **THEN** the steps stay in one sequence
+
 ### Requirement: Minimum demo size
 Training of a `demo_bc_v1` lineage SHALL refuse recordings with fewer than `demo.min_steps`
 decision steps before the game is used.

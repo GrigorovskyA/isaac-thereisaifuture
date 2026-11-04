@@ -1,10 +1,22 @@
 # Project status
 
-Updated 2026-11-03 (Europe/Amsterdam). Current state only; dated evidence is history.
+Updated 2026-11-04 (Europe/Amsterdam). Current state only; dated evidence is history.
 The pre-refactor STATUS is preserved in `archive/docs/STATUS.pre-pure.md`.
 
 ## Direction
 
+- First demo lineage stopped from the Mac with `stop.forever` on 2026-11-04 at
+  `c8a7486b-s1-t440320` and archived as `runs/pure-v4-demo-bc-v1` (file sizes checked). It
+  plateaued after about 200k steps: 2.0-2.16 rooms, 2.6-3.1 kills, 0.32-0.46 clears per episode,
+  stage 2 in one of 4076 episodes, no use presses, entropy 0.48 -> 0.22. It pretrained on 19073
+  steps only (before the 2026-11-03 full-floor recordings). Next lineage: same contract, all
+  36154 demo steps, `bc_coef` 2.0 decaying to 0 at 3M steps, `min_steps` 30000; start with
+  `Train-Start.cmd --initialize`. [Report](../reports/2026-11-04-demo-lineage-v2.md).
+- Demo character filter prepared on the Mac (2026-11-03, openspec `demo-pretraining-v1` task 4):
+  sequences record `character_type` per step; `demo.characters` (default: characters that play
+  like Isaac) filters after the cache. Current recordings are all Isaac: 36154 steps, 19
+  sequences, unchanged. Goal recorded in [PROGRESSION_GOAL](PROGRESSION_GOAL.md): every floor,
+  then every character. [Report](../reports/2026-11-03-demo-character-filter.md).
 - Demo gap handling and continuation stitching passed offline checks (1,787 tests and
   37/37 strict specs) and a human recording with a floor transition and two-minute pause.
   The updated mod is deployed; training remains stopped.

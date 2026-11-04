@@ -217,9 +217,9 @@ def test_the_shipped_config_starts_the_demo_lineage():
     config, digest = load_training_config(PURE_CONFIG)
     assert config.contract.pretraining == "demo_bc_v1"
     assert config.demo is not None and config.demo.recordings == ["runs/demos"]
-    assert (config.demo.seq_len, config.demo.batch_sequences, config.demo.min_steps) == (
-        64, 16, 20000,
-    )  # fmt: skip
+    demo = config.demo
+    assert (demo.seq_len, demo.batch_sequences, demo.min_steps) == (64, 16, 30000)
+    assert (demo.bc_coef, demo.bc_steps, demo.bc_decay_timesteps) == (2.0, 32, 3_000_000)
     assert digest == contract_hash(RAW["contract"])
 
 

@@ -230,6 +230,10 @@ demo:
   # Human recordings (files or directories of *.jsonl.gz), relative to the project root. Their
   # sha256 go to pretraining.json of the run.
   recordings: [runs/demos]
+  # Character types whose steps are used (the agent plays Isaac, 0): characters with plain tears
+  # and ordinary health, and Tainted Isaac (21). Recordings of other characters, the other
+  # tainted ones included, stay on disk and are skipped.
+  characters: [0, 1, 2, 3, 4, 5, 6, 8, 11, 12, 15, 18, 21]
   # BC windows of 64 decisions (BPTT length), 16 windows per minibatch, 10% of the sequences held
   # out to measure the imitation.
   seq_len: 64
@@ -240,9 +244,14 @@ demo:
   pretrain_steps: 20000
   pretrain_learning_rate: 0.0003
   # RL phase after each update: 32 BC steps at bc_coef x learning_rate, bc_coef falling linearly
-  # to 0 at 1M timesteps. demo_approx_kl in the logs shows how far the phase moved the policy.
-  bc_coef: 1.0
+  # to 0 at 3M timesteps. demo_approx_kl in the logs shows how far the phase moved the policy.
+  # 2.0 and 3M (were 1.0 and 1M): the first demo lineage (c8a7486b-s1-t440320, archived as
+  # runs/pure-v4-demo-bc-v1) stopped improving at about 2 rooms per episode after 200k steps while
+  # its entropy fell from 0.48 to 0.22; a stronger and longer pull keeps it nearer the human play.
+  bc_coef: 2.0
   bc_steps: 32
-  bc_decay_timesteps: 1000000
-  # Refuse to pretrain on fewer usable demo steps (at the agent's decision rate).
-  min_steps: 20000
+  bc_decay_timesteps: 3000000
+  # Refuse to pretrain on fewer usable demo steps (at the agent's decision rate). 30000 (was
+  # 20000): the first lineage pretrained on 19073 steps, before the 2026-11-03 recordings with the
+  # full floors 1-6; this keeps a new lineage from starting on that older set.
+  min_steps: 30000

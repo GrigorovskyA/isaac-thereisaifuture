@@ -13,8 +13,11 @@ from demo_fixtures import BIT, SESSION, demo_raw, parse, write_recording
 
 from isaac_threrisaifuture import demo_dataset
 from isaac_threrisaifuture.demo_dataset import (
+    DEFAULT_CHARACTERS,
+    DemoSequence,
     cache_path,
     describe,
+    filter_characters,
     label_window,
     load_demos,
     read_recording,
@@ -584,3 +587,87 @@ def test_observations_match_the_live_env_step_by_step(tmp_path, repeat):
     # The second run starts with a fresh watchdog and visited grid.
     assert demo[1].observations[0, STALL_OFFSET] == 0.0
     assert demo[1].observations[0, VISITED_OFFSET:].astype(np.float32).sum() == 1.0
+
+
+# --- character filter -------------------------------------------------------------------
+
+
+def _with_character(records, character_of):
+    records = copy.deepcopy(records)
+    for index, (_, raw) in enumerate(records):
+        if raw.get("player") is not None:
+            raw["player"]["character_type"] = character_of(index)
+    return records
+
+
+def _sequence(characters: list[int], *, first_frame: int = 100) -> DemoSequence:
+    n = len(characters)
+    return DemoSequence(
+        observations=np.zeros((n, OBSERVATION_SIZE), dtype=np.float16),
+        actions=np.zeros((n, 3), dtype=np.int64),
+        source="s",
+        seconds=n * 3 / 30,
+        frames=np.arange(first_frame, first_frame + 3 * n, 3, dtype=np.int64),
+        characters=np.array(characters, dtype=np.int64),
+    )
+
+
+def test_replay_records_the_character_of_each_decision(tmp_path):
+    records = _with_character(long_stream().records, lambda index: 0 if index < 15 else 7)
+    path = write_recording(tmp_path / "r.jsonl.gz", records)
+    (sequence,) = load(path)
+    assert sequence.characters is not None and len(sequence.characters) == 29
+    assert set(sequence.characters[:14].tolist()) == {0}
+    assert set(sequence.characters[-14:].tolist()) == {7}
+    assert describe([sequence])["characters"] == {
+        "0": int((sequence.characters == 0).sum()),
+        "7": int((sequence.characters == 7).sum()),
+    }
+
+
+def test_filter_splits_at_a_dropped_character_and_keeps_kept_switches():
+    sequence = _sequence([0] * 10 + [7] * 5 + [8] * 6 + [11] * 6 + [22] * 3)
+    pieces = filter_characters([sequence], DEFAULT_CHARACTERS, repeat=3, min_steps=8)
+    assert [p.characters.tolist() for p in pieces] == [[0] * 10, [8] * 6 + [11] * 6]
+    assert [p.source for p in pieces] == ["s+0", "s+15"]
+    assert pieces[1].frames[0] == 100 + 3 * 15
+    assert pieces[1].seconds == pytest.approx((3 * 11 + 3) / 30)
+    short = filter_characters([sequence], DEFAULT_CHARACTERS, repeat=3, min_steps=11)
+    assert [len(p.actions) for p in short] == [12]
+    whole = _sequence([0] * 9)
+    assert filter_characters([whole], [0], repeat=3) == [whole]
+    unknown = DemoSequence(whole.observations, whole.actions, "u")
+    assert filter_characters([unknown], DEFAULT_CHARACTERS, repeat=3) == []
+
+
+def test_load_demos_filters_after_the_cache(tmp_path):
+    records = _with_character(long_stream().records, lambda _: 7)
+    path = write_recording(tmp_path / "r.jsonl.gz", records)
+    options: dict[str, Any] = dict(repeat=3, stall_seconds=STALL, calm_seconds=CALM)
+    assert load_demos([path], **options, characters=[0]) == []
+    target = cache_path(path, **options)
+    assert np.load(target)["characters"].tolist() == [7] * 29
+    (kept,) = load_demos([path], **options, characters=[7])
+    assert kept.characters is not None and kept.characters.tolist() == [7] * 29
+
+
+def test_cli_reports_dropped_characters(tmp_path, capsys):
+    records = _with_character(long_stream().records, lambda index: 0 if index < 15 else 13)
+    write_recording(tmp_path / "r.jsonl.gz", records)
+    assert demo_dataset.main([str(tmp_path), "--repeat", "3", "--no-cache"]) == 0
+    summary = json.loads(capsys.readouterr().out)
+    recorded = summary["recorded_characters"]
+    assert set(recorded) == {"0", "13"} and summary["characters"] == {"0": recorded["0"]}
+    assert summary["dropped_steps"] == recorded["13"] and summary["steps"] == recorded["0"]
+    every = [str(tmp_path), "--repeat", "3", "--no-cache", "--characters", "all"]
+    assert demo_dataset.main(every) == 0
+    assert json.loads(capsys.readouterr().out)["dropped_steps"] == 0
+
+
+def test_training_default_characters_match_the_dataset_default():
+    from isaac_threrisaifuture.training import DemoConfig
+
+    config = DemoConfig(recordings=["runs/demos"])
+    assert tuple(config.characters) == DEFAULT_CHARACTERS
+    with pytest.raises(ValueError):
+        DemoConfig(recordings=["runs/demos"], characters=[])

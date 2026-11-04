@@ -246,6 +246,10 @@ class DemoConfig(BaseModel):
     bc_decay_timesteps: Annotated[int, Field(ge=0)] = 1_000_000
     # A fresh lineage refuses to pretrain on fewer demo steps than this.
     min_steps: Annotated[int, Field(ge=0)] = 20000
+    # Character types (`PlayerType`) whose decision steps are used; the agent plays Isaac (0).
+    characters: Annotated[list[Annotated[int, Field(ge=0)]], Field(min_length=1)] = Field(
+        default_factory=lambda: [0, 1, 2, 3, 4, 5, 6, 8, 11, 12, 15, 18, 21]
+    )
 
 
 class PureTrainingConfig(BaseModel):
@@ -786,6 +790,7 @@ def _demo_learner(
         repeat=config.contract.action_repeat_game_updates,
         stall_seconds=stall_seconds,
         calm_seconds=calm_seconds,
+        characters=demo.characters,
     )
     steps = sum(len(sequence.actions) for sequence in sequences)
     if not sequences or (parent_timesteps is None and steps < demo.min_steps):
